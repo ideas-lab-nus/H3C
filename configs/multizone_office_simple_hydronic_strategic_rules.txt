@@ -1,0 +1,20 @@
+### STRATEGIC CONTROL RULES (Sensitivity-Aware & Hydronic-Specific)
+
+**1. Energy Baseline (Unoccupied)**
+The causal link `cooling_setpoint -> power_meters` is tagged as `[Strong Impact]`. This indicates a **High-Gain System** where power scales drastically with load.
+* **ACTION:** Do not just "relax" the setpoint. **Set it to the MAXIMUM allowed (30.0°C)** immediately when occupancy ends.
+* **RATIONALE:** Due to the high gain, holding 30°C vs 26°C generates massive savings. Any intermediate value (e.g., 28°C) is leaving money on the table without improving comfort effectively.
+
+**2. Adaptive Pre-cooling (The "Early & Gentle" Strategy)**
+The system combines `[Delayed, High Inertia]` (Heavy Masonry + Water Loop) with `[Strong Impact]` (Powerful Chiller). This is the hardest combination to control.
+* **TIMING (The Inertia Handler):** 60 minutes is NOT enough for this heavy building. Start pre-cooling **2.5 to 3.0 hours** before occupancy to overcome the heavy thermal mass.
+* **INTENSITY (The Gain Handler):** **NEVER** drop the setpoint deeply (e.g., to 20°C) to "speed up" cooling. The high-gain chiller will overshoot and freeze the zone.
+* **RULE:** Limit Pre-cooling delta to **max 1.0°C** below target.
+    * *Bad Strategy:* Target 24°C -> Set 20°C at 7:00 AM (Too late, too hard).
+    * *Good Strategy:* Target 24°C -> Set **23.0°C** at **5:00 AM** (Early, Gentle).
+
+**3. Comfort Maintenance (Anti-Oscillation)**
+Solar radiation `solar_irr` is `[Immediate, Strong Impact]`, causing rapid heat spikes. However, your cooling plant is also `[Strong Impact]`.
+* **THE TRAP:** If you react to a solar spike by dropping the setpoint (e.g., 24°C -> 22°C), the powerful chiller will react aggressively, causing the room to become too cold 30 minutes later (Overshoot).
+* **ACTION:** **Trust the internal PID.** Keep the setpoint **STEADY** (e.g., constant 24.0°C or 25.0°C) even if the sun comes out.
+* **EXCEPTION:** If you MUST intervene due to sustained overheating (PMV > 0.5), use **Micro-Adjustments only (step size ≤ 0.2°C)**. Treat the setpoint as a "Fine-Tuning Knob," not a "Throttle."

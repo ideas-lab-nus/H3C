@@ -1,0 +1,42 @@
+{
+  "case_name": "multizone_office_simple_hydronic",
+  "zones": {
+    "NZ": {
+      "description": "North Zone",
+      "sensors": {
+        "zone_temp": "structure_reaTZonNz_y"
+      },
+      "actuators": {
+        "cooling_setpoint": "bms_oveTZonSetMaxNz_u"
+      },
+      "forecasts": {
+        "occupancy": "Occupancy[nZ]"
+      }
+    },
+    "SZ": {
+      "description": "South Zone",
+      "sensors": {
+        "zone_temp": "structure_reaTZonSz_y"
+      },
+      "actuators": {
+        "cooling_setpoint": "bms_oveTZonSetMaxSz_u"
+      },
+      "forecasts": {
+        "occupancy": "Occupancy[sZ]"
+      }
+    }
+  },
+  "global_sensors": {
+    "power_meters": [
+      "heating_cooling_reaPFcuNz_y",
+      "heating_cooling_reaPFcuSz_y",
+      "heating_cooling_reaPProCoo_y",
+      "heating_cooling_reaPProHea_y"
+    ]
+  },
+  "global_forecasts": {
+    "outdoor_temp": "TDryBul",
+    "solar_irr": "HGloHor",
+    "electricity_price": "PriceElectricPowerHighlyDynamic"
+  }
+}

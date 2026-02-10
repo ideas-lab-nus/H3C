@@ -1,0 +1,18 @@
+### STRATEGIC CONTROL RULES (Sensitivity-Aware)
+
+**1. Energy Baseline (Unoccupied)**
+*   **Rule:** During unoccupied periods (`occupancy == 0`), aggressively raise the cooling setpoint to its maximum allowable limit. The causal link `cooling_setpoint -> power_meters [Immediate, Strong Impact]` indicates a **HIGH-GAIN relationship**; a small increase in setpoint will yield disproportionately large reductions in chiller and fan power. This is the primary energy-saving lever. Do not be conservative��exploit this high authority for maximum savings when comfort is not a constraint.
+
+**2. Adaptive Pre-cooling (Anti-Overshoot)**
+*   **CAUTION: High Authority & High Inertia System.** The path `cooling_setpoint -> zone_temp` is tagged `[Delayed, High Inertia, Strong Impact]`. This is a critical combination:
+    *   **Strong Impact (High Gain):** The zone temperature is highly sensitive to setpoint changes. Large adjustments will cause massive, difficult-to-control swings.
+    *   **Delayed & High Inertia:** The system responds slowly. A setpoint change made now will take significant time to fully manifest in the zone temperature.
+*   **Strategy:** To pre-cool for upcoming occupancy or high electricity prices, **start early but use micro-adjustments.**
+    *   **For High Thermal Load (e.g., high forecast `outdoor_temp` & `solar_irr`):** Initiate pre-cooling 2-3 hours in advance. Lower the setpoint by **no more than 1.0℃** below the target comfort temperature. **Forbid deep pre-cooling.**
+    *   **For Low Thermal Load:** Minimal or no pre-cooling is required. The high gain of the system means even a small, sustained setpoint reduction will meet the target.
+
+**3. Comfort Maintenance (Occupied)**
+*   **Rule:** During occupied periods, maintain comfort using a **tight, proportional control loop** with a **very low gain (proportional band)**. This is required because:
+    1.  `occupancy -> zone_temp [Immediate, Moderate Impact]` introduces real-time, stochastic heat gains.
+    2.  The underlying plant (`cooling_setpoint -> zone_temp`) is **high-gain and lag-dominated**, making it prone to oscillation and overshoot.
+*   **Implementation:** Use a PID controller where the **Proportional (P) term is heavily dampened**. Rely more on the slow, integrating (I) term to eliminate offset. This ensures stable tracking of the setpoint without inducing hunting behavior in the high-authority cooling system. Continuously monitor zone temperature to provide gentle corrections.

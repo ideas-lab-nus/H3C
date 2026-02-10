@@ -1,0 +1,6 @@
+cooling_setpoint --[Positive Corr]--> zone_temp [Delayed, High Inertia]
+cooling_setpoint --[Negative Corr]--> power_meters [Delayed, Strong Impact]
+outdoor_temp --[Positive Corr]--> zone_temp [Delayed, High Inertia]
+solar_irr --[Positive Corr]--> zone_temp [Immediate, Strong Impact]
+occupancy --[Positive Corr]--> zone_temp [Immediate, Weak Impact]
+zone_temp --[Positive Corr]--> power_meters [Immediate, Strong Impact]

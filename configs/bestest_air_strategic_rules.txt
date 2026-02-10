@@ -1,0 +1,15 @@
+### STRATEGIC CONTROL RULES (Sensitivity-Aware)
+
+**1. Energy Baseline (Unoccupied)**
+*   **Rule:** During unoccupied periods (`occupancy == 0`), maximize the cooling setpoint to its highest allowable comfort limit. The causal link `cooling_setpoint -> power_meters [Immediate, Strong Impact]` indicates this is a **HIGH-GAIN ENERGY LEVER**. A small increase in setpoint (e.g., +1.0��C) will yield a **disproportionately large reduction in power consumption**. This is the primary energy-saving action. Do not apply pre-cooling in this mode.
+
+**2. Adaptive Pre-cooling (Anti-Overshoot)**
+*   **Rule: CAUTION: High Authority System. Do NOT over-cool.** The path `cooling_setpoint -> zone_temp [Delayed, Strong Impact]` defines a system with **high gain and significant lag**. A small setpoint decrease causes a large eventual temperature drop, but the response is slow.
+    *   **Strategy:** Use **gentle, micro-adjustments** (e.g., 0.5��C steps) and **start early**.
+    *   **High Load (high `outdoor_temp`/`solar_irr`):** Initiate pre-cooling 60-90 minutes before occupancy. Lower the setpoint by a **maximum of 1.0��C** below the target comfort temperature. **Forbid deep pre-cooling.**
+    *   **Low Load:** Minimal or no pre-cooling is required. The system's high gain means even a small, sustained setpoint reduction during occupancy will quickly correct any drift.
+
+**3. Comfort Maintenance (Occupied)**
+*   **Rule:** Maintain comfort using a **tight, low-gain feedback controller**. The link `occupancy -> zone_temp [Immediate, Strong Impact]` shows internal loads cause rapid, significant temperature increases. However, combined with the high-gain cooling response, this creates a high risk of **control oscillation and overshoot**.
+    *   Implement a **PID controller with heavy derivative (D) action** to anticipate rate-of-change and **severely limit the integral (I) gain** to prevent wind-up.
+    *   Setpoint adjustments during occupied periods must be **incremental and infrequent**. The system's inherent high gain means the controller output should be dampened; let the system's physical response catch up before making another change. Avoid reacting to every minor temperature fluctuation.

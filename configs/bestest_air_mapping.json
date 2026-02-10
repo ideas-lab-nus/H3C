@@ -1,0 +1,29 @@
+{
+  "case_name": "bestest_air",
+  "zones": {
+    "zone1": {
+      "description": "Single office zone (BESTEST Case 900 model)",
+      "sensors": {
+        "zone_temp": "zon_reaTRooAir_y"
+      },
+      "actuators": {
+        "cooling_setpoint": "con_oveTSetCoo_u"
+      },
+      "forecasts": {
+        "occupancy": "Occupancy[1]"
+      }
+    }
+  },
+  "global_sensors": {
+    "power_meters": [
+      "fcu_reaPCoo_y",
+      "fcu_reaPFan_y",
+      "fcu_reaPHea_y"
+    ]
+  },
+  "global_forecasts": {
+    "outdoor_temp": "TDryBul",
+    "solar_irr": "HGloHor",
+    "electricity_price": "PriceElectricPowerDynamic"
+  }
+}
