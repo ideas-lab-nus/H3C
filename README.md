@@ -1,105 +1,177 @@
-# Causal-augmented Hierarchical Control Framework (CHCF)
+# Causal-augmented Hierarchical LLM Agents for Building Control
 
-![Framework Overview](Overview_Framework.jpg)
+<p align="center">
+  <img src="paper/figs2/Figure1_Overview_Framework.jpg" width="85%" alt="Framework Overview"/>
+</p>
 
-## 📄 Abstract
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
+  <a href="https://github.com/ibpsa/project1-boptest"><img src="https://img.shields.io/badge/Platform-BOPTEST-green.svg" alt="BOPTEST"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+</p>
 
-With the continuous growth in electricity demand within the building sector, there is an urgent need for efficient and universal HVAC control strategies. While mainstream approaches such as Deep Reinforcement Learning (DRL) have demonstrated excellent performance, they are often constrained by heavy data dependency, generalization bottlenecks, and scalability issues in multi-zone systems. Large Language Models (LLMs), with their general reasoning capabilities, offer a promising pathway to overcome these limitations. However, applying LLMs to building control remains limited by the risk of reasoning hallucinations, a lack of physical safety guarantees, and inherent context window limitations.
+> **Paper**: *Causal-augmented Hierarchical LLM Agents for Building Control*
+>
+> **Authors**: Weilin Xin, Wei Liang, Adrian Chong
+>
+> **Affiliation**: Department of the Built Environment, National University of Singapore
 
-To address these challenges, this study proposes a **Causal-augmented Hierarchical Control Framework (CHCF)**. The framework implements a hierarchical ReAct (Reasoning and Acting) architecture, where a strategic layer performs global coupled reasoning for coordinated cross-zone long-horizon planning, and an execution layer handles local decoupled code translation. By integrating a causal discovery mechanism, the framework injects physical inductive bias into the reasoning loop.
+---
 
-Experimental results based on the **BOPTEST** platform demonstrate that CHCF achieves up to a **42.14% reduction in energy consumption** compared to Rule-Based Control (RBC). In multi-zone tasks, CHCF maintains higher energy efficiency while exhibiting superior control robustness compared to DRL. Specifically, it reduced discomfort duration from 7.50 hours to 0.25 hours in hydronic systems and decreased comfort violations by 22% in all-air systems. Quantitative auditing further reveals a U-shaped relationship between the working memory window and decision stability, providing empirical evidence for optimizing context filtering strategies.
+## Abstract
 
-## 🚀 Key Features
+Multi-zone building HVAC control requires scalable methods that generalize across heterogeneous configurations without per-building retraining. This study proposes a **causal-augmented hierarchical control framework** for zero-shot generalization. Informed by causal rules derived from building documentation, the framework adopts a language-model-based multi-agent (LM-MA) architecture that decouples control into **strategic planning**, **safety-constrained execution**, and **closed-loop reflection with working memory**.
 
-* **Hierarchical ReAct Architecture:** Decouples high-level strategic reasoning (Commander Agent) from low-level control execution (Coder Agent).
-* **Causal Injection:** Uses a dedicated Discovery Agent to distill physical rules and causal graphs, reducing LLM hallucinations and ensuring physical plausibility.
-* **Zero-Shot Generalization:** Capable of controlling heterogeneous building configurations (Air/Hydronic, Single/Multi-zone) without prior training.
-* **Self-Reflection & Memory:** Includes a Reflector Agent that analyzes performance and updates a RAG-based memory for continuous improvement.
-* **Quantitative Audit:** Includes tools to analyze semantic jitter, hallucination rates, and decision stability.
+Experiments on three benchmark cases with distinct HVAC configurations yield **7.67--42.14% cost savings** over rule-based control. Compared with deep reinforcement learning (DRL), the framework performs competitively; in the best-performing dual-zone hydronic case, it achieves **6.26--13.54% energy savings** and reduces discomfort from 2.00--7.50 to **0.25 zone-hours**. Causal augmentation reduces hallucination rates by up to **86.3%** while virtually eliminating safety violations.
 
-## 📂 Directory Structure
+---
 
-```text
+## Key Results
+
+### Control Performance Comparison
+
+| Case | HVAC System | Cost Savings vs RBC | Discomfort (zone-hrs) | Energy (kWh) |
+|:-----|:------------|:-------------------:|:---------------------:|:------------:|
+| **SZ_Air** | Single-zone ideal VAV | 7.67% | 1.25 | 58.33 |
+| **MZ_Hydro** | Dual-zone FCU hydronic | **42.14%** | **0.25** | **801.03** |
+| **MZ_Air** | Five-zone VAV + AHU | 16.13% | 13.25 | 1511.87 |
+
+### Causal Augmentation Ablation
+
+| Metric | SZ_Air | MZ_Hydro | MZ_Air |
+|:-------|:------:|:--------:|:------:|
+| Hallucination rate reduction | 86.3% | 77.7% | 17.8% |
+| Safety intervention reduction | 98.8% | 98.6% | 100% |
+
+### Performance Visualizations
+
+<table>
+<tr>
+<td align="center"><b>Single-zone All-Air (SZ_Air)</b></td>
+<td align="center"><b>Dual-zone Hydronic (MZ_Hydro)</b></td>
+</tr>
+<tr>
+<td><img src="paper/figs2/Figure_SZ_AIR.png" width="100%"/></td>
+<td><img src="paper/figs2/Figure_MZ_Hydro.png" width="100%"/></td>
+</tr>
+</table>
+
+<p align="center">
+  <b>Five-zone All-Air (MZ_Air)</b><br/>
+  <img src="paper/figs2/Figure_MZ_AIR.png" width="60%"/>
+</p>
+
+---
+
+## Framework Architecture
+
+The framework operates in two phases:
+
+**Phase 0 (Offline):** A Mapper agent standardizes BMS variables, a Causal Discovery agent (human-in-the-loop) constructs a qualitative causal graph, and a Rule Distiller translates it into strategic control rules.
+
+**Online Control Loop (Hourly):**
+1. **Orchestrator** -- analyzes global state, forecasts, causal rules, and working memory to generate strategic directives per zone
+2. **Executor** (one per zone) -- translates directives into executable Python code with four hard safety constraints
+3. **Reflector** -- evaluates hourly performance and generates structured insights stored in a sliding-window memory
+
+<p align="center">
+  <img src="paper/figs2/Figure2_Hourly_InfoFlow.jpg" width="70%" alt="Hourly Information Flow"/>
+</p>
+
+---
+
+## Directory Structure
+
+```
 Causal_augmented_Hierarchical_Control/
-├── agents/                     # LLM Agent Implementations
-│   ├── agent_a_mapper.py       # Semantic Mapper (System Integration)
-│   ├── agent_b_commander.py    # Strategic Commander (High-level planning)
-│   ├── agent_b_coder.py        # Zone Coder (Python code generation)
-│   ├── agent_c_reflector.py    # Reflector (Performance Analysis)
-│   └── prompts.py              # System Prompts
-├── configs/                    # Building Maps and Causal Rules
-│   ├── bestest_air_mapping.json
-│   ├── *_causal_rules.txt
-│   └── *_strategic_rules.txt
-├── core/                       # Core Infrastructure
-│   ├── boptest_client.py       # Interface with BOPTEST Simulation
-│   ├── memory_manager.py       # ChromaDB Vector Memory
-│   ├── observation_builder.py  # State processing
-│   └── reward_calculator.py    # PMV and Energy reward logic
-├── phase0_causal_discovery.py  # Script for Causal Graph Generation
-├── rule_distiller.py           # Distills Causal Graphs into Strategy Rules
-├── main_evolution.py           # Main Experiment Loop
-├── log_analyzer.py             # Post-experiment Analysis & Auditing
-├── plot_analysis.py            # Visualization Tools
-├── check_env.py                # Environment Health Check
-├── config.py                   # Global Configuration
-├── static_config.py            # Static Parameters (Physics, Schedules)
-└── Overview_Framework.jpg      # Framework Diagram
+├── agents/                        # LLM Agent Implementations
+│   ├── agent_a_mapper.py          #   Mapper: BMS variable standardization
+│   ├── agent_b_commander.py       #   Orchestrator: strategic planning
+│   ├── agent_b_coder.py           #   Executor: code generation + safety
+│   ├── agent_c_reflector.py       #   Reflector: performance analysis
+│   └── prompts.py                 #   System prompts for all agents
+├── core/                          # Core Infrastructure
+│   ├── boptest_client.py          #   BOPTEST simulation interface
+│   ├── observation_builder.py     #   State observation construction
+│   ├── reward_calculator.py       #   Multi-objective reward function
+│   └── memory_manager.py          #   Vector memory store
+├── configs/                       # Building Configs (3 case studies)
+│   ├── *_mapping.json             #   Standardized variable schemas
+│   ├── *_causal_rules.txt         #   Qualitative causal graphs
+│   └── *_strategic_rules.txt      #   Distilled control strategies
+├── DRL Baselines/                 # DRL Baseline Implementations
+│   ├── SZ_Air/DRL_SZ_Air.ipynb    #   PPO for single-zone case
+│   ├── MZ_Hydro/DRL_MZ_Hydro.ipynb#   PPO + MAPPO for hydronic case
+│   └── MZ_Air/DRL_MZ_Air.ipynb    #   PPO + MAPPO for all-air case
+├── paper/                         # Paper Manuscript & Figures
+│   ├── Main_4_28.tex              #   LaTeX manuscript
+│   └── figs2/                     #   All figures
+├── main_evolution.py              # Main experiment loop
+├── phase0_causal_discovery.py     # Causal graph construction
+├── rule_distiller.py              # Causal graph → strategic rules
+├── static_config.py               # Physical parameters & constraints
+├── config.py                      # API & path configuration
+├── log_analyzer.py                # Post-experiment audit metrics
+├── plot_analysis.py               # Visualization utilities
+├── check_env.py                   # Environment health check
+└── requirements.txt               # Python dependencies
 ```
 
-## 🛠️ Installation & Setup
+---
 
-### 1. Prerequisites
-* Python 3.10+
-* [Docker](https://www.docker.com/) (Required for running BOPTEST)
-* [BOPTEST](https://github.com/ibpsa/project1-boptest) Service running locally (default port 80).
+## Installation & Usage
 
-### 2. Install Dependencies
+### Prerequisites
+- Python 3.10+
+- [Docker](https://www.docker.com/) (required for running BOPTEST)
+- [BOPTEST](https://github.com/ibpsa/project1-boptest) service running locally
+
+### Install Dependencies
 ```bash
-pip install openai chromadb pandas numpy matplotlib seaborn python-dotenv requests tiktoken
-# Optional: pythermalcomfort for precise PMV calculations
-pip install pythermalcomfort
+pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
-Create a `.env` file in the root directory and add your API keys:
+### Environment Configuration
+Create a `.env` file in the root directory:
 ```env
 DEEPSEEK_API_KEY=your_deepseek_key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-OPENAI_API_KEY=your_openai_key  # Used for Embeddings
+OPENAI_API_KEY=your_openai_key  # Used for embeddings
 ```
 
-## 🏃 Usage Guide
+### Run
 
-### Phase 0: Causal Initialization
-Before running the control loop, generate the causal rules and semantic mapping for the target building.
+**Phase 0: Causal Initialization**
 ```bash
-# Generate Causal Graphs
 python phase0_causal_discovery.py
-
-# Distill Causal Graphs into Strategic Rules
 python rule_distiller.py
 ```
 
-### Phase 1-3: Evolutionary Control Loop
-Run the main hierarchical control loop. This handles Warmup (RBC), Exploration, and Evaluation phases.
+**Phase 1--3: Hierarchical Control Loop**
 ```bash
 python main_evolution.py
 ```
-*Note: Ensure the BOPTEST test case container is running and accessible.*
 
-### Phase 4: Analysis & Auditing
-Analyze the logs to generate metrics on hallucinations, semantic jitter, and performance plots.
+**Phase 4: Analysis & Audit**
 ```bash
 python log_analyzer.py
 python plot_analysis.py
 ```
 
-## 📊 Performance Comparison
+---
 
-| Metric | Rule-Based Control (RBC) | **CHCF (Ours)** | Improvement |
-| :--- | :--- | :--- | :--- |
-| **Energy Consumption** | Baseline | **-42.14%** | ⭐ Significant |
-| **Discomfort Duration (Hydronic)** | 7.50 Hours | **0.25 Hours** | ⭐ Robust |
-| **Comfort Violations (All-Air)** | Baseline | **-22%** | ⭐ Precise |
+## Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@article{xin2025causal,
+  title={Causal-augmented Hierarchical LLM Agents for Building Control},
+  author={Xin, Weilin and Liang, Wei and Chong, Adrian},
+  year={2025}
+}
+```
+
+## License
+
+This project is licensed under the MIT License -- see [LICENSE](LICENSE) for details.

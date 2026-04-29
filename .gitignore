@@ -173,9 +173,38 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Cursor  
-#  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to 
-#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
-#  refer to https://docs.cursor.com/context/ignore-files
+# Cursor
 .cursorignore
 .cursorindexingignore
+
+# IDE / Tool configs
+.idea/
+.claude/
+
+# Project-specific exclusions
+Improvement/
+CLAUDE.md
+togithub.md
+*.pdf
+
+# Old/superseded files
+Overview_Framework.jpg
+agents/agent_b_coder2.py
+main.py
+
+# Paper working files (keep only final versions)
+paper/Main_2_10.tex
+paper/cas-refs.bib
+paper/advise.txt
+paper/Related Work.txt
+paper/Revised_Structure.docx
+paper/MAPPO.ipynb
+paper/figs/
+paper/ref/
+
+# Old DRL baseline files (replaced by merged versions)
+DRL Baselines/SZ_Air/FinalSZAIR.ipynb
+DRL Baselines/MZ_Hydro/FinalMZHydronic.ipynb
+DRL Baselines/MZ_Hydro/MAPPO.ipynb
+DRL Baselines/MZ_Air/FinalMZAIR.ipynb
+DRL Baselines/MZ_Air/MAPPO.ipynb
