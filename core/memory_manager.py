@@ -5,7 +5,7 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional
 import os
 from pathlib import Path
-from static_config import get_normalization_config
+from configs.static_config import get_normalization_config
 
 # 持久化存储根路径
 DB_ROOT_PATH = Path(__file__).parent.parent / "chroma_db"

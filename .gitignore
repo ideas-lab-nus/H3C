@@ -192,6 +192,13 @@ Overview_Framework.jpg
 agents/agent_b_coder2.py
 main.py
 
+# Root-level copies (moved to configs/ and utils/)
+/config.py
+/static_config.py
+/log_analyzer.py
+/plot_analysis.py
+/check_env.py
+
 # Paper working files (keep only final versions)
 paper/Main_2_10.tex
 paper/cas-refs.bib

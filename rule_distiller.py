@@ -2,7 +2,7 @@ import asyncio
 import os
 from pathlib import Path
 from openai import AsyncOpenAI
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MAPPING_DIR
+from configs.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MAPPING_DIR
 
 # [CRITICAL UPDATE] Sensitivity-Aware Distiller Prompt
 # 这个 Prompt 经过了彻底重写，引入了控制论中的“增益(Gain)”和“滞后(Lag)”概念

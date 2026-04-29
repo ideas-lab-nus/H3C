@@ -95,10 +95,16 @@ Causal_augmented_Hierarchical_Control/
 │   ├── observation_builder.py     #   State observation construction
 │   ├── reward_calculator.py       #   Multi-objective reward function
 │   └── memory_manager.py          #   Vector memory store
-├── configs/                       # Building Configs (3 case studies)
+├── configs/                       # Configuration & Building Data
+│   ├── config.py                  #   API keys, paths, constants
+│   ├── static_config.py           #   Physical parameters & reward weights
 │   ├── *_mapping.json             #   Standardized variable schemas
 │   ├── *_causal_rules.txt         #   Qualitative causal graphs
 │   └── *_strategic_rules.txt      #   Distilled control strategies
+├── utils/                         # Analysis & Utilities
+│   ├── log_analyzer.py            #   Post-experiment audit metrics
+│   ├── plot_analysis.py           #   Visualization utilities
+│   └── check_env.py               #   Environment health check
 ├── DRL Baselines/                 # DRL Baseline Implementations
 │   ├── SZ_Air/DRL_SZ_Air.ipynb    #   PPO for single-zone case
 │   ├── MZ_Hydro/DRL_MZ_Hydro.ipynb#   PPO + MAPPO for hydronic case
@@ -109,11 +115,6 @@ Causal_augmented_Hierarchical_Control/
 ├── main_evolution.py              # Main experiment loop
 ├── phase0_causal_discovery.py     # Causal graph construction
 ├── rule_distiller.py              # Causal graph → strategic rules
-├── static_config.py               # Physical parameters & constraints
-├── config.py                      # API & path configuration
-├── log_analyzer.py                # Post-experiment audit metrics
-├── plot_analysis.py               # Visualization utilities
-├── check_env.py                   # Environment health check
 └── requirements.txt               # Python dependencies
 ```
 
@@ -154,8 +155,8 @@ python main_evolution.py
 
 **Phase 4: Analysis & Audit**
 ```bash
-python log_analyzer.py
-python plot_analysis.py
+python utils/log_analyzer.py
+python utils/plot_analysis.py
 ```
 
 ---
@@ -168,7 +169,7 @@ If you find this work useful, please cite:
 @article{xin2025causal,
   title={Causal-augmented Hierarchical LLM Agents for Building Control},
   author={Xin, Weilin and Liang, Wei and Chong, Adrian},
-  year={2025}
+  year={2026}
 }
 ```
 

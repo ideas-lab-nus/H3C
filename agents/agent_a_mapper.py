@@ -2,7 +2,7 @@ import json
 import os
 from typing import List, Optional, Dict
 from openai import OpenAI
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DOCS_DIR, MAPPING_DIR
+from configs.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DOCS_DIR, MAPPING_DIR
 
 
 class SemanticMapper:

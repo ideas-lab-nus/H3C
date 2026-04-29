@@ -1,5 +1,5 @@
 import numpy as np
-from static_config import get_reward_config, PHYSICAL_CONFIG
+from configs.static_config import get_reward_config, PHYSICAL_CONFIG
 
 # 尝试导入 pythermalcomfort
 try:

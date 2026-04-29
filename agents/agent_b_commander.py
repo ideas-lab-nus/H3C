@@ -1,6 +1,6 @@
 import json
 from openai import AsyncOpenAI
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
+from configs.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
 from agents.prompts import COMMANDER_SYSTEM_PROMPT
 
 

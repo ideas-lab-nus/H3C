@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 from openai import OpenAI
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MAPPING_DIR
+from configs.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MAPPING_DIR
 
 
 # -------------------------------------------------------------------------

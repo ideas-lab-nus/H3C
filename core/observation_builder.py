@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from config import COOLING_SETPOINT_MAX
+from configs.config import COOLING_SETPOINT_MAX
 
 
 class ObservationBuilder:

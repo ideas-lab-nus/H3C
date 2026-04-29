@@ -1,48 +1,27 @@
-from config import FIXED_HEATING_SETPOINT_VAL, MAPPING_DIR, ENABLE_CAUSAL_INJECTION
+from configs.config import FIXED_HEATING_SETPOINT_VAL, MAPPING_DIR, ENABLE_CAUSAL_INJECTION
 
-# 转换为 Kelvin
 T_HEAT_K = FIXED_HEATING_SETPOINT_VAL + 273.15
 
-
-"""
-静态控制配置 (Static Control Configuration)
-包含：固定控制动作、物理参数、奖励权重配置。
-"""
+# === Experiment timeline (Section 3.2.1) ===
 START_DAY_CONFIG = {
     "bestest_air": 196,
     "multizone_office_simple_hydronic": 213,
     "multizone_office_simple_air": 192
 }
 
-MAX_OCCUPANCY_CONFIG = {
-    "bestest_air": 2.0,
-    "multizone_office_simple_air": 50.0,
-    "multizone_office_simple_hydronic": 200.0
-}
-
-# --- [NEW] Phase 3.5: 实验阶段配置 ---
 PHASE_CONFIG = {
-    "warmup_days": 1,      # Day 0-3: 强制 RBC，填充 Memory
-    "exploration_days": 6, # Day 3-7: LLM 高温探索 (Temp=0.7)
-    "evaluation_days": 7   # Day 7-14: LLM 低温利用 (Temp=0.1)
-}
-
-NORMALIZATION_CONFIG = {
-    "temp": (-10.0, 40.0),   # 室外温度范围
-    "price": (0.0, 0.2),     # 电价范围
-    "pmv": (-3.0, 3.0),      # PMV 范围
-    "temp_trend": (-5.0, 5.0), # 1小时温差范围
-    "price_trend": (-0.2, 0.2), # 1小时电价差范围
-    'clo': (0.5, 1.0)
+    "warmup_days": 1,
+    "exploration_days": 6,
+    "evaluation_days": 7
 }
 
 TEMPERATURE_SCHEDULE = {
-    "warmup": 0.0,      # 不调用 LLM
-    "exploration": 0.7, # 尝试新策略
-    "evaluation": 0.1   # 稳定复现最佳实践
+    "warmup": 0.0,
+    "exploration": 0.7,
+    "evaluation": 0.1
 }
 
-# --- 1. 固定控制动作 ---
+# === Fixed control actions per case ===
 STATIC_CONTROLS = {
     "bestest_air": {
         "con_oveTSetHea_u": T_HEAT_K, "con_oveTSetHea_activate": 1,
@@ -65,7 +44,7 @@ STATIC_CONTROLS = {
     }
 }
 
-# --- 2. 物理环境参数 (PMV计算用) ---
+# === PMV physical parameters (Section 4.2) ===
 PHYSICAL_CONFIG = {
     'metabolic_rate': 1.1,
     'relative_humidity': 50.0,
@@ -78,8 +57,29 @@ PHYSICAL_CONFIG = {
     }
 }
 
-# --- 2. 战略上下文 (Strategic Context for LLM) ---
-# [UPDATED] Reflector Guide
+# === Reward scaling factors (Table 4) ===
+REWARD_CONFIG = {
+    "bestest_air": {
+        "n_zones": 1.0,
+        "max_power": 1500.0,
+        "weights": {'w_energy': 1.0, 'w_comfort': 20.0, 'w_smooth': 0.1},
+        "scalers": {'energy': 120.351459, 'comfort': 10.0, 'smooth': 0.179875}
+    },
+    "multizone_office_simple_air": {
+        "n_zones": 5.0,
+        "max_power": 40000.0,
+        "weights": {'w_energy': 1.0, 'w_comfort': 20.0, 'w_smooth': 0.2},
+        "scalers": {'energy': 18.532822, 'comfort': 10.0, 'smooth': 0.193466}
+    },
+    "multizone_office_simple_hydronic": {
+        "n_zones": 2.0,
+        "max_power": 35000.0,
+        "weights": {'w_energy': 1.0, 'w_comfort': 20.0, 'w_smooth': 0.1},
+        "scalers": {'energy': 3, 'comfort': 0.75, 'smooth': 0.1755995}
+    }
+}
+
+# === Reflector physics guide (Appendix Fig. A1) ===
 COMMON_REFLECTOR_GUIDE = """
 **TEMPERATURE CONTEXT GUIDE (Outdoor)**:
 < 10°C: Very Cold | 10-18°C: Cold | 18-24°C: Mild/Moderate | 24-29°C: Warm | > 29°C: Hot / High Heat.
@@ -99,15 +99,15 @@ COMMON_REFLECTOR_GUIDE = """
    - **DO NOT** suggest raising the setpoint further.
 5. **PASSIVE COOLING CHECK (Deadband)**:
    - If Zone Temp < Setpoint, cooling is likely OFF.
-   - In this state, "Overcooling" is due to lack of heating or low outdoor temp, NOT because the cooling setpoint is active. 
-   - Advice: "Keep Setpoint High to maintain passive saving.
-6. **Step Size Constraint**: 
+   - In this state, "Overcooling" is due to lack of heating or low outdoor temp, NOT because the cooling setpoint is active.
+   - Advice: "Keep Setpoint High to maintain passive saving."
+6. **Step Size Constraint**:
    - If PMV is low (e.g., < 0.35) but Outdoor Temp is High: **DO NOT** suggest large setpoint increases (e.g., +0.5°C or +1.0°C).
    - **ADVICE**: Explicitly recommend **"Micro-Adjustments"** (e.g., +0.1°C or +0.2°C maximum).
-   - **Rationale**: "Due to high outdoor heat load, aggressive setpoint increases will break the thermal safety buffer. Use cautious, small steps to find the efficiency edge without crashing into overheating.
+   - **Rationale**: "Due to high outdoor heat load, aggressive setpoint increases will break the thermal safety buffer. Use cautious, small steps to find the efficiency edge without crashing into overheating."
 """
 
-# [UPDATED] Strategy Guide 增加优先级
+# === Strategy guide (Appendix Fig. A1) ===
 COMMON_STRATEGY_GUIDE = """
 **1. ECONOMIC RULE (PRE-COOLING) - STRICTLY FOLLOW**:
    - Pre-cooling (Unoccupied Only): If current occupancy == 0 BUT next hour > 0, you MUST lower the setpoint (e.g., 22-23°C) to store cold air. This is your ONLY chance for aggressive cooling.
@@ -145,28 +145,22 @@ STRATEGIC_CONTEXT = {
     }
 }
 
-# --- 3. 奖励权重与归一化参数 ---
-# 数据来源：用户提供的 RBC 代码
-REWARD_CONFIG = {
-    "bestest_air": {
-        "n_zones": 1.0,
-        "max_power": 1500.0,
-        "weights": {'w_energy': 1.0, 'w_comfort': 20.0, 'w_smooth': 0.1},
-        "scalers": {'energy': 120.351459, 'comfort': 10.0, 'smooth': 0.179875}
-    },
-    "multizone_office_simple_air": {
-        "n_zones": 5.0,
-        "max_power": 40000.0,
-        "weights": {'w_energy': 1.0, 'w_comfort': 20.0, 'w_smooth': 0.2},
-        "scalers": {'energy': 18.532822, 'comfort': 10.0, 'smooth': 0.193466}
-    },
-    "multizone_office_simple_hydronic": {
-        "n_zones": 2.0,
-        "max_power": 35000.0,
-        "weights": {'w_energy': 1.0, 'w_comfort': 20.0, 'w_smooth': 0.1},
-        "scalers": {'energy': 3, 'comfort': 0.75, 'smooth': 0.1755995}
-    }
+# === Runtime helpers ===
+MAX_OCCUPANCY_CONFIG = {
+    "bestest_air": 2.0,
+    "multizone_office_simple_air": 50.0,
+    "multizone_office_simple_hydronic": 200.0
 }
+
+NORMALIZATION_CONFIG = {
+    "temp": (-10.0, 40.0),
+    "price": (0.0, 0.2),
+    "pmv": (-3.0, 3.0),
+    "temp_trend": (-5.0, 5.0),
+    "price_trend": (-0.2, 0.2),
+    'clo': (0.5, 1.0)
+}
+
 
 def get_static_controls(case_name: str) -> dict:
     return STATIC_CONTROLS.get(case_name, {})
@@ -177,100 +171,61 @@ def get_reward_config(case_name: str) -> dict:
 def get_start_day(case_name: str) -> int:
     return START_DAY_CONFIG.get(case_name, 1)
 
-
-# [MODIFIED] 实现因果注入逻辑
 def get_strategic_context(case_name: str) -> dict:
-    """
-    获取战略上下文。
-    逻辑：
-    1. 获取基础上下文。
-    2. 检查 ENABLE_CAUSAL_INJECTION。如果不启用，**清除所有战略指南**，只返回基础设备约束 (Pure Ablation)。
-    3. 如果启用，优先尝试读取 Phase 0b 生成的 'strategic_rules.txt' (蒸馏后的高级规则)。
-    4. 如果没有蒸馏规则，尝试回退到 'causal_rules.txt' (原始因果图 + 硬编码规则)。
-    """
-    # 1. 获取基础配置 (包含 Actuators, Fixed Info, 和 默认的 Strategy Guide)
     base_context = STRATEGIC_CONTEXT.get(case_name, {}).copy()
 
-    # 2. 纯净消融逻辑：如果未启用因果注入，清除默认的 Strategy Guide
     if not ENABLE_CAUSAL_INJECTION:
-        print(f"🛑 [Strategic Context] Causal Injection DISABLED. Clearing strategy guide for pure ablation.")
-        # [CRITICAL CHANGE] 强制清空策略指南，确保无因果注入时没有任何规则提示
+        print(f"[Strategic Context] Causal Injection DISABLED. Clearing strategy guide for ablation.")
         base_context['strategy_guide'] = "Rely on generic internal logic."
         return base_context
 
-    # 3. 尝试读取蒸馏后的战略规则 (优先)
     distilled_path = MAPPING_DIR / f"{case_name}_strategic_rules.txt"
     if distilled_path.exists():
         try:
             with open(distilled_path, 'r', encoding='utf-8') as f:
                 distilled_rules = f.read()
-
-            # 使用 LLM 蒸馏生成的规则替换默认的 Strategy Guide
             base_context['strategy_guide'] = f"""
             ### STRATEGIC RULES
 
             {distilled_rules}
             """
-            print(f"✅ [Strategic Context] Loaded DISTILLED rules from {distilled_path}")
+            print(f"[Strategic Context] Loaded distilled rules from {distilled_path}")
             return base_context
         except Exception as e:
-            print(f"⚠️ [Strategic Context] Error reading distilled rules: {e}")
+            print(f"[Strategic Context] Error reading distilled rules: {e}")
 
-    # 4. 回退逻辑：尝试读取原始因果图 (Legacy Mode)
     causal_file = MAPPING_DIR / f"{case_name}_causal_rules.txt"
     if causal_file.exists():
         try:
             with open(causal_file, 'r', encoding='utf-8') as f:
                 causal_narrative = f.read()
-
-            print(f"✨ [Injector] Fallback: Causal Narrative Injected for {case_name}")
-
-            # 硬编码的规则作为回退
             base_context['strategy_guide'] = f"""
-            ### 2. PHYSICS-BASED CAUSAL RULES
-            The following rules describe the specific cause-and-effect dynamics of THIS building.
-            Use these arrows to deduce the outcome of your actions.
+            ### PHYSICS-BASED CAUSAL RULES
 
             {causal_narrative}
 
-            **DERIVED PRIORITY RULES (COMBINING PHYSICS & POLICY)**:
+            **DERIVED PRIORITY RULES**:
 
-            1. **UNOCCUPIED BASELINE (The "30°C Rule")**:
-               - Condition: `current_occupancy == 0` AND `next_hour_occupancy == 0`.
-               - **ACTION**: Set Setpoint to **30.0°C**.
-               - **REASON**: Energy is Priority #1. High PMV is GOOD/ACCEPTABLE here.
-
-            2. **PRE-COOLING EXCEPTION (The "Inertia Rule")**:
-               - Condition: `current_occupancy == 0` BUT `next_hour_occupancy > 0`.
-               - **ACTION**: Check causal chain above. 
-                 - If `cooling_setpoint -> zone_temp` has `[Delayed]` or `[High Inertia]`: **MUST Pre-cool (22-23°C)**.
-                 - Reason: You need to overcome the physics delay identified in the causal graph.
-
-            3. **OCCUPIED COMFORT**:
-               - Condition: `current_occupancy > 0`.
-               - **ACTION**: Target PMV **[+0.35, +0.45]**.
+            1. **UNOCCUPIED BASELINE**: If `current_occupancy == 0` AND `next_hour_occupancy == 0`, set 30.0°C.
+            2. **PRE-COOLING**: If `current_occupancy == 0` BUT `next_hour_occupancy > 0`, pre-cool (22-23°C).
+            3. **OCCUPIED COMFORT**: If `current_occupancy > 0`, target PMV [+0.35, +0.45].
             """
-
-            # # Reflector 使用真值逻辑 (可选，若要完全一致性可只改 Commander)
-            # base_context['reflector_guide'] = f"""
-            # ### PHYSICS & LOGIC GROUND TRUTH
-            # Analyze the results based on these validated causal links:
-            #
-            # {causal_narrative}
-            #
-            # **VERDICT LOGIC**:
-            # - If you see an action (e.g., Lower SP) but the effect (Temp Drop) is missing, check the causal chain for [Delayed]. If [Delayed] exists, this is NOT a failure, it is physics.
-            # """
-
+            print(f"[Strategic Context] Fallback: loaded causal rules from {causal_file}")
         except Exception as e:
-            print(f"⚠️ [Injector] Failed to read causal file: {e}. Fallback to defaults.")
+            print(f"[Strategic Context] Failed to read causal file: {e}")
     else:
-        print(f"⚠️ [Injector] No causal file found at {causal_file}. Run Phase 0 first. Fallback to defaults.")
+        print(f"[Strategic Context] No causal file found at {causal_file}. Run Phase 0 first.")
 
     return base_context
 
 def get_max_occupancy(case_name: str) -> float:
     return MAX_OCCUPANCY_CONFIG.get(case_name, 10.0)
-def get_normalization_config() -> dict: return NORMALIZATION_CONFIG
-def get_phase_config() -> dict: return PHASE_CONFIG
-def get_temperature_schedule() -> dict: return TEMPERATURE_SCHEDULE
+
+def get_normalization_config() -> dict:
+    return NORMALIZATION_CONFIG
+
+def get_phase_config() -> dict:
+    return PHASE_CONFIG
+
+def get_temperature_schedule() -> dict:
+    return TEMPERATURE_SCHEDULE

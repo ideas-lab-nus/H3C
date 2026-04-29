@@ -20,8 +20,8 @@ from agents.agent_b_commander import AgentCommander
 from agents.agent_b_coder import AgentZoneCoder
 from agents.agent_c_reflector import AgentReflector
 
-from config import MAPPING_DIR, CONTROL_STEP_SIZE, FORECAST_HORIZON_STEPS, COMMANDER_LOOKAHEAD_HOURS, ROOT_DIR, DEFAULT_ENABLE_RAG
-import static_config
+from configs.config import MAPPING_DIR, CONTROL_STEP_SIZE, FORECAST_HORIZON_STEPS, COMMANDER_LOOKAHEAD_HOURS, ROOT_DIR, DEFAULT_ENABLE_RAG
+from configs import static_config
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
