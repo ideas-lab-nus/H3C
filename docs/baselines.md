@@ -127,3 +127,6 @@ under ignored `outputs/baselines/` directories.
 
 The corrected per-policy adapter and current 7/5/7 RBC/DRL benchmark are frozen in
 [`drl_adapter_contract_repair_preregistration.md`](drl_adapter_contract_repair_preregistration.md).
+Its completed 11-arm result, checkpoint identities, occupancy interpretation and time-series
+findings are recorded in
+[`drl_adapter_contract_repair_result.md`](drl_adapter_contract_repair_result.md).
