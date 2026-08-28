@@ -61,8 +61,15 @@ not by the case-profile display order.
 
 - SZ_Air PPO was selected from the archived `SZ_AIR/models_drl4` records by best training-log
   mean reward.
-- MZ_Air PPO/MAPPO are the exact checkpoints used by the archived evaluation workflows; the PPO
-  archive embeds 295,680 steps and does not retain an authoritative epoch-to-file map.
+- MZ_Air PPO uses the currently readable 295,680-step checkpoint and the tensor contract saved in
+  `FinalMZAIR.ipynb`. This pair is internally reproducible, but the historical CSV was written by
+  a different `Visualization.ipynb` runtime and records neither the checkpoint hash nor the
+  pre-action observation. The current PPO is therefore also a surviving-checkpoint reconstruction,
+  not a strict replay of the historical C-DRL trajectory.
+- MZ_Air MAPPO uses the currently readable epoch-298 checkpoint. The saved evaluator contract and
+  this checkpoint are internally reproducible, but the historical CSV is not cryptographically
+  bound to it and no surviving checkpoint reproduces the CSV's first action. It is therefore a
+  current-checkpoint reconstruction, not a strict replay of the historical H-DRL trajectory.
 - MZ_Hydro PPO/MAPPO are the user-designated extended-training checkpoints from
   `Revision1/MZ_Hydronic_Final_PPO_MAPPO_1h_Epoch700_20260822`.
 
@@ -139,3 +146,8 @@ seven-day internal warm-up and no explicit control prefix. Add `--execute` to ru
 defined in `configs/baselines/legacy_replay.json`; it does not replace the common-prefix benchmark.
 Its frozen question and interpretation rules are in
 [`legacy_drl_reproduction_preregistration.md`](legacy_drl_reproduction_preregistration.md).
+The completed replay, Hydronic action-history normalization repair, and the unresolved MZ_Air
+PPO/MAPPO checkpoint provenance are documented in
+[`legacy_drl_reproduction_result.md`](legacy_drl_reproduction_result.md).
+The one-time Hydronic delivered-owner cross-check is frozen in
+[`legacy_hydro_exact_owner_replay_preregistration.md`](legacy_hydro_exact_owner_replay_preregistration.md).

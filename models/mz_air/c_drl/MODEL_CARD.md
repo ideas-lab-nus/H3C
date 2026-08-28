@@ -9,7 +9,17 @@
 - Action contract: 25 °C base plus residual [-5, 5] °C, clamped to [20, 30] °C
 - Observation contract: temperature/action/power histories include the latest sample; occupancy
   is the raw forecast converted to a binary mask without the later official-HVAC-window filter
-- Selection: exact checkpoint loaded by the archived `FinalMZAIR.ipynb` evaluation workflow; no
-  new evaluation result was used to select or modify it
+- Selection: currently readable checkpoint loaded by the saved `FinalMZAIR.ipynb` workflow; no new
+  evaluation result was used to select or modify it
+
+## Provenance limitation
+
+The checkpoint bytes and the saved `FinalMZAIR.ipynb` tensor contract are internally reproducible,
+but they cannot be bound to the legacy `drl_validation_air_5zone.csv` trajectory. That CSV was
+written by a separate `Visualization.ipynb` runtime and records neither a checkpoint hash nor the
+pre-action observation. Its first action is not produced by this checkpoint under the saved
+`FinalMZAIR` contract, and none of the other surviving PPO candidates reproduces the archived
+trajectory. Results from this file must therefore be described as a reconstruction with the
+surviving checkpoint, not as an exact replay of the historical C-DRL trajectory.
 
 The archived model does not prove its random seed; the card therefore makes no seed claim.

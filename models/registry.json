@@ -98,7 +98,7 @@
       "power_past_offset": 0,
       "temperature_missing": "fixed_25",
       "residual_base": "fixed_25",
-      "selection_basis": "legacy evaluation checkpoint used by the archived FinalMZAIR workflow; evaluation results were not used to reselect it"
+      "selection_basis": "currently readable checkpoint used by the saved FinalMZAIR tensor contract; the historical Visualization CSV is not checkpoint-bound and evaluation results were not used to reselect it"
     },
     "mz_air_h_drl": {
       "case": "MZ_Air",

@@ -324,6 +324,25 @@ def test_policy_contract_rejects_unregistered_mappo_local_layout() -> None:
         PolicyObservationBuilder(load_profile("MZ_Air"), entry)
 
 
+def test_policy_normalization_uses_legacy_float32_arithmetic() -> None:
+    values = np.asarray([299.123456789], dtype=np.float64)
+    lower = np.asarray([288.15], dtype=np.float64)
+    upper = np.asarray([308.15], dtype=np.float64)
+    expected = np.asarray(
+        2.0
+        * (values.astype(np.float32) - lower.astype(np.float32))
+        / (upper.astype(np.float32) - lower.astype(np.float32))
+        - 1.0,
+        dtype=np.float32,
+    )
+    float64_then_cast = (2.0 * (values - lower) / (upper - lower) - 1.0).astype(np.float32)
+
+    actual = symmetric_minmax(values, lower, upper)
+
+    assert np.array_equal(actual, expected)
+    assert not np.array_equal(actual, float64_then_cast)
+
+
 def test_frozen_policy_inference_matches_migrated_golden_contract() -> None:
     source = Path("tests/fixtures/baseline_policy_inference_golden.json")
     golden = json.loads(source.read_text(encoding="utf-8"))["fixtures"]

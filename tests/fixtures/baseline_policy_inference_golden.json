@@ -5,7 +5,7 @@
         "hvac_oveAhu_TSupSet_activate": 1.0,
         "hvac_oveAhu_TSupSet_u": 290.15,
         "hvac_oveZonSupCor_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupCor_TZonCooSet_u": 300.41994603872297,
+        "hvac_oveZonSupCor_TZonCooSet_u": 300.4199473798275,
         "hvac_oveZonSupCor_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupCor_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupEas_TZonCooSet_activate": 1.0,
@@ -13,15 +13,15 @@
         "hvac_oveZonSupEas_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupEas_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupNor_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupNor_TZonCooSet_u": 300.7986551761627,
+        "hvac_oveZonSupNor_TZonCooSet_u": 300.7986575603485,
         "hvac_oveZonSupNor_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupNor_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupSou_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupSou_TZonCooSet_u": 299.87690659761427,
+        "hvac_oveZonSupSou_TZonCooSet_u": 299.87690510749815,
         "hvac_oveZonSupSou_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupSou_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupWes_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupWes_TZonCooSet_u": 302.5837612390518,
+        "hvac_oveZonSupWes_TZonCooSet_u": 302.5837636232376,
         "hvac_oveZonSupWes_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupWes_TZonHeaSet_u": 288.15
       },
@@ -30,33 +30,33 @@
       "controller": "c-drl",
       "local_normalized_sha256": {},
       "model_sha256": "368a19d8852203534aac2e416ba368853c9f47d4a6d40c527c0d0140a3ede477",
-      "normalized_sha256": "930c9cbbeeaf0f15ab701f5064be6d69306c524cb77b45e141f53359d672d705",
-      "raw_action": [0.4539892077445984, 0.529731035232544, 0.34538131952285767, 1.0, 0.8867522478103638],
+      "normalized_sha256": "e0a4a210e468a33a732d83dfae8006cd04587b9089055fba09903ed3da4cfe86",
+      "raw_action": [0.4539894759654999, 0.5297315120697021, 0.3453810214996338, 1.0, 0.886752724647522],
       "raw_sha256": "4efb3afa7cbd5d75f4fbefac5b66223c4f824507034d654fdfde9fe5cb7adb1c",
-      "setpoints_c": {"cor": 27.269946038722992, "eas": 30.0, "nor": 27.64865517616272, "sou": 26.72690659761429, "wes": 29.43376123905182}
+      "setpoints_c": {"cor": 27.2699473798275, "eas": 30.0, "nor": 27.64865756034851, "sou": 26.72690510749817, "wes": 29.43376362323761}
     },
     "MZ_Air_h-drl": {
       "boptest_payload": {
         "hvac_oveAhu_TSupSet_activate": 1.0,
         "hvac_oveAhu_TSupSet_u": 290.15,
         "hvac_oveZonSupCor_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupCor_TZonCooSet_u": 299.77184715270994,
+        "hvac_oveZonSupCor_TZonCooSet_u": 299.7718480467796,
         "hvac_oveZonSupCor_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupCor_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupEas_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupEas_TZonCooSet_u": 302.6649579644203,
+        "hvac_oveZonSupEas_TZonCooSet_u": 302.6649567723274,
         "hvac_oveZonSupEas_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupEas_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupNor_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupNor_TZonCooSet_u": 300.61038809418676,
+        "hvac_oveZonSupNor_TZonCooSet_u": 300.61038660407064,
         "hvac_oveZonSupNor_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupNor_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupSou_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupSou_TZonCooSet_u": 302.9580542683601,
+        "hvac_oveZonSupSou_TZonCooSet_u": 302.95805367231367,
         "hvac_oveZonSupSou_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupSou_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupWes_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupWes_TZonCooSet_u": 297.86236256882546,
+        "hvac_oveZonSupWes_TZonCooSet_u": 297.8623618610203,
         "hvac_oveZonSupWes_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupWes_TZonHeaSet_u": 288.15
       },
@@ -64,22 +64,22 @@
       "columns_sha256": "4e9acc2ca88461dc8d0962d37c5e36f3591087f52a7c34d1977edddfddc13efc",
       "controller": "h-drl",
       "local_normalized_sha256": {
-        "cor": "5ee6b4a46d1ba5ab0b743ffd5bacfcf3735bedb729f10ea20543dd2e6c9e8095",
-        "eas": "e1c543e932a37b7baf67bd2e4ee46d28860d54a33497339b4db2272fb9120ea1",
-        "nor": "418d0c95ff38e34334ba42ada9e8cc8c05da9be37f169d62011bbdc0af7efe65",
-        "sou": "326f2d11260e3a246554cc926b5c4d726093ec7a736c24bef12b28b17643f076",
-        "wes": "b8670790a28eeca1fe644cdff82022c010b9c652a65d46744649d06d35ea1e06"
+        "cor": "6de4768bb4d64a87bc030e6b2c5ddf2f5cac51cf3fd57da14ba97cd609f58651",
+        "eas": "22ab59aa25cfdc292b575ee2c6009c61e1d6d5a7cd1f88f7a24ef94301d1127d",
+        "nor": "6d98b66aeee43e052b606e238208a825996bf6be267d8d26c79dbefc8837ae75",
+        "sou": "df05b81d685dd1c05ba869ad34acfe5c5eaf09bc1c274358dc41f36d81c80a3f",
+        "wes": "1812ed109c184de798ddf94f6ca048839a37c9afbb7110da4d80febf613a6b6c"
       },
       "model_sha256": "2b6b1c2c83f4bb71a9651b14b4a87add67ae3c9fc53f2c03971b676698f35a10",
-      "normalized_sha256": "ad35ee33d93e48e8adf91869a670e19cb3fca4a6071ac961a6ebf09daf53fa0f",
-      "raw_action": [0.3243694305419922, 0.49207761883735657, 0.9616108536720276, 0.9029915928840637, -0.057527486234903336],
+      "normalized_sha256": "6015ba15da31bcef20a5f28dec6eeacf94f9801c427bba5cbf73e2a0f6b17d3c",
+      "raw_action": [0.3243696093559265, 0.4920773208141327, 0.961610734462738, 0.9029913544654846, -0.05752762779593468],
       "raw_sha256": "1a5193d08ee52321b3d97dfd2f3b63092ac1dc485c2a9d928f9e2856e45ee364",
-      "setpoints_c": {"cor": 26.62184715270996, "eas": 29.51495796442032, "nor": 27.460388094186783, "sou": 29.808054268360138, "wes": 24.712362568825483}
+      "setpoints_c": {"cor": 26.621848046779633, "eas": 29.514956772327423, "nor": 27.460386604070663, "sou": 29.80805367231369, "wes": 24.712361861020327}
     },
     "MZ_Hydro_c-drl": {
       "boptest_payload": {
         "bms_oveTZonSetMaxNz_activate": 1.0,
-        "bms_oveTZonSetMaxNz_u": 303.14251306056974,
+        "bms_oveTZonSetMaxNz_u": 303.1425136566162,
         "bms_oveTZonSetMaxSz_activate": 1.0,
         "bms_oveTZonSetMaxSz_u": 303.15,
         "bms_oveTZonSetMinNz_activate": 1.0,
@@ -92,17 +92,17 @@
       "controller": "c-drl",
       "local_normalized_sha256": {},
       "model_sha256": "beba50eb178a9b5bfa83f2229fe0c4066510ac890d05bb7b8905bda47449e90a",
-      "normalized_sha256": "29f4840876636d9ac1a5945ad5530980664401d694613d0cb3190621be678eaa",
-      "raw_action": [0.9985026121139526, 1.0],
+      "normalized_sha256": "29e791f82cf2b895960c64d165fa9e9053be374cc50d1744d92a5b6a9134aa36",
+      "raw_action": [0.9985027313232422, 1.0],
       "raw_sha256": "c99bdd458e589b879ef4c3fe2974c2a148587138be95a39834c6e130ae7309c1",
-      "setpoints_c": {"NZ": 29.992513060569763, "SZ": 30.0}
+      "setpoints_c": {"NZ": 29.99251365661621, "SZ": 30.0}
     },
     "MZ_Hydro_h-drl": {
       "boptest_payload": {
         "bms_oveTZonSetMaxNz_activate": 1.0,
         "bms_oveTZonSetMaxNz_u": 303.14997973442075,
         "bms_oveTZonSetMaxSz_activate": 1.0,
-        "bms_oveTZonSetMaxSz_u": 303.08033111095426,
+        "bms_oveTZonSetMaxSz_u": 303.08033081293104,
         "bms_oveTZonSetMinNz_activate": 1.0,
         "bms_oveTZonSetMinNz_u": 288.15,
         "bms_oveTZonSetMinSz_activate": 1.0,
@@ -112,19 +112,19 @@
       "columns_sha256": "4bb50dfc9a41c17e06d5ebcfdfb9115a0eb89a7a12ed024c78762b4eab2ead3c",
       "controller": "h-drl",
       "local_normalized_sha256": {
-        "NZ": "da332fa9ef0cea77e47d2f531f3bd605cc5197b03d1cd6a1712dfd4997bd6871",
-        "SZ": "4ff0b6e2c222237ac728dd1f053c0514236b0b935e91adbd0d7a3b15353920c8"
+        "NZ": "d1166b3f991c0bdd556fa7c8f0f39695584b5414ac6614883012ff052c910553",
+        "SZ": "457dec3ef8c7430d665e55adfc15b76cb9b3c9767f1915933f1c802b58269a65"
       },
       "model_sha256": "3644b477c4e05dd3258027747d57b75ed5877447f5947301592098f29de2fd7a",
-      "normalized_sha256": "29f4840876636d9ac1a5945ad5530980664401d694613d0cb3190621be678eaa",
-      "raw_action": [0.9999959468841553, 0.9860662221908569],
+      "normalized_sha256": "29e791f82cf2b895960c64d165fa9e9053be374cc50d1744d92a5b6a9134aa36",
+      "raw_action": [0.9999959468841553, 0.9860661625862122],
       "raw_sha256": "c99bdd458e589b879ef4c3fe2974c2a148587138be95a39834c6e130ae7309c1",
-      "setpoints_c": {"NZ": 29.999979734420776, "SZ": 29.930331110954285}
+      "setpoints_c": {"NZ": 29.999979734420776, "SZ": 29.93033081293106}
     },
     "SZ_Air_c-drl": {
       "boptest_payload": {
         "con_oveTSetCoo_activate": 1.0,
-        "con_oveTSetCoo_u": 298.77122497707603,
+        "con_oveTSetCoo_u": 298.77122520059345,
         "con_oveTSetHea_activate": 1.0,
         "con_oveTSetHea_u": 288.15,
         "fcu_oveTSup_activate": 1.0,
@@ -135,25 +135,27 @@
       "controller": "c-drl",
       "local_normalized_sha256": {},
       "model_sha256": "abd5d1adb751d2591f77960d2353cb54566767d3e0143800ea585b8fed2cc553",
-      "normalized_sha256": "a923e23369c86a570def1a914f6cc84973bbc6ca881f82a379a9b4f94fb292d8",
-      "raw_action": [0.12424499541521072],
+      "normalized_sha256": "c0f0cd09c24ae762f187ed9ef6d6255fe8fec8c1cf9dc75da7da4655ae59725d",
+      "raw_action": [0.1242450401186943],
       "raw_sha256": "e83fd4f4fe0501f2f23f138a8b67e35d80633369f205460b008349b11ba56ec2",
-      "setpoints_c": {"zone1": 25.621224977076054}
+      "setpoints_c": {"zone1": 25.62122520059347}
     }
   },
   "schema": "h3c_frozen_policy_inference_golden",
   "schema_version": 2,
-  "source_basis": "exact archived evaluation owners plus explicit three-step history-window tests; checkpoint selection predates this migration repair",
+  "source_basis": "saved evaluator tensor contracts plus explicit three-step history-window tests; both MZ_Air policies freeze currently readable checkpoints and do not prove identity with their unbound historical CSV trajectories",
   "source_oracles": {
     "mz_air_c_drl": {
       "path": "MZ_OFFICE_AIR/FinalMZAIR.ipynb",
       "sha256": "ecb0044bb63f373d018c991b43baa443afc8fa579f1fa0fe3f5380e4ea145f4c",
+      "provenance_scope": "saved tensor contract and current readable checkpoint only; historical CSV checkpoint and pre-action observation identities unresolved",
       "history_offsets": {"temperature": 0, "action": 0, "power": 0},
       "occupancy": "binary_raw"
     },
     "mz_air_h_drl": {
       "path": "MZ_OFFICE_AIR/Visfinal.ipynb",
       "sha256": "b284c410bb3ee8da36d23b21a8b23f8024bf00ff07e4fb1d34a9e64f7c474980",
+      "provenance_scope": "saved tensor contract and current readable checkpoint only; historical CSV checkpoint identity unresolved",
       "history_offsets": {"temperature": 0, "action": 0, "power": 0},
       "local_observation_layout": "shared_then_zone",
       "occupancy": "binary_raw"

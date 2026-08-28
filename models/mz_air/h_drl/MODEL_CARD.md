@@ -10,4 +10,14 @@
 - Action contract: 25 °C base plus residual [-5, 5] °C, clamped to [20, 30] °C
 - Selection: highest training-log mean return; no formal evaluation result was used
 
+## Provenance limitation
+
+This is the currently readable epoch-298 checkpoint. Its bytes and the saved `Visfinal.ipynb`
+tensor contract are internally reproducible, but they cannot be cryptographically bound to the
+legacy `mappo_validation_air_5zone.csv` trajectory. The saved notebook stopped at a checkpoint
+load error, the later CSV records no checkpoint hash, and none of the eight surviving MAPPO
+checkpoints reproduces that CSV's first action. Results from this file must therefore be described
+as a reconstruction with the surviving checkpoint, not as an exact replay of the historical
+H-DRL trajectory.
+
 The immutable byte count and SHA-256 are owned by `models/registry.json`.
