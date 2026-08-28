@@ -1,0 +1,147 @@
+{
+  "fixtures": {
+    "MZ_Air_c-drl": {
+      "boptest_payload": {
+        "hvac_oveAhu_TSupSet_activate": 1.0,
+        "hvac_oveAhu_TSupSet_u": 290.15,
+        "hvac_oveZonSupCor_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupCor_TZonCooSet_u": 303.15,
+        "hvac_oveZonSupCor_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupCor_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupEas_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupEas_TZonCooSet_u": 303.15,
+        "hvac_oveZonSupEas_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupEas_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupNor_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupNor_TZonCooSet_u": 303.15,
+        "hvac_oveZonSupNor_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupNor_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupSou_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupSou_TZonCooSet_u": 303.15,
+        "hvac_oveZonSupSou_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupSou_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupWes_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupWes_TZonCooSet_u": 301.7884978890419,
+        "hvac_oveZonSupWes_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupWes_TZonHeaSet_u": 288.15
+      },
+      "case": "MZ_Air",
+      "columns_sha256": "4e9acc2ca88461dc8d0962d37c5e36f3591087f52a7c34d1977edddfddc13efc",
+      "controller": "c-drl",
+      "local_normalized_sha256": {},
+      "model_sha256": "7385e6d9e05593f7aff529f4559ad7f5527b4a25f3d82fddae4646c08b29e11a",
+      "normalized_sha256": "8aa9681b78255d6d438a9f8745874be4467f6248646d8217fbc3df7588317606",
+      "raw_action": [1.0, 1.0, 1.0, 1.0, 0.7276995778083801],
+      "raw_sha256": "663661a7466d9057c8cb925bd468430e5e61d843a8b57fb880e4e673d2aedcbd",
+      "setpoints_c": {"cor": 30.0, "eas": 30.0, "nor": 30.0, "sou": 30.0, "wes": 28.6384978890419}
+    },
+    "MZ_Air_h-drl": {
+      "boptest_payload": {
+        "hvac_oveAhu_TSupSet_activate": 1.0,
+        "hvac_oveAhu_TSupSet_u": 290.15,
+        "hvac_oveZonSupCor_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupCor_TZonCooSet_u": 299.68485432267187,
+        "hvac_oveZonSupCor_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupCor_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupEas_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupEas_TZonCooSet_u": 300.9512493252754,
+        "hvac_oveZonSupEas_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupEas_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupNor_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupNor_TZonCooSet_u": 301.2886739015579,
+        "hvac_oveZonSupNor_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupNor_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupSou_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupSou_TZonCooSet_u": 302.9357981920242,
+        "hvac_oveZonSupSou_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupSou_TZonHeaSet_u": 288.15,
+        "hvac_oveZonSupWes_TZonCooSet_activate": 1.0,
+        "hvac_oveZonSupWes_TZonCooSet_u": 297.690075995028,
+        "hvac_oveZonSupWes_TZonHeaSet_activate": 1.0,
+        "hvac_oveZonSupWes_TZonHeaSet_u": 288.15
+      },
+      "case": "MZ_Air",
+      "columns_sha256": "4e9acc2ca88461dc8d0962d37c5e36f3591087f52a7c34d1977edddfddc13efc",
+      "controller": "h-drl",
+      "local_normalized_sha256": {
+        "cor": "c27a47d6f43df3957f4c4cc9ed2da64646df0d56795b53339d3ed16cd3bed50d",
+        "eas": "a97abcdc2ee17d967bcfb2942220e2092164c79e8bcc7a7e4e3356796435f2aa",
+        "nor": "e6c6c29059e88e54905c37996ae3efc4310478158e1c7aba78fe4cada761f03f",
+        "sou": "43d395daddbf88d271d5147e36f7c257b15b219e1c90219063ba731c6af31368",
+        "wes": "ccf349166515a1bde3c6757bff714ee1f4a13eefbc72989f044435019518fb1b"
+      },
+      "model_sha256": "2b6b1c2c83f4bb71a9651b14b4a87add67ae3c9fc53f2c03971b676698f35a10",
+      "normalized_sha256": "8aa9681b78255d6d438a9f8745874be4467f6248646d8217fbc3df7588317606",
+      "raw_action": [0.30697086453437805, 0.6277347803115845, 0.9571596384048462, 0.5602498650550842, -0.09198480099439621],
+      "raw_sha256": "663661a7466d9057c8cb925bd468430e5e61d843a8b57fb880e4e673d2aedcbd",
+      "setpoints_c": {"cor": 26.53485432267189, "eas": 27.80124932527542, "nor": 28.138673901557922, "sou": 29.78579819202423, "wes": 24.54007599502802}
+    },
+    "MZ_Hydro_c-drl": {
+      "boptest_payload": {
+        "bms_oveTZonSetMaxNz_activate": 1.0,
+        "bms_oveTZonSetMaxNz_u": 303.15,
+        "bms_oveTZonSetMaxSz_activate": 1.0,
+        "bms_oveTZonSetMaxSz_u": 303.15,
+        "bms_oveTZonSetMinNz_activate": 1.0,
+        "bms_oveTZonSetMinNz_u": 288.15,
+        "bms_oveTZonSetMinSz_activate": 1.0,
+        "bms_oveTZonSetMinSz_u": 288.15
+      },
+      "case": "MZ_Hydro",
+      "columns_sha256": "4bb50dfc9a41c17e06d5ebcfdfb9115a0eb89a7a12ed024c78762b4eab2ead3c",
+      "controller": "c-drl",
+      "local_normalized_sha256": {},
+      "model_sha256": "beba50eb178a9b5bfa83f2229fe0c4066510ac890d05bb7b8905bda47449e90a",
+      "normalized_sha256": "b21244fbbcf6c47f50dd204aac5ba2c2dee31dcdeb157ae5137c3f317215d7a3",
+      "raw_action": [1.0, 1.0],
+      "raw_sha256": "8340a002f7ffaa8dcec13c0f43f88624c97f7e59081363f1d9042ebbff9ce0fd",
+      "setpoints_c": {"NZ": 30.0, "SZ": 30.0}
+    },
+    "MZ_Hydro_h-drl": {
+      "boptest_payload": {
+        "bms_oveTZonSetMaxNz_activate": 1.0,
+        "bms_oveTZonSetMaxNz_u": 303.14996870756147,
+        "bms_oveTZonSetMaxSz_activate": 1.0,
+        "bms_oveTZonSetMaxSz_u": 303.10707929134367,
+        "bms_oveTZonSetMinNz_activate": 1.0,
+        "bms_oveTZonSetMinNz_u": 288.15,
+        "bms_oveTZonSetMinSz_activate": 1.0,
+        "bms_oveTZonSetMinSz_u": 288.15
+      },
+      "case": "MZ_Hydro",
+      "columns_sha256": "4bb50dfc9a41c17e06d5ebcfdfb9115a0eb89a7a12ed024c78762b4eab2ead3c",
+      "controller": "h-drl",
+      "local_normalized_sha256": {
+        "NZ": "cbc280c6bc8fc805cdcdd0240615d81d4ae96d73d81f292fab4ba3e7a7fdbed0",
+        "SZ": "e4bfa63d64cf07ebed53b62bf2f58bba9fed13e53666e39081c63785f711ed34"
+      },
+      "model_sha256": "3644b477c4e05dd3258027747d57b75ed5877447f5947301592098f29de2fd7a",
+      "normalized_sha256": "b21244fbbcf6c47f50dd204aac5ba2c2dee31dcdeb157ae5137c3f317215d7a3",
+      "raw_action": [0.9999937415122986, 0.9914158582687378],
+      "raw_sha256": "8340a002f7ffaa8dcec13c0f43f88624c97f7e59081363f1d9042ebbff9ce0fd",
+      "setpoints_c": {"NZ": 29.999968707561493, "SZ": 29.95707929134369}
+    },
+    "SZ_Air_c-drl": {
+      "boptest_payload": {
+        "con_oveTSetCoo_activate": 1.0,
+        "con_oveTSetCoo_u": 298.46887628138063,
+        "con_oveTSetHea_activate": 1.0,
+        "con_oveTSetHea_u": 288.15,
+        "fcu_oveTSup_activate": 1.0,
+        "fcu_oveTSup_u": 290.15
+      },
+      "case": "SZ_Air",
+      "columns_sha256": "03e550a95e62833cb057901ef62a5b605de5e97e76f219aac5a88da33b731393",
+      "controller": "c-drl",
+      "local_normalized_sha256": {},
+      "model_sha256": "abd5d1adb751d2591f77960d2353cb54566767d3e0143800ea585b8fed2cc553",
+      "normalized_sha256": "1bc41a8305ce640b0eb8d34aafb7285a8b975eae5b08fdd5f5a925787448da3e",
+      "raw_action": [0.06377525627613068],
+      "raw_sha256": "582924029004856c17877af10f4addb3585aacb5f2e04965989c56354357f6b9",
+      "setpoints_c": {"zone1": 25.318876281380653}
+    }
+  },
+  "schema": "h3c_frozen_policy_inference_golden",
+  "schema_version": 1,
+  "source_basis": "legacy observation/action contracts migrated from frozen training owners; checkpoint selection predates evaluation"
+}
