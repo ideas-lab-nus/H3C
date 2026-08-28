@@ -1,61 +1,58 @@
 # Generated outputs
 
-Each run is written to `runs/<suite>/<case>/<run_id>/`. Reports are written to
-`reports/`. Both generated trees are ignored by Git; only their placeholder files
-are tracked. A completed run writes all declared artifacts before atomically
-publishing `completion.json` last.
+Generated artifacts are intentionally separated from source code and ignored by Git.
 
-Offline onboarding workspaces are written to
-`offline/<case>/<workflow_id>/`. They are separate from physical runs and reports,
-are ignored by Git, and are never treated as experimental evidence. Their schema is
-documented in `docs/offline_onboarding.md`.
+```text
+outputs/
+├── runs/<suite>/<case>/<run_id>/
+├── reports/<suite_id>/
+├── offline/<case>/<workflow_id>/
+└── baselines/
+    ├── identification/<case>/<run_id>/
+    ├── runs/<suite>/<case>/<run_id>/
+    └── reports/<report_id>/
+```
 
-An approved offline workspace contains `resolved_spec.json`,
-`source_manifest.json`, Mapping and causal proposal/review JSONL streams,
-`confirmed_mapping.json`, `case_profile_candidate.json`,
-`confirmed_causal_graph.json`, `causal_provenance.json`, `model_calls.jsonl`,
-`raw_model_io.jsonl`, file checkpoints, `verification.json`, and an atomic final
-`completion.json`. Interrupted workspaces intentionally remain incomplete and
-can resume only under the documented identity and network-interruption rules.
+## Online H3C runs
 
-A complete run contains:
+A completed online run publishes `completion.json` last, after its declared streams, metrics,
+verification, and current-output secret scan. Model wire attempts are separate from logical Agent
+calls so a recovered transient transport attempt does not look like another control decision.
+See [the run-artifact contract](../docs/run_artifacts.md).
 
-- `resolved_config.yaml`
-- `manifest.json`
-- `physical_conditioning.jsonl`
-- `performance.csv`
-- `zone_steps.jsonl`
-- `hourly_decisions.jsonl`
-- `program_updates.jsonl`
-- `agent_calls.jsonl`
-- `raw_model_io.jsonl`
-- `model_request_attempts.jsonl`
-- `timing.jsonl`
-- `metrics.json`
-- `verification.json`
-- `completion.json`, published last by atomic rename
+An evidence-consistent physical lifecycle may be classified
+`EXECUTION-HEALTHY-MODEL-CONTRACT-DEGRADED` when control execution is healthy but one or more model
+outputs violate their registered contract. `RUN-INVALID` means execution integrity is not
+established and must not publish `completion.json`.
 
-A failed or degraded run is retained in place. A complete, evidence-consistent
-physical lifecycle with healthy execution integrity may atomically publish an
-`EXECUTION-HEALTHY-MODEL-CONTRACT-DEGRADED` completion when one or more model
-calls violate their contract; that class is not a clean release. A
-`RUN-INVALID` or incomplete lifecycle records the artifacts available at the
-failure point and must not publish `completion.json`.
+After a terminal model-transport failure, the finalization path performs the real secret scan,
+freezes the available counters, and writes partial `metrics.json` and fail-closed
+`verification.json`. No `completion.json` is published.
 
-After a terminal model-transport failure, the finalization path performs a real
-secret scan, freezes the terminal counters in `manifest.json`, writes a partial
-`metrics.json`, and writes a fail-closed `verification.json`. Those two files
-audit attempt sequencing and failure identity; their physical KPI fields cover
-only evaluation rows that actually existed and are not a completed-run result.
-No `completion.json` is published.
+## Offline onboarding
 
-`model_request_attempts.jsonl` records every model wire attempt separately from
-the one-row-per-logical-call `agent_calls.jsonl` and `raw_model_io.jsonl`
-streams. A recovered transient connection may therefore make the attempt count
-larger than the logical call count; manifest, metrics, and verifier recompute the
-difference. BOPTEST remains single-attempt.
+Offline workspaces hold mapping/causal proposals, real human review events, checkpoints,
+provenance and the final confirmed graph. Interrupted workspaces intentionally remain incomplete
+and may resume only under the same workflow identity. They are never physical-run evidence.
 
-When a case declares a documented occupancy missing-value policy,
-`physical_conditioning.jsonl` keeps separate raw and resolved occupancy maps,
-`timing.jsonl` records each resolution, and `manifest.json` records the exact
-resolution count. Other missing forecast fields are never repaired.
+## Independent baselines
+
+MPC identification directories contain:
+
+- `resolved_config.json`, `manifest.json` and `identification_data.csv`;
+- `model_coefficients.npz` and `fit_report.json`;
+- native BOPTEST KPIs, verification and atomic final completion.
+
+RBC, frozen-DRL and MPC evaluation directories contain:
+
+- `resolved_config.json`, `manifest.json` and the conditioning trajectory;
+- `performance.csv`, per-zone `actions.jsonl` and controller diagnostics;
+- native BOPTEST KPIs, shared physical metrics, verification and atomic final completion.
+
+DRL adds checkpoint identity, observations and policy-inference streams. MPC adds copied
+identification identity, predictions and solver traces. Baselines never create fake Agent,
+causal, program, budget or action-assurance evidence.
+
+Reports contain Markdown, JSON and CSV comparisons plus per-run temperature, setpoint, PMV,
+occupancy and power figures. A failed or degraded run is retained in place; it is not silently
+rewritten as a clean result.
