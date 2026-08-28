@@ -39,6 +39,19 @@ class PolicyObservationBuilder:
         self.local_dimension = int(model.get("local_observation_dimension", 0))
         self.action_history_steps = int(model["action_history_steps"])
         self.cold_start_action_c = float(model["cold_start_action_c"])
+        action_bounds = model["action_observation_bounds_k"]
+        if (
+            not isinstance(action_bounds, list)
+            or len(action_bounds) != 2
+            or not all(isinstance(value, (int, float)) for value in action_bounds)
+        ):
+            raise ValueError("policy action-observation bounds are invalid")
+        self.action_observation_bounds_k = (float(action_bounds[0]), float(action_bounds[1]))
+        if (
+            not all(math.isfinite(value) for value in self.action_observation_bounds_k)
+            or self.action_observation_bounds_k[0] >= self.action_observation_bounds_k[1]
+        ):
+            raise ValueError("policy action-observation bounds are invalid")
         self.temperature_past_offset = int(model["temperature_past_offset"])
         self.action_past_offset = int(model["action_past_offset"])
         self.power_past_offset = int(model["power_past_offset"])
@@ -252,13 +265,13 @@ class PolicyObservationBuilder:
             add(
                 "action_zone1",
                 self._action_values(self.zone_order[0]),
-                (293.15, 303.15),
+                self.action_observation_bounds_k,
             )
         elif self.action_history_steps == 1:
             add(
                 "last_action",
                 [self._action_values(zone)[0] for zone in self.zone_order],
-                (293.15, 303.15),
+                self.action_observation_bounds_k,
             )
         else:
             raise ValueError("unsupported policy action-history contract")

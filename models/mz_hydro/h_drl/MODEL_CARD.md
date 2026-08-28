@@ -6,6 +6,8 @@
 - Tensor contract: global 45 observations, local 33 observations per actor
 - Local actor order: time, own temperature/PMV/action, shared power/weather/price, own occupancy;
   history past slots exclude the latest sample
+- Action-history observation scale: 15–35 °C, matching the archived training owner; this is
+  separate from the physical 20–30 °C action limit
 - Action contract: occupied 25 °C / unoccupied 30 °C base plus residual [-5, 5] °C
 - Selection: user-designated extended-training checkpoint
 - Limitation: the original report marked convergence false (criteria C1 and C4 failed)

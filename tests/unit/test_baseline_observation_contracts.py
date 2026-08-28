@@ -241,6 +241,38 @@ def test_mz_air_policy_uses_raw_binary_occupancy_at_midnight() -> None:
     assert _columns(packet, "occupancy_cor") == [1.0] * 5
 
 
+@pytest.mark.parametrize("controller", ["c-drl", "h-drl"])
+def test_hydro_action_history_uses_the_archived_15_to_35_c_observation_scale(
+    controller: str,
+) -> None:
+    profile = load_profile("MZ_Hydro")
+    entry = model_entry("MZ_Hydro", controller)
+    builder = PolicyObservationBuilder(profile, entry)
+    builder.reset(_state(profile))
+    forecast = _golden_forecast(profile)
+    start = int(profile["evaluation_start_day"]) * 86400
+
+    expected = ((25.0, 0.0), (25.0, 0.0), (20.0, -0.5), (30.0, 0.5))
+    updates = (20.0, 30.0, 25.0)
+    for step, (raw_c, normalized) in enumerate(expected):
+        packet = builder.build(
+            forecast,
+            step=step,
+            action_time_seconds=start + step * 900,
+            step_seconds=900,
+        )
+        index = packet.columns.index("last_action_0")
+        assert packet.raw[index] == pytest.approx(raw_c + 273.15)
+        assert packet.normalized[index] == pytest.approx(normalized)
+        if step < len(updates):
+            builder.update(
+                _updated_state(profile, step + 1),
+                dict.fromkeys(entry["policy_zone_order"], updates[step]),
+                dict.fromkeys(entry["policy_zone_order"], 0.0),
+                0.0,
+            )
+
+
 def test_case_specific_mappo_local_layouts_match_legacy_actor_inputs() -> None:
     for case, shared_first in (("MZ_Hydro", False), ("MZ_Air", True)):
         profile = load_profile(case)
@@ -269,6 +301,11 @@ def test_case_specific_mappo_local_layouts_match_legacy_actor_inputs() -> None:
         ("power_past_offset", 3, "policy history offset is invalid"),
         ("temperature_missing", "zero", "temperature missing-value rule is invalid"),
         ("occupancy_encoding", "binary_effective", "occupancy encoding is invalid"),
+        (
+            "action_observation_bounds_k",
+            [303.15, 293.15],
+            "policy action-observation bounds are invalid",
+        ),
     ],
 )
 def test_policy_contract_rejects_unregistered_history_or_occupancy_semantics(
