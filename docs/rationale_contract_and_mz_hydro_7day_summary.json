@@ -1,0 +1,466 @@
+{
+  "summary_schema": "h3c_rationale_contract_mz_hydro_7day_result",
+  "schema_version": 1,
+  "generated_date": "2026-08-28",
+  "branch": "codex/h3c-rationale-hydro-20260828",
+  "task_starting_commit": "80060d3d1549cba5e71da895a7bb5a589c45db38",
+  "historical_source_commit": "8a58a84c7e82e3dd48b0e72cf065033c895edcd0",
+  "implementation_source_commit": "8cbf352f48536969f401d8f76cf394fcd580dc5f",
+  "contract": {
+    "scope": [
+      "orchestrator rationale_per_zone",
+      "executor patch rationale"
+    ],
+    "old_character_limit": 240,
+    "new_acceptance": "nonempty_string_without_method_character_limit",
+    "preservation": "full_raw_and_parsed",
+    "length_decision_use": "none",
+    "provider_output_token_boundary_changed": false,
+    "reflector_contract_changed": false,
+    "strict_fail_closed_surfaces_changed": false,
+    "historical_evidence_rewritten": false
+  },
+  "offline_gate": {
+    "replay_fixture_count": 11,
+    "replay_fixture_sha256": "fdd1514ee566ad696025571fc4cc7a2ca0eb2fc0b85d33c472e41ec19af04dce",
+    "replay_roles": {
+      "orchestrator": 6,
+      "executor": 5
+    },
+    "pytest_passed": 217,
+    "fake_physical_passed": 20,
+    "ruff_check": "passed",
+    "ruff_format": "passed",
+    "strict_mypy": "passed",
+    "uv_lock_check": "passed",
+    "prompt_oracle": "verified_zero_calls",
+    "cli_profile_config_secret_scope_passed": 40,
+    "standalone_root": "passed"
+  },
+  "protocol": {
+    "case_profile": "MZ_Hydro",
+    "testcase": "multizone_office_simple_hydronic",
+    "evaluation_start_day": 220,
+    "control_step_seconds": 900,
+    "server_warmup_days": 7,
+    "vanilla_conditioning_days": 7,
+    "formal_evaluation_days": 7,
+    "formal_evaluation_hours": 168,
+    "formal_evaluation_steps": 672,
+    "vanilla_occupied_setpoint_c": 25.0,
+    "vanilla_unoccupied_setpoint_c": 30.0,
+    "physical_endpoint_identity": "e79d0b65276c07c71c85449933f964fb160753a704d54eada6f7bd682b7b27da",
+    "conditioning_prefix_identity": "b834786a4e5cf680e28899ee830ea2dab720b3877963a4695e566759c843101c",
+    "evaluation_boundary_identity": "6880d6479e603e5c203a0b5e82dedaa30fe158c57d7404917a599493c43ec3df",
+    "conditioning_record_count": 672,
+    "conditioning_streams_equal_except_test_id": true,
+    "first_evaluation_physical_record_equal": true,
+    "physical_initialization_time_seconds": 18403200,
+    "physical_evaluation_boundary_time_seconds": 19008000,
+    "physical_stop_time_seconds": 19612800
+  },
+  "focused_smoke": {
+    "run_id": "20260827T231121516097Z-d34ff11f3aca",
+    "run_path": "H3C/outputs/runs/release-6h/MZ_Hydro/20260827T231121516097Z-d34ff11f3aca",
+    "control_path": "H3C/outputs/runs/.control/focused-mz-hydro-smoke-20260827T231118825Z",
+    "launcher_supervisor_pid": 15472,
+    "worker_lock_pid": null,
+    "worker_lock_pid_reason": "not separately persisted at startup",
+    "classification": "RELEASE-PASS",
+    "passed": true,
+    "execution_integrity": true,
+    "model_contract_clean": true,
+    "elapsed_seconds": 104.734221,
+    "evaluation_hours": 6,
+    "logical_calls": 24,
+    "wire_attempts": 24,
+    "calls_by_role": {
+      "orchestrator": 6,
+      "executor": 12,
+      "reflector": 6
+    },
+    "calls_by_route": {
+      "disabled": 24,
+      "low": 0
+    },
+    "retry_count": 0,
+    "fallback_count": 0,
+    "terminal_transport_failures": 0,
+    "usage": {
+      "prompt_tokens": 53519,
+      "completion_tokens": 2282,
+      "total_tokens": 55801,
+      "reasoning_tokens": 0,
+      "cache_hit_tokens": 26624,
+      "cache_miss_tokens": 26895,
+      "estimated_cost_usd": 0.0044788072,
+      "estimated_cost_cny": 0.03199148
+    },
+    "latency_seconds": {
+      "total": 28.7459615,
+      "mean": 1.1977484,
+      "maximum": 1.8356725
+    },
+    "physical": {
+      "total_cost": 0.4753329863,
+      "energy_kwh": 3.44944112,
+      "discomfort_zone_hours": 0.0,
+      "discomfort_pmv_hours": 0.0,
+      "occupied_peak_absolute_pmv": 0.0
+    },
+    "rationale_telemetry": {
+      "decision_use": "none",
+      "executor_count": 12,
+      "executor_total_characters": 3135,
+      "executor_maximum_character_length": 287,
+      "orchestrator_zone_count": 12,
+      "orchestrator_total_characters": 2010,
+      "orchestrator_maximum_character_length": 176,
+      "raw_parsed_preservation": true
+    }
+  },
+  "formal_baseline": {
+    "controller": "deterministic_baseline",
+    "run_id": "20260827T231553926586Z-ebaf1f6d2f43",
+    "run_identity": "ebaf1f6d2f43ea1cf1c169b9c02bdbd8b3ea1844537e750b4a9b4461e970c863",
+    "run_path": "H3C/outputs/runs/main/MZ_Hydro/20260827T231553926586Z-ebaf1f6d2f43",
+    "control_path": "H3C/outputs/runs/.control/formal-mz-hydro-baseline-20260827T231551362Z",
+    "test_id": "3fc0dea1-05a7-4d85-874b-95ade02b2386",
+    "launcher_supervisor_pid": 6132,
+    "execution_worker_pid": 14396,
+    "wall_start_local": "2026-08-28T07:15:51+08:00",
+    "wall_finish_local": "2026-08-28T07:18:19+08:00",
+    "completion_elapsed_seconds": 145.0547155000022,
+    "classification": "RELEASE-PASS",
+    "passed": true,
+    "execution_integrity": true,
+    "model_contract_clean": true,
+    "logical_calls": 0,
+    "wire_attempts": 0,
+    "usage_total_tokens": 0,
+    "estimated_cost_usd": 0.0,
+    "estimated_cost_cny": 0.0,
+    "physical": {
+      "total_cost": 123.5308800533741,
+      "energy_kwh": 808.6990851878021,
+      "discomfort_zone_hours": 0.0,
+      "discomfort_pmv_hours": 0.0,
+      "occupied_peak_absolute_pmv": 0.47,
+      "reward": -186.17958556506116,
+      "evaluation_steps": 672
+    },
+    "setpoint_dynamics": {
+      "total_variation_c": 100.6,
+      "direction_reversals": 20,
+      "occupied_comfort_band_crossings": 0
+    },
+    "assurance": {
+      "trigger_count": 0,
+      "adjustment_magnitude_c": 0.0
+    }
+  },
+  "formal_agent": {
+    "controller": "h3c_agent",
+    "run_id": "20260827T232744965507Z-2b5dd8e99955",
+    "run_identity": "2b5dd8e999550163dfe8aa8c83f9780568b2fb1361381d149d40c4cf6fc29cad",
+    "run_path": "H3C/outputs/runs/main/MZ_Hydro/20260827T232744965507Z-2b5dd8e99955",
+    "control_path": "H3C/outputs/runs/.control/formal-mz-hydro-agent-20260827T232742366Z",
+    "test_id": "8af8b5d7-7c4e-485b-8e8c-fad82faf6407",
+    "process_chain": {
+      "supervisor_pid": 15756,
+      "cli_interpreter_pid": 25328,
+      "execution_lock_holder_pid": 8472
+    },
+    "wall_start_local": "2026-08-28T07:27:42+08:00",
+    "wall_finish_local": "2026-08-28T10:34:14+08:00",
+    "wall_elapsed_approx_seconds": 11192,
+    "model": "deepseek-v4-flash",
+    "model_endpoint_identity": "a34e2a4708ed1c61008a151688838dcf1c44d4e7f08054633e72ba7c0b16cfc1",
+    "thinking_policy": "occupancy_routed",
+    "sampling": {
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "thinking_reasoning_effort": "low"
+    },
+    "classification": "RUN-INVALID",
+    "passed": false,
+    "completion_eligible": false,
+    "completion_json_present": false,
+    "execution_integrity": false,
+    "model_contract_clean": false,
+    "failed_checks": [
+      "fallback_count_zero",
+      "json_schema",
+      "rationale_persistence",
+      "role_contract_audit"
+    ],
+    "all_other_verification_checks_passed": true,
+    "logical_calls": 672,
+    "wire_attempts": 674,
+    "confirmed_responses": 672,
+    "calls_by_role": {
+      "orchestrator": 168,
+      "executor": 336,
+      "reflector": 168
+    },
+    "calls_by_route": {
+      "disabled": 412,
+      "low": 260
+    },
+    "transport": {
+      "retry_count": 2,
+      "failed_attempt_count": 2,
+      "recovered_logical_call_count": 2,
+      "terminal_failed_logical_call_count": 0,
+      "unknown_provider_charge_attempt_count": 2,
+      "first_attempt_errors": "ConnectionResetError"
+    },
+    "usage": {
+      "prompt_tokens": 1665233,
+      "completion_tokens": 1116375,
+      "reasoning_tokens": 1011606,
+      "total_tokens": 2781608,
+      "cache_hit_tokens": 849792,
+      "cache_miss_tokens": 815441,
+      "price_book": "project-fixed-v1",
+      "estimated_cost_usd": 0.42912615760000006,
+      "estimated_cost_cny": 3.06518684
+    },
+    "latency_seconds": {
+      "total": 10070.588579100004,
+      "mean": 14.985994909375005,
+      "maximum": 121.94966719999502,
+      "by_route": {
+        "disabled": {
+          "count": 412,
+          "total": 626.967692,
+          "mean": 1.521766,
+          "maximum": 3.418643
+        },
+        "low": {
+          "count": 260,
+          "total": 9443.620887,
+          "mean": 36.321619,
+          "maximum": 121.949667
+        }
+      },
+      "by_role": {
+        "orchestrator": {
+          "count": 168,
+          "total": 2755.779805,
+          "mean": 16.403451,
+          "maximum": 79.695081
+        },
+        "executor": {
+          "count": 336,
+          "total": 6392.104755,
+          "mean": 19.024121,
+          "maximum": 121.949667
+        },
+        "reflector": {
+          "count": 168,
+          "total": 922.704019,
+          "mean": 5.492286,
+          "maximum": 35.027313
+        }
+      }
+    },
+    "physical": {
+      "total_cost": 112.54821690201179,
+      "energy_kwh": 734.3622402240401,
+      "discomfort_zone_hours": 4.75,
+      "discomfort_pmv_hours": 0.16500000000000004,
+      "occupied_peak_absolute_pmv": 0.59,
+      "reward": -173.6204040555177,
+      "evaluation_steps": 672
+    },
+    "setpoint_dynamics": {
+      "total_variation_c": 131.90000000000003,
+      "direction_reversals": 80,
+      "occupied_comfort_band_crossings": 36
+    },
+    "assurance": {
+      "trigger_count": 0,
+      "adjustment_magnitude_c": 0.0
+    },
+    "program_decisions": {
+      "no_change": 195,
+      "accepted": 32,
+      "genuine_control_rejected": 32,
+      "model_output_schema_rejected": 77,
+      "accepted_operation_counts": {
+        "add_rule": 6,
+        "remove_rule": 2,
+        "replace_rule": 8,
+        "set_param": 16
+      },
+      "accepted_zone_counts": {
+        "NZ": 16,
+        "SZ": 16
+      },
+      "rejection_code_counts": {
+        "missing_weather_driver_edge": 10,
+        "irrelevant_edge": 1,
+        "program_direction_undetermined": 16,
+        "out_of_box": 3,
+        "semantic_noop": 2,
+        "model_output_schema_rejected": 77,
+        "energy_budget_exhausted": 0
+      },
+      "validation_stage_counts": {
+        "program_validation": 254,
+        "causal_admissibility": 227,
+        "consistent_program_direction_proof": 227,
+        "energy_budget_validation": 227
+      }
+    },
+    "orchestration": {
+      "hours": 168,
+      "fallback_hours": 1,
+      "granted_c_total": 333.75,
+      "used_c_total": 3.95,
+      "mean_utilisation": 0.01226027397260274
+    },
+    "schema_failures": {
+      "orchestrator_extra_allocation_contract_root": 1,
+      "executor_multiple_patch_operations": 71,
+      "executor_unknown_id_field": 6,
+      "rationale_length_caused_failure": 0
+    },
+    "rationale_telemetry": {
+      "decision_use": "none",
+      "executor_valid_count": 259,
+      "executor_total_characters": 91944,
+      "executor_maximum_character_length": 632,
+      "executor_over_240_count": 232,
+      "orchestrator_valid_call_count": 167,
+      "orchestrator_zone_rationale_count": 334,
+      "orchestrator_total_characters": 122909,
+      "orchestrator_maximum_character_length": 720,
+      "orchestrator_over_240_count": 332,
+      "raw_agent_call_identity_count": 672,
+      "raw_agent_call_identity_mismatch_count": 0,
+      "executor_raw_parsed_mismatch_count": 0,
+      "orchestrator_raw_parsed_mismatch_count": 0,
+      "accepted_rationale_truncation_count": 0
+    }
+  },
+  "comparison": {
+    "agent_minus_baseline": {
+      "total_cost": -10.9826631513623,
+      "total_cost_percent": -8.89062163777756,
+      "energy_kwh": -74.336844963762,
+      "energy_percent": -9.19215148444232,
+      "discomfort_zone_hours": 4.75,
+      "discomfort_pmv_hours": 0.16500000000000004,
+      "occupied_peak_absolute_pmv": 0.12,
+      "occupied_peak_absolute_pmv_percent": 25.531914893617,
+      "setpoint_total_variation_c": 31.3,
+      "setpoint_total_variation_percent": 31.1133200795229,
+      "direction_reversals": 60,
+      "occupied_comfort_band_crossings": 36,
+      "reward": 12.5591815095435
+    },
+    "method_classification": "RUN-INVALID",
+    "g1_established": false,
+    "interpretation": "descriptive cost and energy savings accompanied by worse comfort, greater setpoint activity, and strict model-contract failure"
+  },
+  "post_run_verification": {
+    "authoritative_result": "inline production verification written with the completed run",
+    "inline_verification_local_write_time": "2026-08-28T10:34:13+08:00",
+    "redundant_full_replay_started": true,
+    "duplicate_invocation_interrupted": true,
+    "original_replay_cpu_active_before_stop": true,
+    "user_cancelled_redundant_replay": true,
+    "cancel_local_time": "2026-08-28T12:02:00+08:00",
+    "redundant_replay_wrote_result": false,
+    "raw_experiment_artifacts_changed": false
+  },
+  "artifacts": [
+    {
+      "path": "H3C/outputs/runs/release-6h/MZ_Hydro/20260827T231121516097Z-d34ff11f3aca/manifest.json",
+      "sha256": "26c4afd3b624467095345f344e6f9b382ccde7f67a3242d9a521c19d1ed73bec",
+      "bytes": 754
+    },
+    {
+      "path": "H3C/outputs/runs/release-6h/MZ_Hydro/20260827T231121516097Z-d34ff11f3aca/metrics.json",
+      "sha256": "511fa6e331c37c3957777569dedbdfc88c1c15ea1fbf7d07dfd24b31f4803934",
+      "bytes": 2159
+    },
+    {
+      "path": "H3C/outputs/runs/release-6h/MZ_Hydro/20260827T231121516097Z-d34ff11f3aca/verification.json",
+      "sha256": "0985de93eab99adadeee6d0e59c5a691c36b0f511aa8a243037042fab84c5e43",
+      "bytes": 963
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T231553926586Z-ebaf1f6d2f43/performance.csv",
+      "sha256": "afb5e3934b7a66fd583b569e1ebe4ff8e15a160a74962211638b79f928fd3a54",
+      "bytes": 97064
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T231553926586Z-ebaf1f6d2f43/verification.json",
+      "sha256": "0985de93eab99adadeee6d0e59c5a691c36b0f511aa8a243037042fab84c5e43",
+      "bytes": 963
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T232744965507Z-2b5dd8e99955/performance.csv",
+      "sha256": "eb9ad52280e6a221bfd63352e5e3ba1c7675a04e51f68a64d49759cba27e7bea",
+      "bytes": 96721
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T232744965507Z-2b5dd8e99955/raw_model_io.jsonl",
+      "sha256": "13063f447eb169456bdb73a691b0625a990bdcee8dbe8ed56da75a7de49b9e7a",
+      "bytes": 7015499
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T232744965507Z-2b5dd8e99955/agent_calls.jsonl",
+      "sha256": "d44b6fb1bf03a4a5cad98bab938533ee7731614249798844adaf3eaa6405dff6",
+      "bytes": 552708
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T232744965507Z-2b5dd8e99955/program_updates.jsonl",
+      "sha256": "58ac72b30c20858712129e076999568389687606a6a9360044f01ba2ad60207a",
+      "bytes": 494949
+    },
+    {
+      "path": "H3C/outputs/runs/main/MZ_Hydro/20260827T232744965507Z-2b5dd8e99955/verification.json",
+      "sha256": "986906bb1b3afac19f7a54c54e877ccc30bc3c76467dc5d4e4574aa2f5b60465",
+      "bytes": 1126
+    },
+    {
+      "path": "H3C/docs/figures/gen_fig_mz_hydro_7day_timeseries.js",
+      "sha256": "aba5b74fad66e59a8be1c73a3ce286a5d41460628d774f320af05e72cd43af86",
+      "bytes": 13012
+    },
+    {
+      "path": "H3C/docs/figures/fig_mz_hydro_7day_timeseries.svg",
+      "sha256": "1f3d775112299f891461e5ec805f9caf94384fc4b088649cf4ff8b4566739fd0",
+      "bytes": 98387
+    },
+    {
+      "path": "H3C/docs/figures/fig_mz_hydro_7day_timeseries.pdf",
+      "sha256": "31b826190802dbf6ffc77464e801f663aa0cfcf8da123a9f6f7f430e29dbeaa9",
+      "bytes": 416377
+    },
+    {
+      "path": "H3C/docs/figures/fig_mz_hydro_7day_timeseries.png",
+      "sha256": "e8395f56d9186e4bdf2e39e2a6116b041ff4a7f7bccffbeb8cecef87fba400e4",
+      "bytes": 252653
+    }
+  ],
+  "limitations": [
+    "one fresh trajectory per arm is not a run-to-run variance estimate",
+    "Agent physical metrics are descriptive because production classification is RUN-INVALID",
+    "two recovered failed wire attempts have unknown provider charge",
+    "natural-language rationale does not alone establish structured causal provenance",
+    "a user-cancelled redundant post-run replay did not replace the completed inline production verification"
+  ],
+  "prohibited_followups_per_task": [
+    "rerun",
+    "additional smoke",
+    "three-case formal suite",
+    "other experiment or ablation",
+    "Revision1 or paper edit",
+    "push"
+  ]
+}

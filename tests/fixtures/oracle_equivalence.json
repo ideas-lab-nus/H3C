@@ -1,0 +1,223 @@
+{
+  "source_head": "ca272196891a90b2a8e26b7b7a12e3508882b670",
+  "system_prompts": {
+    "orchestrator": {"length": 1398, "sha256": "26100a021584f8f9762593a2a9d257e9bf4acb03316552430d56549c03221c75"},
+    "executor": {"length": 2465, "sha256": "b8487fcdd9365c2097d8b06c8f6fa54880693880b00d0e02284e4929539c2440"},
+    "reflector": {"length": 971, "sha256": "a8ed483ed6f8d0e00c5614bd777bda049eca1931e6ae1795fe1f9ae14bcba52e"}
+  },
+  "historical_rationale_replay": {
+    "path": "tests/fixtures/overlong_rationale_replay.json",
+    "source_commit": "8a58a84c7e82e3dd48b0e72cf065033c895edcd0",
+    "case_count": 11,
+    "sha256": "fdd1514ee566ad696025571fc4cc7a2ca0eb2fc0b85d33c472e41ec19af04dce"
+  },
+  "canonical_program_hash": "148991b618bd78876809d302dfbcf3b2564abb5dd76b40327e4181f49b773ba8",
+  "interpreter": [
+    {
+      "observation": {"current_occupancy": 0, "last_occupancy": 0, "last_pmv": 0.0, "last_setpoint": 30.0, "occ_ahead": [0, 0, 0, 0]},
+      "expected": {"setpoint": 30.0, "base_setpoint": 30.0, "base": 30.0, "residual": 0.0, "matched_rule": "unoccupied_hold", "exempt_rate": true, "semantic_branch": "unoccupied"}
+    },
+    {
+      "observation": {"current_occupancy": 0, "last_occupancy": 0, "last_pmv": 0.0, "last_setpoint": 30.0, "occ_ahead": [0, 0, 0, 1]},
+      "expected": {"setpoint": 25.0, "base_setpoint": 30.0, "base": 30.0, "residual": -5.0, "matched_rule": "precool", "exempt_rate": true, "semantic_branch": "preconditioning"}
+    },
+    {
+      "observation": {"current_occupancy": 1, "last_occupancy": 0, "last_pmv": 0.2, "last_setpoint": 25.0, "occ_ahead": [1, 1, 1, 1]},
+      "expected": {"setpoint": 25.3, "base_setpoint": 25.0, "base": 25.0, "residual": 0.3000000000000007, "matched_rule": "pmv_raise", "exempt_rate": false, "semantic_branch": "occupancy_onset_occupied_pmv_raise"}
+    },
+    {
+      "observation": {"current_occupancy": 1, "last_occupancy": 1, "last_pmv": 0.2, "last_setpoint": 25.0, "occ_ahead": [1, 1, 1, 1]},
+      "expected": {"setpoint": 25.3, "base_setpoint": 25.0, "base": 25.0, "residual": 0.3000000000000007, "matched_rule": "pmv_raise", "exempt_rate": false, "semantic_branch": "occupied_pmv_raise"}
+    },
+    {
+      "observation": {"current_occupancy": 1, "last_occupancy": 1, "last_pmv": 0.5, "last_setpoint": 25.0, "occ_ahead": [1, 1, 1, 1]},
+      "expected": {"setpoint": 24.7, "base_setpoint": 25.0, "base": 25.0, "residual": -0.3000000000000007, "matched_rule": "pmv_lower", "exempt_rate": false, "semantic_branch": "occupied_pmv_lower"}
+    },
+    {
+      "observation": {"current_occupancy": 1, "last_occupancy": 1, "last_pmv": 0.4, "last_setpoint": 26.0, "occ_ahead": [1, 1, 1, 1]},
+      "expected": {"setpoint": 26.0, "base_setpoint": 25.0, "base": 26.0, "residual": 1.0, "matched_rule": "occupied_hold", "exempt_rate": false, "semantic_branch": "occupied_pmv_in_band"}
+    }
+  ],
+  "case_profiles": {
+    "SZ_Air": {
+      "testcase": "bestest_air",
+      "evaluation_start_day": 203,
+      "zones": ["zone1"],
+      "mapping_sha256": "4cf593002cf1b0f596fa6a4dda917d4df58bf5d8643394863acf5441f7f1d85d",
+      "static_controls_sha256": "c980bccda9084cf28e6f8bfc700d51b424d9bf378415f08a864927c9ec53df6c",
+      "action_at_24c_sha256": "8660d24b3796d67a13eebfe33e46f7b427e0bd26afe52c2ddf7d72f91f5affb4",
+      "occupancy_sha256": "15d2f093b056ce286d650c0f1604eabdfb13e3b49a2b7e048a40d24fa84e51b2",
+      "objective_sha256": "7f9c751089bbba23f48b2ea9aecc2e986af2c7556672b08ed92c3b1a7ab7eaec"
+    },
+    "MZ_Hydro": {
+      "testcase": "multizone_office_simple_hydronic",
+      "evaluation_start_day": 220,
+      "zones": ["NZ", "SZ"],
+      "mapping_sha256": "5d5e4887a2c5bbcdddf8cda356787dfddb7b5c569e7f3e611e3eeadf0ce8cdd5",
+      "static_controls_sha256": "4958eb63e1f933c8708977d04915157d99be3b87686ca3bd9df22d167b063b4b",
+      "action_at_24c_sha256": "0ccdd3674414edb458c5f64ee7516c84dfdef41782a436eb2ea2c37191dbe5cf",
+      "occupancy_sha256": "7e181492e6203cfc2bf3e1ac15a62be76f82ab857f17fef901a168a17119345c",
+      "objective_sha256": "741c74c6ea2185afb2b5dd3748494b89f5748559de43c6bbf5118d3f126c757a"
+    },
+    "MZ_Air": {
+      "testcase": "multizone_office_simple_air",
+      "evaluation_start_day": 199,
+      "zones": ["cor", "eas", "nor", "sou", "wes"],
+      "mapping_sha256": "1a56f7d0e79bb217a18a7301deaaba9751e19850ae6b5353d843adfc5a8c05a6",
+      "static_controls_sha256": "b8942751da69dbfd317d6c82bfc0587b5336cd5c9c94f64a3424ce390d0d3f10",
+      "action_at_24c_sha256": "afd0a80f6f311f0dec71ffb3d39e4b5159e66bc785ef240a58a8957353e951a0",
+      "occupancy_sha256": "4b0ef377cd7195f16452155826e190385e4ac0ea24d7f48f0546b87646966f2a",
+      "objective_sha256": "ad492c1754caddbb7667bb608da87328c5b6648ff75a6713c9f55c15ba57b1fd"
+    }
+  },
+  "accepted_program_update": {
+    "initial_hash": "148991b618bd78876809d302dfbcf3b2564abb5dd76b40327e4181f49b773ba8",
+    "patch": {"op": "set_param", "param": "pmv_band_hi", "to": 0.4, "rationale": "fixture"},
+    "step": 4,
+    "version_before": 0,
+    "version_after": 1,
+    "program_hash_after": "9f2b6c157da545bd3a6e19355a4f3f39128d1a0af41ea8c22fd960af2f7453ba",
+    "current_program": {
+      "params": {
+        "pmv_band_hi": 0.4,
+        "pmv_band_lo": 0.3,
+        "pmv_step_c": 0.3,
+        "precool_lead_steps": 4,
+        "precool_residual_c": -5.0
+      },
+      "rule_ids": ["precool", "pmv_raise", "pmv_lower", "anchor", "occupied_hold", "unoccupied_hold"]
+    },
+    "history_view": [{"operation": "set_param", "step": 4, "target": "pmv_band_hi", "value": 0.4}]
+  },
+  "causal_program_admission": {
+    "source_program_hash": "c6a6eb47fe9604da24d7233969c4cb1e2d9630e49b91db8b0b938d99845dda7c",
+    "input_patch": {
+      "causal_edge_ids": ["ce_ebd13728"],
+      "op": "set_param",
+      "param": "precool_residual_c",
+      "rationale": "this increases power_meters",
+      "to": -5.0
+    },
+    "accepted": true,
+    "completed_causal_edge_ids": ["ce_ebd13728", "ce_660795c7"],
+    "expected_effects": [
+      {"direction": "up", "node": "power_meters"},
+      {"direction": "down", "node": "zone_temp"}
+    ],
+    "program_direction": "down",
+    "direction_values": [-1],
+    "energy_intensive_movement_c": 1.0,
+    "candidate_program_hash": "148991b618bd78876809d302dfbcf3b2564abb5dd76b40327e4181f49b773ba8"
+  },
+  "energy_budget": {
+    "before": {"remaining_c": 5.0, "site_residual_c": 0.0, "priority_rank": 1},
+    "accepted": true,
+    "after": {"remaining_c": 4.0, "site_residual_c": 0.0, "priority_rank": 1},
+    "utilisation": {
+      "granted_c": 5.0,
+      "used_c": 1.0,
+      "utilisation": 0.2,
+      "site_cap_c": 5.0,
+      "residual_left_c": 0.0,
+      "residual_used_by": {}
+    }
+  },
+  "action_assurance": [
+    {
+      "name": "rate_limit",
+      "proposal": {"setpoint": 27.0, "base": 25.0, "exempt_rate": false},
+      "observation": {"last_setpoint": 25.0, "last_pmv": 0.1, "current_occupancy": 1, "last_occupancy": 1},
+      "expected": {
+        "final_setpoint": 26.0,
+        "comfort_recovery_triggered": false,
+        "comfort_recovery_reason": null,
+        "comfort_recovery_output_setpoint": 27.0,
+        "setpoint_rate_limit_triggered": true,
+        "setpoint_rate_limit_delta_before_c": 2.0,
+        "setpoint_rate_limit_output_setpoint": 26.0,
+        "actuator_bounds_triggered": false,
+        "actuator_bound": null
+      }
+    },
+    {
+      "name": "comfort_recovery",
+      "proposal": {"setpoint": 29.0, "base": 25.0, "exempt_rate": false},
+      "observation": {"last_setpoint": 28.0, "last_pmv": 0.8, "current_occupancy": 1, "last_occupancy": 1},
+      "expected": {
+        "final_setpoint": 25.0,
+        "comfort_recovery_triggered": true,
+        "comfort_recovery_reason": "occupied_hot_pmv_reset",
+        "comfort_recovery_output_setpoint": 25.0,
+        "setpoint_rate_limit_triggered": false,
+        "setpoint_rate_limit_delta_before_c": 0.0,
+        "setpoint_rate_limit_output_setpoint": 29.0,
+        "actuator_bounds_triggered": false,
+        "actuator_bound": null
+      }
+    },
+    {
+      "name": "actuator_bounds",
+      "proposal": {"setpoint": 35.0, "base": 30.0, "exempt_rate": true},
+      "observation": {"last_setpoint": 30.0, "last_pmv": 0.1, "current_occupancy": 1, "last_occupancy": 1},
+      "expected": {
+        "final_setpoint": 30.0,
+        "comfort_recovery_triggered": false,
+        "comfort_recovery_reason": null,
+        "comfort_recovery_output_setpoint": 35.0,
+        "setpoint_rate_limit_triggered": false,
+        "setpoint_rate_limit_delta_before_c": 5.0,
+        "setpoint_rate_limit_output_setpoint": 35.0,
+        "actuator_bounds_triggered": true,
+        "actuator_bound": "upper"
+      }
+    },
+    {
+      "name": "rate_then_bounds",
+      "proposal": {"setpoint": 35.0, "base": 30.0, "exempt_rate": false},
+      "observation": {"last_setpoint": 30.0, "last_pmv": 0.1, "current_occupancy": 1, "last_occupancy": 1},
+      "expected": {
+        "final_setpoint": 30.0,
+        "comfort_recovery_triggered": false,
+        "comfort_recovery_reason": null,
+        "comfort_recovery_output_setpoint": 35.0,
+        "setpoint_rate_limit_triggered": true,
+        "setpoint_rate_limit_delta_before_c": 5.0,
+        "setpoint_rate_limit_output_setpoint": 31.0,
+        "actuator_bounds_triggered": true,
+        "actuator_bound": "upper"
+      }
+    }
+  ],
+  "weather": {
+    "outdoor_temperature_kelvin": [293.15, 294.15, 295.15, 296.15, 297.15],
+    "solar_irradiance": [0.0, 100.0, 200.0, 300.0, 400.0],
+    "expected": {
+      "outdoor_temp_change_next_1h_c": 4.0,
+      "solar_irr_max_next_1h_w_m2": 400.0,
+      "solar_irr_mean_next_1h_w_m2": 250.0,
+      "weather_next_steps": [
+        {"step_ahead": 1, "outdoor_temp_c": 21.0, "solar_irr": 100.0},
+        {"step_ahead": 2, "outdoor_temp_c": 22.0, "solar_irr": 200.0},
+        {"step_ahead": 3, "outdoor_temp_c": 23.0, "solar_irr": 300.0},
+        {"step_ahead": 4, "outdoor_temp_c": 24.0, "solar_irr": 400.0}
+      ]
+    }
+  },
+  "metrics": {
+    "input": {
+      "cost": [0.1, 0.2, 0.3, 0.4],
+      "power_w": [100.0, 200.0, 300.0, 400.0],
+      "reward": [-1.0, -2.0, -3.0, -4.0],
+      "pmv": [[0.4, -0.7], [0.6, 0.2], [-0.8, 0.9], [0.5, 0.51]],
+      "occupancy": [[1, 0], [1, 1], [1, 1], [0, 1]]
+    },
+    "expected": {
+      "total_cost": 1.0,
+      "energy_kwh": 0.25,
+      "reward": -10.0,
+      "discomfort_zone_hours": 1.0,
+      "discomfort_pmv_hours": 0.2025,
+      "rows": 4
+    }
+  }
+}

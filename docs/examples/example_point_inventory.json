@@ -1,0 +1,12 @@
+{
+  "points": [
+    "office_temperature_y",
+    "office_cooling_setpoint_u",
+    "office_occupancy_y",
+    "outdoor_temperature_y",
+    "global_solar_y",
+    "electricity_price_y",
+    "cooling_power_y",
+    "fan_power_y"
+  ]
+}

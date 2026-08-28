@@ -1,0 +1,192 @@
+{
+  "input_schema": "h3c_legacy_dynamic_prompt_representative_input",
+  "schema_version": 1,
+  "options": {
+    "causal_config": {"enabled": true},
+    "causal_reference_mode": "stable_id",
+    "input_efficiency_config": {"prompt_packing": "stable_prefix", "executor_history": "full"},
+    "input_extensions_config": {
+      "future_weather": true,
+      "future_weather_summaries": true,
+      "weather_dsl_conditions": true,
+      "action_only_replace_rule": false,
+      "rule_local_step_guidance": false,
+      "orchestrator_rationale_to_executor": false
+    },
+    "orchestration_config": {"site_budget_fraction": 0.5},
+    "coordination_mode_config": "orchestrated_budgeted"
+  },
+  "program": {
+    "program_id": "canonical_cooling_program",
+    "spec_version": 2,
+    "precool_trigger": "rolling",
+    "params": {
+      "precool_lead_steps": 4,
+      "precool_residual_c": -5.0,
+      "pmv_band_lo": 0.3,
+      "pmv_band_hi": 0.45,
+      "pmv_step_c": 0.3
+    },
+    "rules": [
+      {"id": "precool", "when": [{"field": "occupied_now", "op": "==", "value": 0}, {"field": "precool_due", "op": "==", "value": 1}], "then": {"op": "set_residual", "value": {"param": "precool_residual_c"}}},
+      {"id": "pmv_raise", "when": [{"field": "occupied_now", "op": "==", "value": 1}, {"field": "last_pmv", "op": "<", "value": {"param": "pmv_band_lo"}}], "then": {"op": "step_setpoint", "value": {"param": "pmv_step_c"}}},
+      {"id": "pmv_lower", "when": [{"field": "occupied_now", "op": "==", "value": 1}, {"field": "last_pmv", "op": ">", "value": {"param": "pmv_band_hi"}}], "then": {"op": "step_setpoint", "value": {"neg_param": "pmv_step_c"}}},
+      {"id": "anchor", "when": [{"field": "occupied_now", "op": "==", "value": 1}, {"field": "occupied_last", "op": "==", "value": 0}], "then": {"op": "set_residual", "value": 0.0}},
+      {"id": "occupied_hold", "when": [{"field": "occupied_now", "op": "==", "value": 1}], "then": {"op": "hold_setpoint"}},
+      {"id": "unoccupied_hold", "when": [{"field": "occupied_now", "op": "==", "value": 0}], "then": {"op": "set_residual", "value": 0.0}}
+    ]
+  },
+  "orchestrator": {
+    "hour": 1,
+    "zones": ["NZ", "SZ"],
+    "site_nodes": {
+      "outdoor_temp_c": 25.0,
+      "solar_irr": 200.0,
+      "price_now": 0.1,
+      "price_next_hour": 0.12,
+      "outdoor_temp_change_next_1h_c": 1.2,
+      "solar_irr_max_next_1h_w_m2": 420.0,
+      "solar_irr_mean_next_1h_w_m2": 315.0,
+      "weather_next_steps": [
+        {"step_ahead": 1, "outdoor_temp_c": 25.3, "solar_irr": 255.0},
+        {"step_ahead": 2, "outdoor_temp_c": 25.6, "solar_irr": 310.0},
+        {"step_ahead": 3, "outdoor_temp_c": 25.9, "solar_irr": 365.0},
+        {"step_ahead": 4, "outdoor_temp_c": 26.2, "solar_irr": 420.0}
+      ]
+    },
+    "zone_coupling": {
+      "NZ": {
+        "current_setpoint_c": 25.0,
+        "last_pmv": 0.1,
+        "current_occupancy": 1.0,
+        "next_hour_occupancy": 1.0,
+        "temp_targets": {"precool_residual_c": -5.0},
+        "comfort_headroom_c": {"warmer_c": 1.2, "cooler_c": 2.5},
+        "granted_c": 1.0,
+        "used_c": 0.2
+      },
+      "SZ": {
+        "current_setpoint_c": 25.3,
+        "last_pmv": 0.2,
+        "current_occupancy": 1.0,
+        "next_hour_occupancy": 0.0,
+        "temp_targets": {"precool_residual_c": -5.0}
+      }
+    },
+    "site_edges": [
+      {"id": "ce_5a968228", "source": "solar_irr", "relation": "Positive Corr", "target": "power_meters", "tags": ["Delayed", "Weak Impact"], "undirected": false}
+    ],
+    "previous_allocation": {
+      "site_cap_c": 5.0,
+      "zone_budgets_c": {"NZ": 2.0, "SZ": 2.0},
+      "priority": ["NZ", "SZ"],
+      "rationale_per_zone": {"NZ": "prior", "SZ": "prior"},
+      "causal_edge_ids": ["ce_5a968228"]
+    },
+    "previous_utilisation": {
+      "granted_c": 4.0,
+      "used_c": 0.2,
+      "utilisation": 0.05,
+      "site_cap_c": 5.0,
+      "residual_initial_c": 1.0,
+      "residual_left_c": 1.0,
+      "residual_used_by": {}
+    },
+    "budget_box": {"per_zone_max_c": 5.0, "site_max_c": 5.0, "site_budget_fraction": 0.5},
+    "working_memory": [
+      {"hour": 0, "zone": "NZ", "program_version": 0, "applied_patch_ids": [], "mean_residual_c": 0.15, "mean_setpoint_c": 25.15, "mean_pmv": 0.1, "cost": 0.12, "zone_h": 0.0, "pmv_h": 0.0},
+      {"hour": 0, "zone": "SZ", "program_version": 0, "applied_patch_ids": [], "mean_residual_c": 0.15, "mean_setpoint_c": 25.15, "mean_pmv": 0.1, "cost": 0.12, "zone_h": 0.0, "pmv_h": 0.0}
+    ]
+  },
+  "executor": {
+    "zone": "NZ",
+    "step": 4,
+    "observations": {
+      "current_occupancy": 1.0,
+      "last_occupancy": 1.0,
+      "occupancy_next_steps": [1.0, 1.0, 1.0, 1.0],
+      "zone_temp_c": 24.0,
+      "last_pmv": 0.1,
+      "last_setpoint_c": 25.0,
+      "outdoor_temp_c": 25.0,
+      "solar_irr": 200.0,
+      "price_now": 0.1,
+      "comfort_headroom_c": {"warmer_c": 1.2, "cooler_c": 2.5},
+      "outdoor_temp_change_next_1h_c": 1.2,
+      "solar_irr_max_next_1h_w_m2": 420.0,
+      "solar_irr_mean_next_1h_w_m2": 315.0,
+      "weather_next_steps": [
+        {"step_ahead": 1, "outdoor_temp_c": 25.3, "solar_irr": 255.0},
+        {"step_ahead": 2, "outdoor_temp_c": 25.6, "solar_irr": 310.0},
+        {"step_ahead": 3, "outdoor_temp_c": 25.9, "solar_irr": 365.0},
+        {"step_ahead": 4, "outdoor_temp_c": 26.2, "solar_irr": 420.0}
+      ]
+    },
+    "budget": {"remaining_c": 2.0, "site_residual_c": 1.0, "priority_rank": 1},
+    "edges": [
+      {"id": "ce_fc68b8f7", "source": "solar_irr", "relation": "Positive Corr", "target": "zone_temp", "tags": ["Immediate", "Strong Impact"], "undirected": false},
+      {"id": "ce_660795c7", "source": "cooling_setpoint", "relation": "Negative Corr", "target": "power_meters", "tags": ["Immediate", "Strong Impact"], "undirected": false}
+    ],
+    "working_memory": [
+      {
+        "time": {"step": 0, "hour": 0},
+        "scope": {"zone": "NZ"},
+        "proposal": {"op": "no_change", "rationale": "hold"},
+        "validation": {"accepted": false, "rejected": false, "shield": {"branch": "normal", "proposed": 25.0, "setpoint": 25.0, "s1": false, "s2": false, "s3": false}, "matched_rule": "occupied_hold"},
+        "observation": {"current_occupancy": 1.0, "last_occupancy": 1.0, "last_pmv": 0.1, "last_setpoint": 25.0, "zone_temp_before_action_c": 24.0, "next_hour_occupancy": 1.0},
+        "outcome": {"residual": 0.0, "final_setpoint": 25.0, "measured": {"zone_temp": 24.0, "pmv": 0.1, "cost": 0.03, "zone_h": 0.0, "pmv_h": 0.0, "occupancy": 1.0}},
+        "program": {"version": 0},
+        "executor_called": true
+      },
+      {
+        "time": {"step": 1, "hour": 0},
+        "scope": {"zone": "NZ"},
+        "proposal": {"status": "not_called", "program_source_step": 0},
+        "validation": {"accepted": false, "rejected": false, "shield": {"branch": "normal", "proposed": 25.0, "setpoint": 25.0, "s1": false, "s2": false, "s3": false}, "matched_rule": "occupied_hold"},
+        "observation": {"current_occupancy": 1.0, "last_occupancy": 1.0, "last_pmv": 0.1, "last_setpoint": 25.0, "zone_temp_before_action_c": 24.0, "next_hour_occupancy": 1.0},
+        "outcome": {"residual": 0.0, "final_setpoint": 25.0, "measured": {"zone_temp": 24.0, "pmv": 0.1, "cost": 0.03, "zone_h": 0.0, "pmv_h": 0.0, "occupancy": 1.0}},
+        "program": {"version": 0},
+        "executor_called": false
+      },
+      {
+        "time": {"step": 2, "hour": 0},
+        "scope": {"zone": "NZ"},
+        "proposal": {"status": "not_called", "program_source_step": 0},
+        "validation": {"accepted": false, "rejected": false, "shield": {"branch": "normal", "proposed": 25.0, "setpoint": 25.0, "s1": false, "s2": false, "s3": false}, "matched_rule": "occupied_hold"},
+        "observation": {"current_occupancy": 1.0, "last_occupancy": 1.0, "last_pmv": 0.1, "last_setpoint": 25.0, "zone_temp_before_action_c": 24.0, "next_hour_occupancy": 1.0},
+        "outcome": {"residual": 0.0, "final_setpoint": 25.0, "measured": {"zone_temp": 24.0, "pmv": 0.1, "cost": 0.03, "zone_h": 0.0, "pmv_h": 0.0, "occupancy": 1.0}},
+        "program": {"version": 0},
+        "executor_called": false
+      },
+      {
+        "time": {"step": 3, "hour": 0},
+        "scope": {"zone": "NZ"},
+        "proposal": {"status": "not_called", "program_source_step": 0},
+        "validation": {"accepted": false, "rejected": false, "shield": {"branch": "normal", "proposed": 25.0, "setpoint": 25.0, "s1": false, "s2": false, "s3": false}, "matched_rule": "occupied_hold"},
+        "observation": {"current_occupancy": 1.0, "last_occupancy": 1.0, "last_pmv": 0.1, "last_setpoint": 25.0, "zone_temp_before_action_c": 24.0, "next_hour_occupancy": 1.0},
+        "outcome": {"residual": 0.0, "final_setpoint": 25.0, "measured": {"zone_temp": 24.0, "pmv": 0.1, "cost": 0.03, "zone_h": 0.0, "pmv_h": 0.0, "occupancy": 1.0}},
+        "program": {"version": 0},
+        "executor_called": false
+      }
+    ],
+    "recent_outcome_summary": {"covered_steps": 4, "mean_cost": 0.03, "first_last_cost_difference": 0.0, "mean_pmv": 0.1, "pmv_range": [0.1, 0.1], "accepted_edits": 0},
+    "repair_info": {"code": "prior_rejection", "message": "previous proposal was rejected"},
+    "program_version": 0,
+    "accepted_history": []
+  },
+  "reflector": {
+    "zones": ["NZ", "SZ"],
+    "hour": 1,
+    "current_hour_results": {
+      "frames": [
+        {"hour": 0, "zone": "NZ", "program_version": 0, "applied_patch_ids": [], "mean_residual_c": 0.15, "mean_setpoint_c": 25.15, "mean_pmv": 0.1, "cost": 0.12, "zone_h": 0.0, "pmv_h": 0.0},
+        {"hour": 0, "zone": "SZ", "program_version": 0, "applied_patch_ids": [], "mean_residual_c": 0.15, "mean_setpoint_c": 25.15, "mean_pmv": 0.1, "cost": 0.12, "zone_h": 0.0, "pmv_h": 0.0}
+      ],
+      "applied_patches": null
+    },
+    "working_memory": [
+      {"hour": 0, "zone": "NZ", "program_version": 0, "applied_patch_ids": [], "mean_residual_c": 0.15, "mean_setpoint_c": 25.15, "mean_pmv": 0.1, "cost": 0.12, "zone_h": 0.0, "pmv_h": 0.0},
+      {"hour": 0, "zone": "SZ", "program_version": 0, "applied_patch_ids": [], "mean_residual_c": 0.15, "mean_setpoint_c": 25.15, "mean_pmv": 0.1, "cost": 0.12, "zone_h": 0.0, "pmv_h": 0.0}
+    ]
+  }
+}

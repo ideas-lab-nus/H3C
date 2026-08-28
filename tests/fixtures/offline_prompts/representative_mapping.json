@@ -1,0 +1,19 @@
+{
+  "mapping_schema": "h3c_semantic_mapping",
+  "schema_version": 1,
+  "case_id": "ExampleCooling",
+  "zones": {
+    "office": {
+      "description": "Office zone",
+      "temperature_sensor": "office_temperature_y",
+      "cooling_setpoint_actuator": "office_cooling_setpoint_u",
+      "occupancy_forecast": "office_occupancy_y"
+    }
+  },
+  "global_inputs": {
+    "outdoor_temperature": "outdoor_temperature_y",
+    "solar_irradiance": "global_solar_y",
+    "electricity_price": "electricity_price_y",
+    "power_meters": ["cooling_power_y", "fan_power_y"]
+  }
+}

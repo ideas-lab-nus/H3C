@@ -1,0 +1,96 @@
+"""Single owner for Agent-facing JSON contracts."""
+
+from __future__ import annotations
+
+import copy
+from collections.abc import Mapping
+from typing import Any
+
+PATCH_OPERATIONS = (
+    "set_param",
+    "add_rule",
+    "replace_rule",
+    "remove_rule",
+    "move_rule",
+    "no_change",
+)
+
+_PATCH_CONTRACT: dict[str, Any] = {
+    "root": {"required": ["patch"], "patch": "list with exactly one operation"},
+    "operations": {
+        "no_change": {"required": ["op", "rationale"], "optional": []},
+        "set_param": {
+            "required": ["op", "param", "to", "causal_edge_ids", "rationale"],
+            "optional": [],
+        },
+        "add_rule": {
+            "required": ["op", "rule", "causal_edge_ids", "rationale"],
+            "optional": ["index"],
+        },
+        "replace_rule": {
+            "required": ["op", "rule", "causal_edge_ids", "rationale"],
+            "optional": [],
+        },
+        "remove_rule": {
+            "required": ["op", "id", "causal_edge_ids", "rationale"],
+            "optional": [],
+        },
+        "move_rule": {
+            "required": ["op", "id", "to_index", "causal_edge_ids", "rationale"],
+            "optional": [],
+        },
+    },
+    "rule": {
+        "required": ["id", "when", "then"],
+        "when_item": {"required": ["field", "op", "value"]},
+        "then": {"required": ["op"], "value_for": ["set_residual", "step_setpoint"]},
+    },
+    "causal_edge_ids": "stable IDs from the supplied structured edge objects",
+    "rationale": "nonempty string",
+}
+
+
+def rationale_length_telemetry(role: str, rationales: Mapping[str, str]) -> dict[str, Any]:
+    """Report rationale character lengths without influencing any decision."""
+    if role not in {"orchestrator", "executor"}:
+        raise ValueError("rationale telemetry role is invalid")
+    if (
+        not isinstance(rationales, Mapping)
+        or not rationales
+        or any(
+            not isinstance(scope, str)
+            or not scope
+            or not isinstance(value, str)
+            or not value.strip()
+            for scope, value in rationales.items()
+        )
+    ):
+        raise ValueError("rationale telemetry requires nonempty string values")
+    lengths = {scope: len(value) for scope, value in rationales.items()}
+    return {
+        "telemetry_schema": "h3c_rationale_length_telemetry",
+        "schema_version": 1,
+        "role": role,
+        "character_lengths": lengths,
+        "maximum_character_length": max(lengths.values()),
+        "decision_use": "none",
+    }
+
+
+def patch_contract(*, causal_enabled: bool = True) -> dict[str, Any]:
+    """Return the exact public patch contract for one causal mode."""
+    view = copy.deepcopy(_PATCH_CONTRACT)
+    if not causal_enabled:
+        for operation in view["operations"].values():
+            operation["required"] = [
+                field for field in operation["required"] if field != "causal_edge_ids"
+            ]
+        view.pop("causal_edge_ids")
+    return view
+
+
+def allocation_contract(*, causal_enabled: bool = True) -> tuple[str, ...]:
+    fields = ["site_cap_c", "zone_budgets_c", "priority", "rationale_per_zone"]
+    if causal_enabled:
+        fields.append("causal_edge_ids")
+    return tuple(fields)

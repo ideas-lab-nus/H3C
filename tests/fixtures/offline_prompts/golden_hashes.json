@@ -1,0 +1,28 @@
+{
+  "schema": "h3c_offline_prompt_golden",
+  "version": 1,
+  "mapping_system": {
+    "bytes": 298,
+    "sha256": "1d172b41ce0093ccf74256f358809e5e98f450f47d88776b9158c6d6e0905496"
+  },
+  "mapping_user_initial": {
+    "bytes": 2953,
+    "sha256": "e1164ad5646126ed7c46f411d63df759a3d3e98ca8fb21c7227267cd4d66fb98"
+  },
+  "mapping_user_revision": {
+    "bytes": 3785,
+    "sha256": "851cc7751155b1a1d964b643bc59bd1ed1c88dbc3c7e1a151406954569f0c126"
+  },
+  "causal_system": {
+    "bytes": 968,
+    "sha256": "ad8186cea8bfaa4d2d94f01ac7cc6f648ea7095ef1c1f115172e392bf4057371"
+  },
+  "causal_user_initial": {
+    "bytes": 2775,
+    "sha256": "1d8f0d14294098c22007259ceb3c395a150296e87c354f93c6614d4c689cc2f4"
+  },
+  "causal_user_revision": {
+    "bytes": 3581,
+    "sha256": "4528f4380b80e092116e4e4b6e7d1a3c24e09d55d26c9d049a090c27acc2c6b4"
+  }
+}

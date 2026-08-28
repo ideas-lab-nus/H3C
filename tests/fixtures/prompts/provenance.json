@@ -1,0 +1,46 @@
+{
+  "fixture_schema": "h3c_dynamic_user_prompt_oracle",
+  "schema_version": 2,
+  "oracle_source_commit": "ca272196891a90b2a8e26b7b7a12e3508882b670",
+  "oracle_owners": {
+    "orchestrator_dynamic_prompt_builder": {
+      "legacy_source_path": "Revision1/Phase2.5_Scripts/agents_v25/agent_b_orchestrator.py",
+      "source_blob_sha256": "6f97826cd3a2f4cc1bbca06b95eb2dc413552d56e1abf73cf743cd42bf48d9bc"
+    },
+    "executor_dynamic_prompt_builder": {
+      "legacy_source_path": "Revision1/Phase2.5_Scripts/agents_v25/agent_b_executor.py",
+      "source_blob_sha256": "e746bd929342ca706b88b9f89da9cfdf0dc5c426bb976d0fceb4ea8ffebc2ff0"
+    },
+    "reflector_dynamic_prompt_builder": {
+      "legacy_source_path": "Revision1/Phase2.5_Scripts/agents_v25/agent_c_reflector.py",
+      "source_blob_sha256": "33bf134cce7236388ca9a7b6fa962d46d59b455be9c63548053d150db4a0015f"
+    },
+    "role_request_and_schema_owner": {
+      "legacy_source_path": "Revision1/Phase2.5_Scripts/agents_v25/llm_io.py",
+      "source_blob_sha256": "f8a3b96ea3901e5880b990923eb5672e5f4d0cabe346098bc3c10e3d6ab75059"
+    },
+    "dynamic_prompt_vocabulary_owner": {
+      "legacy_source_path": "Revision1/Phase2.5_Scripts/prompt_terms.py",
+      "source_blob_sha256": "eafacf0f18724db107c4d994a9e434e4ab07c8373d3563ed16ce65ba4bfd11a4"
+    }
+  },
+  "representative_input": {
+    "path": "tests/fixtures/prompts/representative_input.json",
+    "canonical_json_sha256": "6a41028d6f34db17f146d6d7fe964a3c8f48a310622b9c84c67909a2392adbb6",
+    "canonical_length_bytes": 8201
+  },
+  "fixtures": {
+    "orchestrator_old.txt": {
+      "length": 3688,
+      "sha256": "7804488e02eaee21bae6c56b318fcd22b1757e966bf7dfac01f15220a3dd99b7"
+    },
+    "executor_old.txt": {
+      "length": 8034,
+      "sha256": "9113794906eeca9c8e72d503234d4c4c4788399b5fc3461fa77c1a3f539182db"
+    },
+    "reflector_old.txt": {
+      "length": 1251,
+      "sha256": "3640397c92a9d4e2f742b43753f894461fa68ef4bd459ebc7ec8a720f8aa98dc"
+    }
+  }
+}

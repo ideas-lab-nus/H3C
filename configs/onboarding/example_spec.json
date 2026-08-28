@@ -1,0 +1,40 @@
+{
+  "onboarding_schema": "h3c_offline_onboarding",
+  "schema_version": 1,
+  "case_id": "ExampleCooling",
+  "building_document": "docs/examples/example_building_points.md",
+  "point_inventory": "docs/examples/example_point_inventory.json",
+  "case_profile_template": "configs/onboarding/example_case_profile_template.json",
+  "requirements": {
+    "observations": [
+      "zone_temperature",
+      "occupancy_forecast",
+      "outdoor_temperature_forecast",
+      "solar_irradiance_forecast",
+      "electricity_price_forecast",
+      "power_meters"
+    ],
+    "actuators": ["cooling_setpoint"]
+  },
+  "evidence_sources": [
+    {
+      "id": "case_manual",
+      "path": "docs/examples/example_building_points.md"
+    },
+    {
+      "id": "physics_note",
+      "path": "docs/examples/example_causal_source.md"
+    }
+  ],
+  "provider": {
+    "kind": "openai_compatible",
+    "endpoint_env": "H3C_OFFLINE_MODEL_ENDPOINT",
+    "api_key_env": "H3C_OFFLINE_MODEL_API_KEY",
+    "model_env": "H3C_OFFLINE_MODEL_ID",
+    "supports_reasoning_effort_low": true
+  },
+  "limits": {
+    "mapping_model_calls": 3,
+    "causal_model_calls": 3
+  }
+}

@@ -1,0 +1,565 @@
+"""HTTP clients with bounded model-only transient connection recovery."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import http.client
+import json
+import math
+import socket
+import ssl
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from h3c.agents.prompts import Role
+
+
+class TransportError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        error_type: str = "transport_contract_error",
+        provider_response_received: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.error_type = error_type
+        self.provider_response_received = provider_response_received
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def model_request_identity(request_contract: Mapping[str, Any]) -> str:
+    """Return a secret-free identity for the exact serialized model request body."""
+    return hashlib.sha256(model_request_body(request_contract).encode("utf-8")).hexdigest()
+
+
+def model_request_body(request_contract: Mapping[str, Any]) -> str:
+    """Serialize the exact secret-free model request body sent on the wire."""
+    return json.dumps(request_contract, allow_nan=False)
+
+
+def model_request_contract(
+    *,
+    model: str,
+    system: str,
+    user: str,
+    thinking_mode: str,
+) -> dict[str, Any]:
+    """Build the one exact OpenAI-compatible request body used on every attempt."""
+    if thinking_mode not in {"low", "disabled"}:
+        raise ValueError("thinking mode must be low or disabled")
+    contract: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "response_format": {"type": "json_object"},
+        "thinking": {"type": "enabled" if thinking_mode == "low" else "disabled"},
+    }
+    if thinking_mode == "low":
+        contract["reasoning_effort"] = "low"
+    else:
+        contract.update({"temperature": 0.0, "top_p": 1.0})
+    return contract
+
+
+def _request_body(payload: Mapping[str, Any]) -> bytes:
+    return model_request_body(payload).encode("utf-8")
+
+
+def model_logical_call_identity(
+    context: Mapping[str, Any],
+    role: str,
+    thinking_mode: str,
+    request_identity: str,
+) -> str:
+    """Bind one logical call to its runtime surface and immutable request body."""
+    return hashlib.sha256(
+        _canonical(
+            {
+                "context": dict(context),
+                "role": role,
+                "thinking_mode": thinking_mode,
+                "request_identity": request_identity,
+            }
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _connection_failure(error: BaseException) -> tuple[bool, str]:
+    cause: BaseException | object = error
+    if isinstance(error, urllib.error.URLError):
+        cause = error.reason
+    retryable = isinstance(
+        cause,
+        (
+            ConnectionResetError,
+            ConnectionAbortedError,
+            BrokenPipeError,
+            TimeoutError,
+            socket.gaierror,
+            http.client.IncompleteRead,
+            ssl.SSLEOFError,
+            ssl.SSLZeroReturnError,
+        ),
+    )
+    return retryable, type(cause).__name__
+
+
+def _request_json(
+    method: str,
+    url: str,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout_seconds: float = 600.0,
+    response_json_required: bool = True,
+) -> dict[str, Any]:
+    body = None if payload is None else _request_body(payload)
+    request_headers = dict(headers or {})
+    if payload is not None:
+        request_headers.setdefault("Content-Type", "application/json")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers=request_headers,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            try:
+                raw = response.read().decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise TransportError(
+                    f"endpoint returned non-UTF-8 text for {url}",
+                    error_type="response_text_invalid",
+                    provider_response_received=True,
+                ) from error
+            if response.status != 200:
+                raise TransportError(
+                    f"HTTP {response.status} from {url}",
+                    error_type=f"http_{response.status}",
+                    provider_response_received=True,
+                )
+    except urllib.error.HTTPError as error:
+        raise TransportError(
+            f"HTTP {error.code} from {url}",
+            error_type=f"http_{error.code}",
+            provider_response_received=True,
+        ) from error
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as error:
+        retryable, error_type = _connection_failure(error)
+        raise TransportError(
+            f"request failed for {url}: {error_type}",
+            retryable=retryable,
+            error_type=error_type,
+        ) from error
+    try:
+        value = json.loads(raw) if raw else {}
+    except json.JSONDecodeError as error:
+        if not response_json_required:
+            return {}
+        raise TransportError(
+            f"endpoint returned invalid JSON for {url}",
+            error_type="response_json_invalid",
+            provider_response_received=True,
+        ) from error
+    if not isinstance(value, dict):
+        raise TransportError(
+            f"endpoint returned a non-object for {url}",
+            error_type="response_json_non_object",
+            provider_response_received=True,
+        )
+    return value
+
+
+class BoptestHttpClient:
+    def __init__(self, endpoint: str) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.test_id: str | None = None
+        self.testcase: str | None = None
+
+    def initialize(
+        self, testcase: str, start_time_seconds: int, warmup_period_seconds: int
+    ) -> dict[str, Any]:
+        selected = _request_json("POST", f"{self.endpoint}/testcases/{testcase}/select")
+        test_id = selected.get("testid")
+        if not isinstance(test_id, str) or not test_id:
+            raise TransportError("BOPTEST select did not return a test id")
+        self.test_id = test_id
+        self.testcase = testcase
+        _request_json(
+            "PUT",
+            f"{self.endpoint}/scenario/{test_id}",
+            payload={"electricity_price": "dynamic"},
+        )
+        _request_json("PUT", f"{self.endpoint}/step/{test_id}", payload={"step": 900})
+        initialized = _request_json(
+            "PUT",
+            f"{self.endpoint}/initialize/{test_id}",
+            payload={
+                "start_time": start_time_seconds,
+                "warmup_period": warmup_period_seconds,
+            },
+        )
+        state = initialized.get("payload")
+        if not isinstance(state, dict):
+            raise TransportError("BOPTEST initialize payload is invalid")
+        return state
+
+    def forecast(
+        self, points: Sequence[str], horizon_seconds: int, interval_seconds: int
+    ) -> dict[str, list[float | None]]:
+        if self.test_id is None:
+            raise TransportError("BOPTEST forecast requested before initialize")
+        response = _request_json(
+            "PUT",
+            f"{self.endpoint}/forecast/{self.test_id}",
+            payload={
+                "point_names": list(points),
+                "horizon": horizon_seconds,
+                "interval": interval_seconds,
+            },
+        )
+        payload = response.get("payload")
+        if not isinstance(payload, dict):
+            raise TransportError("BOPTEST forecast payload is invalid")
+        forecast: dict[str, list[float | None]] = {}
+        for raw_point, raw_values in payload.items():
+            point = str(raw_point)
+            if not isinstance(raw_values, list):
+                raise TransportError(f"BOPTEST forecast point {point} is not a list")
+            values: list[float | None] = []
+            for index, value in enumerate(raw_values):
+                if value is None:
+                    values.append(None)
+                    continue
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                ):
+                    raise TransportError(
+                        f"BOPTEST forecast point {point} at index {index} is not a finite number"
+                    )
+                values.append(float(value))
+            forecast[point] = values
+        return forecast
+
+    def advance(self, controls: Mapping[str, float]) -> dict[str, Any]:
+        if self.test_id is None:
+            raise TransportError("BOPTEST advance requested before initialize")
+        response = _request_json(
+            "POST", f"{self.endpoint}/advance/{self.test_id}", payload=controls
+        )
+        state = response.get("payload")
+        if not isinstance(state, dict):
+            raise TransportError("BOPTEST advance payload is invalid")
+        return state
+
+    def stop(self) -> None:
+        if self.test_id is None:
+            raise TransportError("BOPTEST stop requested without a live test id")
+        _request_json(
+            "PUT",
+            f"{self.endpoint}/stop/{self.test_id}",
+            response_json_required=False,
+        )
+        self.test_id = None
+
+
+CallSink = Callable[[str, Mapping[str, Any]], None]
+
+
+@dataclass
+class OpenAICompatibleModelClient:
+    endpoint: str
+    api_key: str
+    model: str
+    sink: CallSink
+    retry_count_limit: int
+    retry_backoff_seconds: tuple[float, ...]
+    context: Mapping[str, Any] | None = None
+    retry_count: int = 0
+
+    def set_context(self, **context: Any) -> None:
+        self.context = context
+
+    async def complete(
+        self,
+        *,
+        role: Role,
+        system: str,
+        user: str,
+        thinking_mode: str,
+    ) -> str:
+        if self.retry_count_limit < 0 or len(self.retry_backoff_seconds) != self.retry_count_limit:
+            raise ValueError("model retry configuration is invalid")
+        request_contract = model_request_contract(
+            model=self.model,
+            system=system,
+            user=user,
+            thinking_mode=thinking_mode,
+        )
+        context = dict(self.context or {})
+        request_identity = model_request_identity(request_contract)
+        request_body = model_request_body(request_contract)
+        logical_call_identity = model_logical_call_identity(
+            context,
+            role,
+            thinking_mode,
+            request_identity,
+        )
+        logical_started = time.perf_counter()
+        response: dict[str, Any] | None = None
+        choice: Mapping[str, Any] | None = None
+        content: str | None = None
+        maximum_attempts = self.retry_count_limit + 1
+        for attempt_number in range(1, maximum_attempts + 1):
+            attempt_started = time.perf_counter()
+            try:
+                candidate = await asyncio.to_thread(
+                    _request_json,
+                    "POST",
+                    f"{self.endpoint}/chat/completions",
+                    payload=request_contract,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                raw_choice = candidate["choices"][0]
+                message = raw_choice["message"]
+                raw_content = message["content"] or ""
+                if not isinstance(raw_choice, Mapping) or not isinstance(raw_content, str):
+                    raise TransportError(
+                        "model response contract is invalid",
+                        error_type="model_response_contract_invalid",
+                        provider_response_received=True,
+                    )
+                response = candidate
+                choice = raw_choice
+                content = raw_content
+            except (KeyError, IndexError, TypeError) as error:
+                failure = TransportError(
+                    "model response contract is invalid",
+                    error_type="model_response_contract_invalid",
+                    provider_response_received=True,
+                )
+                self._record_attempt(
+                    context=context,
+                    role=role,
+                    thinking_mode=thinking_mode,
+                    request_identity=request_identity,
+                    request_body=request_body,
+                    logical_call_identity=logical_call_identity,
+                    attempt_number=attempt_number,
+                    maximum_attempts=maximum_attempts,
+                    outcome="request_failed",
+                    retryable=False,
+                    will_retry=False,
+                    error_type=failure.error_type,
+                    provider_charge_status="response_received_usage_unavailable",
+                    elapsed_seconds=time.perf_counter() - attempt_started,
+                )
+                raise failure from error
+            except TransportError as error:
+                will_retry = error.retryable and attempt_number < maximum_attempts
+                self._record_attempt(
+                    context=context,
+                    role=role,
+                    thinking_mode=thinking_mode,
+                    request_identity=request_identity,
+                    request_body=request_body,
+                    logical_call_identity=logical_call_identity,
+                    attempt_number=attempt_number,
+                    maximum_attempts=maximum_attempts,
+                    outcome="request_failed",
+                    retryable=error.retryable,
+                    will_retry=will_retry,
+                    error_type=error.error_type,
+                    provider_charge_status=(
+                        "response_received_usage_unavailable"
+                        if error.provider_response_received
+                        else "unknown_after_request_failure"
+                    ),
+                    elapsed_seconds=time.perf_counter() - attempt_started,
+                )
+                if not will_retry:
+                    raise
+                self.retry_count += 1
+                await asyncio.sleep(self.retry_backoff_seconds[attempt_number - 1])
+                continue
+            self._record_attempt(
+                context=context,
+                role=role,
+                thinking_mode=thinking_mode,
+                request_identity=request_identity,
+                request_body=request_body,
+                logical_call_identity=logical_call_identity,
+                attempt_number=attempt_number,
+                maximum_attempts=maximum_attempts,
+                outcome="response_received",
+                retryable=False,
+                will_retry=False,
+                error_type=None,
+                provider_charge_status="confirmed_response_usage_recorded",
+                elapsed_seconds=time.perf_counter() - attempt_started,
+            )
+            break
+        if response is None or choice is None or content is None:
+            raise AssertionError("model retry loop exited without a response or error")
+        elapsed = time.perf_counter() - logical_started
+        usage = normalized_usage(response.get("usage"))
+        common = {
+            **context,
+            "role": role,
+            "thinking_mode": thinking_mode,
+            "logical_call_identity": logical_call_identity,
+            "request_identity": request_identity,
+            "attempt_count": attempt_number,
+            "transport_retry_count": attempt_number - 1,
+            "request_model": self.model,
+            "response_model": response.get("model"),
+            "finish_reason": choice.get("finish_reason"),
+            "usage": usage,
+            "provider_usage": response.get("usage"),
+            "elapsed_seconds": elapsed,
+        }
+        self.sink("agent_calls.jsonl", {**common, "status": "received"})
+        self.sink(
+            "raw_model_io.jsonl",
+            {
+                **common,
+                "system": system,
+                "user": user,
+                "output": content,
+                "request_parameters": {
+                    key: value for key, value in request_contract.items() if key != "messages"
+                },
+            },
+        )
+        return content
+
+    def _record_attempt(
+        self,
+        *,
+        context: Mapping[str, Any],
+        role: Role,
+        thinking_mode: str,
+        request_identity: str,
+        request_body: str,
+        logical_call_identity: str,
+        attempt_number: int,
+        maximum_attempts: int,
+        outcome: str,
+        retryable: bool,
+        will_retry: bool,
+        error_type: str | None,
+        provider_charge_status: str,
+        elapsed_seconds: float,
+    ) -> None:
+        self.sink(
+            "model_request_attempts.jsonl",
+            {
+                **dict(context),
+                "role": role,
+                "thinking_mode": thinking_mode,
+                "request_model": self.model,
+                "logical_call_identity": logical_call_identity,
+                "request_identity": request_identity,
+                "request_body": request_body,
+                "attempt_number": attempt_number,
+                "maximum_attempts": maximum_attempts,
+                "outcome": outcome,
+                "retryable": retryable,
+                "will_retry": will_retry,
+                "error_type": error_type,
+                "provider_charge_status": provider_charge_status,
+                "elapsed_seconds": elapsed_seconds,
+            },
+        )
+
+
+def _usage_integer(value: Any) -> int | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or value < 0
+        or int(value) != value
+    ):
+        return None
+    return int(value)
+
+
+def normalized_usage(raw: Any) -> dict[str, Any]:
+    """Normalize provider usage to one explicit, internally consistent contract."""
+    if not isinstance(raw, Mapping):
+        return {"available": False, "reason": "provider_usage_not_an_object"}
+    prompt_details = raw.get("prompt_tokens_details") or raw.get("input_tokens_details") or {}
+    completion_details = (
+        raw.get("completion_tokens_details") or raw.get("output_tokens_details") or {}
+    )
+    if not isinstance(prompt_details, Mapping):
+        prompt_details = {}
+    if not isinstance(completion_details, Mapping):
+        completion_details = {}
+
+    def first(*names: str) -> int | None:
+        for name in names:
+            if name in raw:
+                return _usage_integer(raw[name])
+        return None
+
+    prompt = first("prompt_tokens", "input_tokens")
+    completion = first("completion_tokens", "output_tokens")
+    total = first("total_tokens")
+    cache_hit = first(
+        "prompt_cache_hit_tokens",
+        "cache_hit_tokens",
+        "cached_tokens",
+        "cache_read_input_tokens",
+    )
+    if cache_hit is None:
+        cache_hit = _usage_integer(prompt_details.get("cached_tokens"))
+    cache_miss = first("prompt_cache_miss_tokens", "cache_miss_tokens", "cache_miss_input_tokens")
+    if cache_miss is None and prompt is not None and cache_hit is not None:
+        cache_miss = prompt - cache_hit
+    reasoning = _usage_integer(completion_details.get("reasoning_tokens"))
+    if reasoning is None:
+        reasoning = first("reasoning_tokens")
+    reasoning = 0 if reasoning is None else reasoning
+    fields = {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        "cache_hit_tokens": cache_hit,
+        "cache_miss_tokens": cache_miss,
+        "reasoning_tokens": reasoning,
+    }
+    missing = sorted(name for name, value in fields.items() if value is None)
+    if missing:
+        return {"available": False, "reason": "usage_fields_unavailable", "missing": missing}
+    resolved = {name: int(value) for name, value in fields.items() if value is not None}
+    if resolved["cache_hit_tokens"] + resolved["cache_miss_tokens"] != resolved["prompt_tokens"]:
+        return {"available": False, "reason": "cache_accounting_mismatch"}
+    if resolved["prompt_tokens"] + resolved["completion_tokens"] != resolved["total_tokens"]:
+        return {"available": False, "reason": "total_accounting_mismatch"}
+    if resolved["reasoning_tokens"] > resolved["completion_tokens"]:
+        return {"available": False, "reason": "reasoning_accounting_mismatch"}
+    return {"available": True, **resolved}

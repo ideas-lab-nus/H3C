@@ -1,0 +1,18 @@
+
+### WHAT SOME OF THE FIELD NAMES MEAN
+mean_pmv -- the mean PMV recorded for the represented observations; it does not establish a comfort judgment or a target
+mean_residual_c -- the mean residual value recorded for the represented observations; it does not establish a control direction or target
+pmv_h -- how far comfort went past the band, summed over the time it was past. Sizes excursions; not when they happened
+program_version -- the program-version label recorded with a result; it does not establish result quality or control suitability
+zone_h -- how long comfort spent outside the band. Counts time, not depth
+
+### CURRENT HOUR RESULTS
+```json
+{"frames":[{"hour":0,"zone":"NZ","program_version":0,"mean_residual_c":0.15,"mean_setpoint_c":25.15,"mean_pmv":0.1,"cost":0.12,"zone_h":0.0,"pmv_h":0.0},{"hour":0,"zone":"SZ","program_version":0,"mean_residual_c":0.15,"mean_setpoint_c":25.15,"mean_pmv":0.1,"cost":0.12,"zone_h":0.0,"pmv_h":0.0}]}
+```
+
+### WORKING MEMORY
+| hour | zone | program_version | mean_residual_c | mean_setpoint_c | mean_pmv | cost | zone_h | pmv_h |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | "NZ" | 0 | 0.15 | 25.15 | 0.1 | 0.12 | 0.0 | 0.0 |
+| 0 | "SZ" | 0 | 0.15 | 25.15 | 0.1 | 0.12 | 0.0 | 0.0 |

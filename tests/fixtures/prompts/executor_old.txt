@@ -1,0 +1,62 @@
+
+### CURRENT EXECUTABLE PROGRAM P_h
+```json
+{"program_version":0,"params":{"precool_lead_steps":4,"precool_residual_c":-5.0,"pmv_band_lo":0.3,"pmv_band_hi":0.45,"pmv_step_c":0.3},"rules":[{"id":"precool","when":[{"field":"occupied_now","op":"==","value":0},{"field":"precool_due","op":"==","value":1}],"then":{"op":"set_residual","value":{"param":"precool_residual_c"}}},{"id":"pmv_raise","when":[{"field":"occupied_now","op":"==","value":1},{"field":"last_pmv","op":"<","value":{"param":"pmv_band_lo"}}],"then":{"op":"step_setpoint","value":{"param":"pmv_step_c"}}},{"id":"pmv_lower","when":[{"field":"occupied_now","op":"==","value":1},{"field":"last_pmv","op":">","value":{"param":"pmv_band_hi"}}],"then":{"op":"step_setpoint","value":{"neg_param":"pmv_step_c"}}},{"id":"anchor","when":[{"field":"occupied_now","op":"==","value":1},{"field":"occupied_last","op":"==","value":0}],"then":{"op":"set_residual","value":0.0}},{"id":"occupied_hold","when":[{"field":"occupied_now","op":"==","value":1}],"then":{"op":"hold_setpoint"}},{"id":"unoccupied_hold","when":[{"field":"occupied_now","op":"==","value":0}],"then":{"op":"set_residual","value":0.0}}]}
+```
+
+### PARAMETER AND RULE LIMITS
+```json
+{"precool_lead_steps":{"bounds":[0,4],"bounds_come_from":"visible forecast horizon"},"precool_residual_c":{"bounds":[-5.0,5.0],"bounds_come_from":"residual safety bound"},"pmv_band_lo":{"bounds":[-0.5,0.5],"bounds_come_from":"PMV evaluation range"},"pmv_band_hi":{"bounds":[-0.5,0.5],"bounds_come_from":"PMV evaluation range"},"pmv_step_c":{"bounds":[0.0,5.0],"bounds_come_from":"residual safety bound"},"a_rule_you_add":{"conditions_may_test":["last_pmv","occupied_last","occupied_now","outdoor_temp_change_next_1h_c","precool_due","solar_irr_max_next_1h_w_m2","solar_irr_mean_next_1h_w_m2"],"comparisons":["<","<=",">",">=","==","!="],"compared_against":"a number, or the name of a parameter above","actions":["set_residual","step_setpoint","hold_setpoint"],"most_rules_at_once":8},"weather_condition_values":{"must_be":"finite numeric literals","parameter_references":"not allowed"}}
+```
+
+### CAUSAL EVIDENCE
+| id | source | relation | target | tags | undirected |
+| --- | --- | --- | --- | --- | --- |
+| "ce_fc68b8f7" | "solar_irr" | "Positive Corr" | "zone_temp" | "[\"Immediate\",\"Strong Impact\"]" | false |
+| "ce_660795c7" | "cooling_setpoint" | "Negative Corr" | "power_meters" | "[\"Immediate\",\"Strong Impact\"]" | false |
+
+### CONTROL DOMAIN
+```json
+{"domain_id":"cooling","controlled_setpoint":"zone cooling setpoint","unit":"degC","hard_bounds_c":[20.0,30.0],"occupied_base_c":25.0,"unoccupied_base_c":30.0,"pmv_comfort_band":[0.3,0.45],"preconditioning":{"label":"precool","lead_steps":4,"target_c":25.0},"energy_intensive_setpoint_direction":"decrease"}
+```
+
+### WHAT SOME OF THE FIELD NAMES MEAN
+allowance_left_to_you_c -- the remaining cooling-budget amount for this hour's accepted patches, in the supplied budget units. It covers worst-case additional cooling only, not current residual, current setpoint or physical power
+code -- a short label for why a patch was not accepted
+comfort_headroom_c -- how far zone temperature would have to rise, or fall, to reach the band edge. Room in zone temperature, not in the setpoint; the edge of the score, not of what people feel
+mean_pmv -- the mean PMV recorded for the represented observations; it does not establish a comfort judgment or a target
+neg_param -- the name of a numeric parameter whose value is used with the opposite sign; it does not establish which action to take
+outdoor_temp_change_next_1h_c -- outdoor dry-bulb temperature at the fourth future 15-minute step minus the current value, in degrees Celsius; it describes the forecast change and does not prescribe an action
+pmv_h -- how far comfort went past the band, summed over the time it was past. Sizes excursions; not when they happened
+program_version -- the program-version label recorded with a result; it does not establish result quality or control suitability
+solar_irr_max_next_1h_w_m2 -- the maximum forecast solar irradiance over the next four 15-minute steps, in watts per square metre; it describes the forecast magnitude and does not prescribe an action
+solar_irr_mean_next_1h_w_m2 -- the mean forecast solar irradiance over the next four 15-minute steps, in watts per square metre; it describes the forecast magnitude and does not prescribe an action
+zone_h -- how long comfort spent outside the band. Counts time, not depth
+
+### ALLOCATION
+```json
+{"allocation":{"allowance_left_to_you_c":2.0,"group_allowance_not_yet_handed_out_c":1.0,"your_place_in_the_queue_for_the_remainder":1}}
+```
+
+### WORKING MEMORY
+| time | observation | proposal | validation | outcome | program version |
+| --- | --- | --- | --- | --- | --- |
+| {"step":0,"hour":0} | {"current_occupancy":1.0,"last_occupancy":1.0,"last_pmv":0.1,"last_setpoint":25.0,"zone_temp_before_action_c":24.0,"next_hour_occupancy":1.0} | {"op":"no_change","rationale":"hold"} | {"accepted":false,"rejected":false,"shield":{"branch":"normal","proposed":25.0,"setpoint":25.0,"actuator_limit_applied":false,"rate_limit_applied":false,"comfort_interlock_applied":false},"matched_rule":"occupied_hold"} | {"residual":0.0,"final_setpoint":25.0,"measured":{"zone_temp":24.0,"pmv":0.1,"cost":0.03,"zone_h":0.0,"pmv_h":0.0,"occupancy":1.0}} | {"version":0} |
+| {"step":1,"hour":0} | {"current_occupancy":1.0,"last_occupancy":1.0,"last_pmv":0.1,"last_setpoint":25.0,"zone_temp_before_action_c":24.0,"next_hour_occupancy":1.0} | {"status":"not_called","program_source_step":0} | {"accepted":false,"rejected":false,"shield":{"branch":"normal","proposed":25.0,"setpoint":25.0,"actuator_limit_applied":false,"rate_limit_applied":false,"comfort_interlock_applied":false},"matched_rule":"occupied_hold"} | {"residual":0.0,"final_setpoint":25.0,"measured":{"zone_temp":24.0,"pmv":0.1,"cost":0.03,"zone_h":0.0,"pmv_h":0.0,"occupancy":1.0}} | {"version":0} |
+| {"step":2,"hour":0} | {"current_occupancy":1.0,"last_occupancy":1.0,"last_pmv":0.1,"last_setpoint":25.0,"zone_temp_before_action_c":24.0,"next_hour_occupancy":1.0} | {"status":"not_called","program_source_step":0} | {"accepted":false,"rejected":false,"shield":{"branch":"normal","proposed":25.0,"setpoint":25.0,"actuator_limit_applied":false,"rate_limit_applied":false,"comfort_interlock_applied":false},"matched_rule":"occupied_hold"} | {"residual":0.0,"final_setpoint":25.0,"measured":{"zone_temp":24.0,"pmv":0.1,"cost":0.03,"zone_h":0.0,"pmv_h":0.0,"occupancy":1.0}} | {"version":0} |
+| {"step":3,"hour":0} | {"current_occupancy":1.0,"last_occupancy":1.0,"last_pmv":0.1,"last_setpoint":25.0,"zone_temp_before_action_c":24.0,"next_hour_occupancy":1.0} | {"status":"not_called","program_source_step":0} | {"accepted":false,"rejected":false,"shield":{"branch":"normal","proposed":25.0,"setpoint":25.0,"actuator_limit_applied":false,"rate_limit_applied":false,"comfort_interlock_applied":false},"matched_rule":"occupied_hold"} | {"residual":0.0,"final_setpoint":25.0,"measured":{"zone_temp":24.0,"pmv":0.1,"cost":0.03,"zone_h":0.0,"pmv_h":0.0,"occupancy":1.0}} | {"version":0} |
+
+### RECENT OUTCOME SUMMARY
+```json
+{"covered_steps":4,"mean_cost":0.03,"first_last_cost_difference":0.0,"mean_pmv":0.1,"pmv_range":[0.1,0.1],"accepted_edits":0}
+```
+
+### LAST REJECTION
+```json
+{"code":"prior_rejection","message":"previous proposal was rejected"}
+```
+
+### ZONE OBSERVATION
+```json
+{"current_occupancy":1.0,"last_occupancy":1.0,"occupancy_next_steps":[1.0,1.0,1.0,1.0],"zone_temp_c":24.0,"last_pmv":0.1,"last_setpoint_c":25.0,"outdoor_temp_c":25.0,"solar_irr":200.0,"price_now":0.1,"comfort_headroom_c":{"warmer_c":1.2,"cooler_c":2.5},"outdoor_temp_change_next_1h_c":1.2,"solar_irr_max_next_1h_w_m2":420.0,"solar_irr_mean_next_1h_w_m2":315.0,"weather_next_steps":[{"step_ahead":1,"outdoor_temp_c":25.3,"solar_irr":255.0},{"step_ahead":2,"outdoor_temp_c":25.6,"solar_irr":310.0},{"step_ahead":3,"outdoor_temp_c":25.9,"solar_irr":365.0},{"step_ahead":4,"outdoor_temp_c":26.2,"solar_irr":420.0}]}
+```

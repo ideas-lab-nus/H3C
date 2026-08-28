@@ -1,0 +1,1639 @@
+"""Fail-closed run artifact verification."""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import math
+import re
+from pathlib import Path
+from typing import Any
+
+from h3c.agents.contracts import rationale_length_telemetry
+from h3c.agents.roles import (
+    ModelContractError,
+    clean_insight,
+    resolve_executor_model_output,
+    resolve_orchestrator_model_output,
+)
+from h3c.assurance.action import ACTION_ASSURANCE_ORDER, action_assurance
+from h3c.causal.graph import ConfirmedGraph, derive_variant, load_graph, validate_graph
+from h3c.control.budget import (
+    BudgetLedger,
+    allocation_fallback_audit,
+    site_cap_max,
+    validate_allocation,
+    validated_fallback_allocation,
+)
+from h3c.control.program import load_program, program_hash
+from h3c.control.validation import validate_candidate
+from h3c.experiments.matrix import RunPlan
+from h3c.experiments.profiles import load_profile, repository_root
+from h3c.experiments.settings import load_runtime_contract
+from h3c.memory.ledger import ProgramLedger
+from h3c.outputs.artifacts import PERFORMANCE_COLUMNS, STREAM_FILES
+from h3c.outputs.metrics import compute_run_metrics
+from h3c.runtime.clients import (
+    model_logical_call_identity,
+    model_request_body,
+    model_request_contract,
+    model_request_identity,
+    normalized_usage,
+)
+from h3c.runtime.comfort import step_reward
+from h3c.runtime.occupancy import (
+    documented_occupancy_active,
+    effective_count,
+    hourly_route,
+)
+
+
+def _object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path.name} must contain an object")
+    return value
+
+
+def _rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"{path.name}:{line_number} must contain an object")
+        rows.append(value)
+    return rows
+
+
+def _finite_number(value: Any) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+    )
+
+
+def _same_number(left: Any, right: Any) -> bool:
+    return (
+        _finite_number(left)
+        and _finite_number(right)
+        and math.isclose(float(left), float(right), rel_tol=1e-12, abs_tol=1e-12)
+    )
+
+
+def _finite_exact_map(value: Any, keys: set[str]) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == keys
+        and all(_finite_number(item) for item in value.values())
+    )
+
+
+def _occupancy_resolution_evidence(
+    profile: dict[str, Any],
+    method: dict[str, Any],
+    manifest: dict[str, Any],
+    streams: dict[str, list[dict[str, Any]]],
+) -> bool:
+    events = [
+        row
+        for row in streams["timing.jsonl"]
+        if row.get("phase") == "occupancy_forecast_missing_value_resolution"
+    ]
+    count = manifest.get("occupancy_forecast_missing_value_resolution_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count != len(events):
+        return False
+    zones = profile["zones"]
+    policy = profile["occupancy"]
+    resolution = policy.get("missing_value_resolution")
+    if resolution is None and events:
+        return False
+
+    event_keys = {
+        "phase",
+        "forecast_phase",
+        "point",
+        "forecast_index",
+        "time_seconds",
+        "source_value",
+        "documented_occupied",
+        "resolution_rule",
+        "preceding_value",
+        "resolved_value",
+        "documentation_source",
+    }
+    points = {mapping["occupancy_forecast"] for mapping in zones.values()}
+    seen: set[tuple[str, str, int]] = set()
+    for event in events:
+        if set(event) != event_keys or event["point"] not in points:
+            return False
+        phase = event["forecast_phase"]
+        index = event["forecast_index"]
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+            return False
+        if phase == "conditioning":
+            conditioning_steps = int(profile["protocol"]["vanilla_conditioning_days"]) * 24 * 4
+            start = int(profile["evaluation_start_day"]) * 86400 - conditioning_steps * 900
+            maximum_index = conditioning_steps + 96
+        elif phase == "evaluation":
+            start = int(profile["evaluation_start_day"]) * 86400
+            maximum_index = int(method["evaluation_hours"]) * 4 + 96
+        else:
+            return False
+        identity = (phase, event["point"], index)
+        if identity in seen or index > maximum_index:
+            return False
+        seen.add(identity)
+        time_seconds = start + index * 900
+        if (
+            event["time_seconds"] != time_seconds
+            or event["source_value"] is not None
+            or not isinstance(event["documented_occupied"], bool)
+            or resolution is None
+            or event["documentation_source"] != resolution["source"]
+        ):
+            return False
+        occupied = documented_occupancy_active(policy, time_seconds)
+        if event["documented_occupied"] != occupied:
+            return False
+        if occupied:
+            if (
+                event["resolution_rule"] != "documented_occupancy_previous_step"
+                or not _finite_number(event["preceding_value"])
+                or event["resolved_value"] != event["preceding_value"]
+            ):
+                return False
+        elif (
+            event["resolution_rule"] != "documented_nonoccupancy_zero"
+            or event["preceding_value"] is not None
+            or event["resolved_value"] != 0.0
+        ):
+            return False
+
+    conditioning_events = {
+        (event["point"], event["time_seconds"]): event
+        for event in events
+        if event["forecast_phase"] == "conditioning"
+    }
+    for row in streams["physical_conditioning.jsonl"]:
+        raw = row.get("raw_occupancy")
+        resolved = row.get("resolved_occupancy")
+        if not isinstance(raw, dict) or not isinstance(resolved, dict):
+            return False
+        if set(raw) != set(zones) or set(resolved) != set(zones):
+            return False
+        for zone, mapping in zones.items():
+            raw_value = raw[zone]
+            resolved_value = resolved[zone]
+            if not _finite_number(resolved_value):
+                return False
+            if raw_value is None:
+                matching_event = conditioning_events.get(
+                    (mapping["occupancy_forecast"], row["action_time_seconds"])
+                )
+                if matching_event is None or resolved_value != matching_event["resolved_value"]:
+                    return False
+            elif not _finite_number(raw_value) or float(raw_value) != float(resolved_value):
+                return False
+    return True
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _identity(value: Any) -> str:
+    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _performance_rows(path: Path) -> tuple[list[dict[str, str]], bool]:
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        header_valid = tuple(reader.fieldnames or ()) == PERFORMANCE_COLUMNS
+        rows = [dict(row) for row in reader]
+    row_schema_valid = all(
+        set(row) == set(PERFORMANCE_COLUMNS)
+        and all(isinstance(value, str) for value in row.values())
+        for row in rows
+    )
+    return rows, header_valid and row_schema_valid
+
+
+def _raw_contract(
+    row: dict[str, Any],
+    *,
+    zones: list[str],
+    causal_enabled: bool,
+    allowed_edge_ids: set[str] | None,
+    shared_power_edge_ids: set[str] | None,
+) -> bool:
+    try:
+        value = json.loads(row["output"])
+        if not isinstance(value, dict):
+            return False
+        role = row["role"]
+        if role == "orchestrator":
+            resolve_orchestrator_model_output(
+                row["output"],
+                zones,
+                causal_enabled=causal_enabled,
+                allowed_causal_edge_ids=allowed_edge_ids,
+                site_causal_edge_ids=shared_power_edge_ids,
+            )
+            return True
+        if role == "executor":
+            resolve_executor_model_output(row["output"], causal_enabled=causal_enabled)
+            return True
+        if role == "reflector":
+            pairs = value.get("pairs")
+            if set(value) != {"pairs"} or not isinstance(pairs, list):
+                return False
+            seen: set[str] = set()
+            for pair in pairs:
+                if not isinstance(pair, dict) or set(pair) != {"zone", "insight_text"}:
+                    return False
+                zone = pair["zone"]
+                if zone not in zones or zone in seen or clean_insight(pair["insight_text"]) is None:
+                    return False
+                seen.add(zone)
+            return True
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return False
+
+
+def _program_replay(
+    profile: dict[str, Any],
+    method: dict[str, Any],
+    updates: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    graph: ConfirmedGraph | None,
+) -> tuple[bool, bool]:
+    zones = list(profile["zones"])
+    program_ledgers = {
+        zone: ProgramLedger(
+            load_program(repository_root() / profile["program"], zone),
+            causal_enabled=bool(method["causal_enabled"]),
+        )
+        for zone in zones
+    }
+    replay_ok = len(updates) == int(method["evaluation_hours"]) * len(zones)
+    settlement_ok = replay_ok
+    decision_by_hour = {int(decision.get("hour", -1)): decision for decision in decisions}
+    if len(decision_by_hour) != int(method["evaluation_hours"]):
+        return False, False
+    budget_ledgers: dict[int, BudgetLedger | None] = {}
+    expected_order: list[tuple[int, str]] = []
+    for hour in range(int(method["evaluation_hours"])):
+        if method["coordination_enabled"]:
+            try:
+                allocation = decision_by_hour[hour]["orchestration"]["allocation_audit"]
+                budget_ledgers[hour] = BudgetLedger(allocation, zones)
+                order = list(allocation["priority"])
+            except (KeyError, TypeError, ValueError):
+                return False, False
+        else:
+            budget_ledgers[hour] = None
+            order = zones
+        expected_order.extend((hour, zone) for zone in order)
+    observed_order = [(row.get("hour"), row.get("zone")) for row in updates]
+    if observed_order != expected_order:
+        replay_ok = False
+        settlement_ok = False
+
+    seen: set[tuple[int, str]] = set()
+    for row in updates:
+        try:
+            zone = str(row["zone"])
+            hour = int(row["hour"])
+            step = int(row["step"])
+            ledger = program_ledgers[zone]
+            identity = (hour, zone)
+            if identity in seen or step != hour * 4:
+                raise ValueError("duplicate or misaligned program decision")
+            seen.add(identity)
+            base_fields = {
+                "hour",
+                "step",
+                "zone",
+                "status",
+                "patch",
+                "rationale_telemetry",
+                "completed_validation_stages",
+                "rejection",
+                "program_version_before",
+                "program_version_after",
+                "program_hash_before",
+                "program_hash_after",
+                "current_program_version",
+                "current_program_hash",
+                "replay_verified",
+            }
+            patch = row["patch"]
+            if not isinstance(patch, dict):
+                raise ValueError("program update patch must be an object")
+            expected_fields = set(base_fields)
+            if row.get("status") == "accepted" and patch.get("op") != "no_change":
+                expected_fields.add("accepted_update")
+            if set(row) != expected_fields:
+                raise ValueError("program update fields do not match the exact contract")
+            before_version = ledger.version
+            before_hash = program_hash(ledger.current_program)
+            replay_ok = replay_ok and (
+                row.get("program_version_before") == before_version
+                and row.get("program_hash_before") == before_hash
+            )
+            status = row.get("status")
+            completed = row.get("completed_validation_stages")
+            rejection = row.get("rejection")
+            if status == "model_output_rejected":
+                settlement_ok = settlement_ok and (
+                    row.get("rationale_telemetry") is None
+                    and completed == []
+                    and isinstance(rejection, dict)
+                    and set(rejection) == {"stage", "code", "message", "raw_output"}
+                    and rejection.get("stage") == "program_validation"
+                    and rejection.get("code") == "model_output_schema_rejected"
+                    and patch
+                    == {
+                        "op": "no_change",
+                        "rationale": "tool-generated no_change after model contract rejection",
+                    }
+                )
+            else:
+                validation = validate_candidate(
+                    patch,
+                    ledger.current_program,
+                    graph=graph,
+                    ledger=budget_ledgers[hour],
+                    zone=zone,
+                    step=step,
+                    causal_enabled=bool(method["causal_enabled"]),
+                    coordination_enabled=bool(method["coordination_enabled"]),
+                )
+                expected_status = "accepted" if validation.accepted else "rejected"
+                expected_rejection = (
+                    None if validation.rejection is None else validation.rejection.as_dict()
+                )
+                settlement_ok = settlement_ok and (
+                    status == expected_status
+                    and patch == validation.patch
+                    and row.get("rationale_telemetry")
+                    == rationale_length_telemetry(
+                        "executor", {"operation": str(patch["rationale"])}
+                    )
+                    and completed == list(validation.completed_stages)
+                    and rejection == expected_rejection
+                )
+                if validation.accepted and validation.patch["op"] != "no_change":
+                    update = ledger.commit(validation.patch, step=step, hour=hour)
+                    replay_ok = replay_ok and row.get("accepted_update") == update.as_dict()
+            after_hash = program_hash(ledger.current_program)
+            replay_ok = replay_ok and (
+                row.get("program_version_after") == ledger.version
+                and row.get("current_program_version") == ledger.version
+                and row.get("program_hash_after") == after_hash
+                and row.get("current_program_hash") == after_hash
+                and row.get("replay_verified") is True
+                and bool(ledger.replay())
+            )
+        except (KeyError, TypeError, ValueError):
+            replay_ok = False
+            settlement_ok = False
+    expected_identities = {
+        (hour, zone) for hour in range(int(method["evaluation_hours"])) for zone in zones
+    }
+    if method["coordination_enabled"]:
+        for hour, budget_ledger in budget_ledgers.items():
+            if budget_ledger is None:
+                settlement_ok = False
+                continue
+            settlement_ok = settlement_ok and (
+                decision_by_hour[hour].get("energy_budget") == budget_ledger.utilisation()
+            )
+    return replay_ok and seen == expected_identities, settlement_ok
+
+
+def _rationale_persistence(
+    *,
+    method: dict[str, Any],
+    raw_calls: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    zones: list[str],
+    allowed_edge_ids: set[str] | None,
+    shared_power_edge_ids: set[str] | None,
+) -> bool:
+    """Tie every raw Orchestrator/Executor rationale to its parsed artifact."""
+    if method["controller"] == "deterministic_baseline":
+        return not raw_calls and not updates
+    causal_enabled = bool(method["causal_enabled"])
+    update_by_scope = {(row.get("hour"), row.get("zone")): row for row in updates}
+    decision_by_hour = {row.get("hour"): row for row in decisions}
+    if len(update_by_scope) != len(updates) or len(decision_by_hour) != len(decisions):
+        return False
+    checked_executors = 0
+    checked_orchestrators = 0
+    for raw in raw_calls:
+        role = raw.get("role")
+        if role == "executor":
+            checked_executors += 1
+            parsed = update_by_scope.get((raw.get("hour"), raw.get("zone")))
+            if parsed is None:
+                return False
+            try:
+                patch, telemetry = resolve_executor_model_output(
+                    raw["output"], causal_enabled=causal_enabled
+                )
+            except (KeyError, ModelContractError):
+                rejection = parsed.get("rejection")
+                if not (
+                    parsed.get("status") == "model_output_rejected"
+                    and parsed.get("rationale_telemetry") is None
+                    and isinstance(rejection, dict)
+                    and rejection.get("raw_output") == raw.get("output")
+                ):
+                    return False
+            else:
+                stored_patch = parsed.get("patch")
+                public_patch_matches = (
+                    isinstance(stored_patch, dict)
+                    and all(stored_patch.get(field) == value for field, value in patch.items())
+                    and set(stored_patch) - set(patch)
+                    <= {"expected_effects", "consistent_program_direction_proof"}
+                )
+                if not (
+                    parsed.get("status") != "model_output_rejected"
+                    and public_patch_matches
+                    and parsed.get("rationale_telemetry") == telemetry
+                ):
+                    return False
+        elif role == "orchestrator":
+            checked_orchestrators += 1
+            decision = decision_by_hour.get(raw.get("hour"))
+            if decision is None or not isinstance(decision.get("orchestration"), dict):
+                return False
+            audit = decision["orchestration"]
+            try:
+                allocation, telemetry = resolve_orchestrator_model_output(
+                    raw["output"],
+                    zones,
+                    causal_enabled=causal_enabled,
+                    allowed_causal_edge_ids=allowed_edge_ids,
+                    site_causal_edge_ids=shared_power_edge_ids,
+                )
+            except (KeyError, ModelContractError):
+                rejection = audit.get("raw_contract", {}).get("rejection")
+                if not (
+                    audit.get("status") == "fallback"
+                    and audit.get("rationale_telemetry") is None
+                    and isinstance(rejection, dict)
+                    and rejection.get("raw_output") == raw.get("output")
+                ):
+                    return False
+            else:
+                if not (
+                    audit.get("status") == "accepted"
+                    and audit.get("allocation_audit") == allocation
+                    and audit.get("rationale_telemetry") == telemetry
+                ):
+                    return False
+    hours = int(method["evaluation_hours"])
+    return checked_executors == hours * len(zones) and checked_orchestrators == (
+        hours if method["coordination_enabled"] else 0
+    )
+
+
+EXECUTION_CHECKS = {
+    "required_artifacts",
+    "physical_protocol",
+    "test_id_continuity",
+    "timeline_and_stream_alignment",
+    "occupancy_forecast_missing_value_resolution",
+    "action_assurance_recomputed",
+    "program_replay_recomputed",
+    "agent_call_counts",
+    "agent_call_alignment",
+    "model_identity",
+    "manifest_identity",
+    "conditioning_prefix_identity",
+    "evaluation_boundary_identity",
+    "metrics_recomputed",
+    "model_transport_retry_accounting",
+    "transport_error_count_zero",
+    "secret_exposure_count_zero",
+    "orchestration_resolution_recomputed",
+    "rationale_persistence",
+}
+
+MODEL_CHECKS = {
+    "deterministic_settlement",
+    "json_schema",
+    "usage_contract",
+    "thinking_route",
+    "causal_surface",
+    "coordination_surface",
+    "fallback_count_zero",
+    "role_contract_audit",
+}
+
+
+def _classified(checks: dict[str, bool]) -> dict[str, Any]:
+    execution_integrity = all(checks.get(name, False) for name in EXECUTION_CHECKS)
+    model_contract_clean = all(checks.get(name, False) for name in MODEL_CHECKS)
+    if not execution_integrity:
+        classification = "RUN-INVALID"
+    elif model_contract_clean:
+        classification = "RELEASE-PASS"
+    else:
+        classification = "EXECUTION-HEALTHY-MODEL-CONTRACT-DEGRADED"
+    failed_execution = sorted(name for name in EXECUTION_CHECKS if not checks.get(name, False))
+    failed_model = sorted(name for name in MODEL_CHECKS if not checks.get(name, False))
+    errors: list[str] = []
+    if failed_execution:
+        errors.append(f"execution integrity failed checks: {failed_execution}")
+    if failed_model:
+        errors.append(f"model contract failed checks: {failed_model}")
+    return {
+        "passed": classification == "RELEASE-PASS",
+        "completion_eligible": classification != "RUN-INVALID",
+        "execution_integrity": execution_integrity,
+        "model_contract_clean": model_contract_clean,
+        "classification": classification,
+        "checks": checks,
+        "errors": errors,
+    }
+
+
+def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, Any]:
+    directory = run_dir.resolve()
+    checks: dict[str, bool] = {}
+    required = {
+        "resolved_config.yaml",
+        "manifest.json",
+        "metrics.json",
+        *STREAM_FILES,
+        "performance.csv",
+    }
+    missing = sorted(name for name in required if not (directory / name).is_file())
+    checks["required_artifacts"] = not missing
+    if missing:
+        result = _classified(checks)
+        result["errors"] = [f"missing artifacts: {missing}", *result["errors"]]
+        return result
+
+    try:
+        resolved = _object(directory / "resolved_config.yaml")
+        manifest = _object(directory / "manifest.json")
+        recorded_metrics = _object(directory / "metrics.json")
+        profile = resolved["case_profile"]
+        method = resolved["method"]
+        zones = list(profile["zones"])
+        zone_set = set(zones)
+        hours = int(method["evaluation_hours"])
+        expected_steps = hours * 4
+        streams = {name: _rows(directory / name) for name in STREAM_FILES}
+        performance, header_valid = _performance_rows(directory / "performance.csv")
+        conditioning = streams["physical_conditioning.jsonl"]
+        zone_steps = streams["zone_steps.jsonl"]
+        decisions = streams["hourly_decisions.jsonl"]
+        updates = streams["program_updates.jsonl"]
+        calls = streams["agent_calls.jsonl"]
+        raw_calls = streams["raw_model_io.jsonl"]
+        model_attempts = streams["model_request_attempts.jsonl"]
+
+        protocol = profile["protocol"]
+        conditioning_count = int(protocol["vanilla_conditioning_days"]) * 24 * 4
+        lifecycle = manifest["lifecycle"]
+        conditioning_test_ids = {row.get("test_id") for row in conditioning}
+        checks["physical_protocol"] = (
+            lifecycle
+            == {
+                "initialize_count": 1,
+                "stop_count": 1,
+                "test_id_changes": 0,
+                "conditioning_advance_count": conditioning_count,
+            }
+            and len(conditioning) == conditioning_count
+            and len(conditioning_test_ids) == 1
+            and all(isinstance(value, str) and value for value in conditioning_test_ids)
+        )
+
+        evaluation_start = int(profile["evaluation_start_day"]) * 86400
+        conditioning_start = evaluation_start - conditioning_count * 900
+        evaluation_end = evaluation_start + expected_steps * 900
+        lifecycle_events = [
+            row for row in streams["timing.jsonl"] if row.get("phase") == "physical_lifecycle"
+        ]
+        lifecycle_contract = [
+            {"event": "initialized", "time_seconds": conditioning_start},
+            {"event": "evaluation_started", "time_seconds": evaluation_start},
+            {"event": "evaluation_completed", "time_seconds": evaluation_end},
+            {"event": "stopped", "time_seconds": evaluation_end},
+        ]
+        boundary_events = [
+            row for row in streams["timing.jsonl"] if row.get("phase") == "evaluation_boundary"
+        ]
+        evaluation_test_ids = {row.get("test_id") for row in zone_steps}
+        lifecycle_test_ids = {row.get("test_id") for row in lifecycle_events}
+        boundary_test_ids = {row.get("test_id") for row in boundary_events}
+        all_test_id_sets = (
+            conditioning_test_ids,
+            evaluation_test_ids,
+            lifecycle_test_ids,
+            boundary_test_ids,
+        )
+        checks["test_id_continuity"] = (
+            all(len(values) == 1 for values in all_test_id_sets)
+            and len(set().union(*all_test_id_sets)) == 1
+            and all(
+                set(row) == {"phase", "event", "time_seconds", "test_id"}
+                and row.get("event") == expected["event"]
+                and row.get("time_seconds") == expected["time_seconds"]
+                for row, expected in zip(lifecycle_events, lifecycle_contract, strict=True)
+            )
+            and len(lifecycle_events) == len(lifecycle_contract)
+        )
+        conditioning_timeline = all(
+            row.get("step") == step
+            and row.get("action_time_seconds") == conditioning_start + step * 900
+            and row.get("outcome_time_seconds") == conditioning_start + (step + 1) * 900
+            for step, row in enumerate(conditioning)
+        )
+        conditioning_fields = {
+            "step",
+            "action_time_seconds",
+            "outcome_time_seconds",
+            "test_id",
+            "raw_occupancy",
+            "resolved_occupancy",
+            "effective_occupancy",
+            "setpoint_c",
+            "zone_temperature_c",
+            "zone_pmv",
+            "power_w",
+            "electricity_price",
+        }
+        conditioning_contract = True
+        for row in conditioning:
+            try:
+                raw = row["raw_occupancy"]
+                resolved_occupancy = row["resolved_occupancy"]
+                observed_occupancy = row["effective_occupancy"]
+                setpoints = row["setpoint_c"]
+                conditioning_contract = conditioning_contract and (
+                    set(row) == conditioning_fields
+                    and isinstance(raw, dict)
+                    and set(raw) == zone_set
+                    and all(value is None or _finite_number(value) for value in raw.values())
+                    and _finite_exact_map(resolved_occupancy, zone_set)
+                    and _finite_exact_map(observed_occupancy, zone_set)
+                    and _finite_exact_map(setpoints, zone_set)
+                    and _finite_exact_map(row["zone_temperature_c"], zone_set)
+                    and _finite_exact_map(row["zone_pmv"], zone_set)
+                    and _finite_number(row["power_w"])
+                    and _finite_number(row["electricity_price"])
+                )
+                for zone in zones:
+                    expected_occupancy = effective_count(
+                        profile["occupancy"],
+                        float(row["action_time_seconds"]),
+                        float(resolved_occupancy[zone]),
+                    )
+                    expected_setpoint = float(
+                        protocol[
+                            "occupied_vanilla_setpoint_c"
+                            if expected_occupancy > 0
+                            else "unoccupied_vanilla_setpoint_c"
+                        ]
+                    )
+                    conditioning_contract = conditioning_contract and (
+                        _same_number(observed_occupancy[zone], expected_occupancy)
+                        and _same_number(setpoints[zone], expected_setpoint)
+                    )
+            except (KeyError, TypeError, ValueError):
+                conditioning_contract = False
+        step_groups: dict[int, list[dict[str, Any]]] = {}
+        for row in zone_steps:
+            step_groups.setdefault(int(row.get("step", -1)), []).append(row)
+        timeline_ok = header_valid and len(performance) == expected_steps
+        timeline_ok = timeline_ok and len(zone_steps) == expected_steps * len(zones)
+        timeline_ok = timeline_ok and len(decisions) == hours
+        timeline_ok = timeline_ok and [row.get("hour") for row in decisions] == list(range(hours))
+        zone_step_fields = {
+            "hour",
+            "step",
+            "zone",
+            "test_id",
+            "action_time_seconds",
+            "outcome_time_seconds",
+            "observation",
+            "interpreter",
+            "action_assurance",
+            "final_setpoint_c",
+            "outcome",
+        }
+        outcome_fields = {
+            "zone_temperature_c",
+            "pmv",
+            "effective_occupancy",
+            "power_w",
+            "cost",
+        }
+        for step in range(expected_steps):
+            rows = step_groups.get(step, [])
+            if {row.get("zone") for row in rows} != zone_set or len(rows) != len(zones):
+                timeline_ok = False
+                continue
+            by_zone = {str(row["zone"]): row for row in rows}
+            performance_row = performance[step]
+            try:
+                temperatures = json.loads(performance_row["zone_temperatures_c"])
+                setpoints = json.loads(performance_row["zone_setpoints_c"])
+                pmv_values = json.loads(performance_row["zone_pmv"])
+                occupancy_values = json.loads(performance_row["zone_occupancy"])
+                power_w = float(performance_row["total_power_w"])
+                step_cost = float(performance_row["step_cost"])
+                step_reward_value = float(performance_row["step_reward"])
+                price_values = [
+                    float(by_zone[zone]["observation"]["electricity_price"]) for zone in zones
+                ]
+                expected_reward = step_reward(
+                    cost=step_cost,
+                    pmv=[float(value) for value in pmv_values],
+                    occupancy=[float(value) for value in occupancy_values],
+                    setpoints_c=[float(value) for value in setpoints],
+                    previous_setpoints_c=[
+                        float(by_zone[zone]["observation"]["last_setpoint"]) for zone in zones
+                    ],
+                    objective=profile["objective"],
+                )
+                timeline_ok = timeline_ok and (
+                    int(float(performance_row["time_seconds"])) == evaluation_start + step * 900
+                    and int(performance_row["step"]) == step
+                    and int(performance_row["hour"]) == step // 4
+                    and all(
+                        set(row) == zone_step_fields
+                        and isinstance(row["observation"], dict)
+                        and isinstance(row["interpreter"], dict)
+                        and isinstance(row["action_assurance"], dict)
+                        and isinstance(row["outcome"], dict)
+                        and set(row["outcome"]) == outcome_fields
+                        and all(_finite_number(value) for value in row["outcome"].values())
+                        and _finite_number(row["final_setpoint_c"])
+                        for row in rows
+                    )
+                    and all(
+                        row["hour"] == step // 4
+                        and row["action_time_seconds"] == evaluation_start + step * 900
+                        and row["outcome_time_seconds"] == evaluation_start + (step + 1) * 900
+                        for row in rows
+                    )
+                    and temperatures
+                    == [by_zone[zone]["outcome"]["zone_temperature_c"] for zone in zones]
+                    and setpoints == [by_zone[zone]["final_setpoint_c"] for zone in zones]
+                    and pmv_values == [by_zone[zone]["outcome"]["pmv"] for zone in zones]
+                    and occupancy_values
+                    == [by_zone[zone]["outcome"]["effective_occupancy"] for zone in zones]
+                    and all(_same_number(value, price_values[0]) for value in price_values)
+                    and _same_number(step_cost, power_w * 0.25 / 1000.0 * price_values[0])
+                    and _same_number(step_reward_value, expected_reward)
+                    and all(
+                        _same_number(row["outcome"]["power_w"], power_w)
+                        and _same_number(row["outcome"]["cost"], step_cost)
+                        and _same_number(
+                            row["outcome"]["effective_occupancy"],
+                            row["observation"]["current_occupancy"],
+                        )
+                        for row in rows
+                    )
+                )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                timeline_ok = False
+        checks["timeline_and_stream_alignment"] = (
+            conditioning_timeline and conditioning_contract and timeline_ok
+        )
+        checks["occupancy_forecast_missing_value_resolution"] = _occupancy_resolution_evidence(
+            profile, method, manifest, streams
+        )
+
+        causal_enabled = bool(method["causal_enabled"])
+        graph: ConfirmedGraph | None = None
+        allowed_edge_ids: set[str] | None = None
+        shared_power_edge_ids: set[str] | None = None
+        if causal_enabled:
+            try:
+                graph_object = resolved["resolved_graph"]
+                graph = validate_graph(graph_object)
+                canonical = load_graph(repository_root() / profile["graph"])
+                mutation = method.get("graph_mutation")
+                expected_graph = (
+                    canonical if mutation is None else derive_variant(canonical, mutation)
+                )
+                checks["causal_surface"] = (
+                    graph.resolved() == expected_graph.resolved()
+                    and graph.profile == profile["profile"]
+                    and graph.zones == tuple(zones)
+                )
+                allowed_edge_ids = set(graph.by_id)
+                shared_power_edge_ids = {
+                    edge.identifier for edge in graph.edges if edge.target == "power_meters"
+                }
+            except (KeyError, TypeError, ValueError):
+                checks["causal_surface"] = False
+        else:
+            agent_surface = _canonical(
+                {
+                    "calls": calls,
+                    "raw": raw_calls,
+                    "updates": updates,
+                    "decisions": decisions,
+                }
+            ).lower()
+            checks["causal_surface"] = (
+                "resolved_graph" not in resolved
+                and "graph_mutation" not in resolved
+                and "causal" not in agent_surface
+                and re.search(r"\bce_[0-9a-f]{8}\b", agent_surface) is None
+            )
+
+        assurance_ok = True
+        for row in zone_steps:
+            try:
+                final_setpoint, audit = action_assurance(row["interpreter"], row["observation"])
+                assurance_ok = assurance_ok and (
+                    audit["order"] == list(ACTION_ASSURANCE_ORDER)
+                    and audit == row["action_assurance"]
+                    and final_setpoint == row["final_setpoint_c"]
+                )
+            except (KeyError, TypeError, ValueError):
+                assurance_ok = False
+        checks["action_assurance_recomputed"] = assurance_ok
+
+        if method["controller"] == "h3c_agent":
+            replay_ok, settlement_ok = _program_replay(profile, method, updates, decisions, graph)
+        else:
+            replay_ok, settlement_ok = not updates, not updates
+        checks["program_replay_recomputed"] = replay_ok
+        checks["deterministic_settlement"] = settlement_ok
+
+        expected_calls = (
+            0
+            if method["controller"] == "deterministic_baseline"
+            else hours * (len(zones) + 1 + int(bool(method["coordination_enabled"])))
+        )
+        checks["agent_call_counts"] = (
+            manifest.get("expected_agent_calls") == expected_calls
+            and len(calls) == expected_calls
+            and len(raw_calls) == expected_calls
+        )
+        alignment_keys = (
+            "role",
+            "hour",
+            "step",
+            "zone",
+            "thinking_mode",
+            "logical_call_identity",
+            "request_identity",
+            "attempt_count",
+            "transport_retry_count",
+            "request_model",
+            "response_model",
+            "finish_reason",
+            "usage",
+            "elapsed_seconds",
+        )
+        call_fields = {
+            "hour",
+            "step",
+            "role",
+            "thinking_mode",
+            "logical_call_identity",
+            "request_identity",
+            "attempt_count",
+            "transport_retry_count",
+            "request_model",
+            "response_model",
+            "finish_reason",
+            "usage",
+            "provider_usage",
+            "elapsed_seconds",
+            "status",
+        }
+        raw_fields = (call_fields - {"status"}) | {
+            "system",
+            "user",
+            "output",
+            "request_parameters",
+        }
+        call_alignment = all(
+            set(call) == call_fields | ({"zone"} if call.get("role") == "executor" else set())
+            and set(raw) == raw_fields | ({"zone"} if raw.get("role") == "executor" else set())
+            and all(call.get(key) == raw.get(key) for key in alignment_keys)
+            for call, raw in zip(calls, raw_calls, strict=True)
+        )
+        expected_call_surface: list[tuple[str, int, int, str | None]] = []
+        if method["controller"] == "h3c_agent":
+            for hour in range(hours):
+                if method["coordination_enabled"]:
+                    expected_call_surface.append(("orchestrator", hour, hour * 4, None))
+                expected_call_surface.extend(("executor", hour, hour * 4, zone) for zone in zones)
+                expected_call_surface.append(("reflector", hour, hour * 4 + 3, None))
+        observed_surface = [
+            (row.get("role"), row.get("hour"), row.get("step"), row.get("zone")) for row in calls
+        ]
+        checks["agent_call_alignment"] = (
+            call_alignment and observed_surface == expected_call_surface
+        )
+        runtime = load_runtime_contract()
+        model_name = resolved["runtime_contract"]["model"]["name"]
+        checks["model_identity"] = (
+            all(
+                row.get("status") == "received"
+                and row.get("request_model") == model_name
+                and row.get("response_model") == model_name
+                and row.get("finish_reason") not in (None, "length")
+                and _finite_number(row.get("elapsed_seconds"))
+                and float(row["elapsed_seconds"]) >= 0
+                for row in calls
+            )
+            if calls
+            else method["controller"] == "deterministic_baseline"
+        )
+
+        identity_ok = False
+        try:
+            registered_profile = load_profile(str(profile["profile"]))
+            plan = RunPlan(
+                profile=str(profile["profile"]),
+                controller=str(method["controller"]),
+                working_memory_hours=method["working_memory_hours"],
+                causal_enabled=method["causal_enabled"],
+                coordination_enabled=method["coordination_enabled"],
+                thinking_policy=str(method["thinking_policy"]),
+                graph_mutation=method.get("graph_mutation"),
+                evaluation_hours=method["evaluation_hours"],
+            )
+            execution_identity = resolved["execution_identity"]
+            expected_execution_fields = {
+                "plan_identity",
+                "source_commit",
+                "runtime_contract",
+                "physical_endpoint_identity",
+            }
+            if plan.controller == "h3c_agent":
+                expected_execution_fields.add("model_endpoint_identity")
+            expected_resolved_fields = {
+                "case_profile",
+                "method",
+                "runtime_contract",
+                "execution_identity",
+            }
+            if plan.causal_enabled:
+                expected_resolved_fields.add("resolved_graph")
+            if plan.graph_mutation is not None:
+                expected_resolved_fields.add("graph_mutation")
+            expected_manifest_fields = {
+                "manifest_schema",
+                "schema_version",
+                "run_identity",
+                "source_commit",
+                "controller",
+                "expected_agent_calls",
+                "retry_count",
+                "transport_error_count",
+                "fallback_count",
+                "secret_exposure_count",
+                "secret_scan_status",
+                "occupancy_forecast_missing_value_resolution_count",
+                "program_replay_verified",
+                "conditioning_prefix_identity",
+                "evaluation_boundary_identity",
+                "lifecycle",
+            }
+            source_commit = execution_identity["source_commit"]
+            endpoint_fields = expected_execution_fields - {
+                "plan_identity",
+                "source_commit",
+                "runtime_contract",
+            }
+            identity_ok = (
+                set(resolved) == expected_resolved_fields
+                and registered_profile == profile
+                and method == plan.method_config()
+                and resolved["runtime_contract"] == runtime
+                and (
+                    "graph_mutation" not in resolved
+                    or resolved["graph_mutation"] == plan.graph_mutation
+                )
+                and isinstance(execution_identity, dict)
+                and set(execution_identity) == expected_execution_fields
+                and execution_identity["plan_identity"] == plan.identity(profile)
+                and execution_identity["runtime_contract"] == runtime
+                and isinstance(source_commit, str)
+                and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None
+                and all(
+                    isinstance(execution_identity[field], str)
+                    and re.fullmatch(r"[0-9a-f]{64}", execution_identity[field]) is not None
+                    for field in endpoint_fields
+                )
+                and set(manifest) == expected_manifest_fields
+                and manifest["manifest_schema"] == "h3c_run_manifest"
+                and manifest["schema_version"] == 3
+                and manifest["source_commit"] == source_commit
+                and manifest["run_identity"] == _identity(execution_identity)
+                and manifest["controller"] == plan.controller
+                and manifest["expected_agent_calls"] == plan.expected_agent_calls(len(zones))
+                and isinstance(manifest["retry_count"], int)
+                and not isinstance(manifest["retry_count"], bool)
+                and 0 <= manifest["retry_count"] <= expected_calls * runtime["model"]["retry_count"]
+                and manifest["program_replay_verified"] is replay_ok
+                and re.fullmatch(r"[0-9a-f]{64}", str(manifest["conditioning_prefix_identity"]))
+                is not None
+                and re.fullmatch(r"[0-9a-f]{64}", str(manifest["evaluation_boundary_identity"]))
+                is not None
+            )
+        except (KeyError, TypeError, ValueError):
+            identity_ok = False
+        checks["manifest_identity"] = identity_ok
+
+        prefix_hash = hashlib.sha256()
+        for row in conditioning:
+            prefix_hash.update(
+                (
+                    _canonical({key: value for key, value in row.items() if key != "test_id"})
+                    + "\n"
+                ).encode("utf-8")
+            )
+        checks["conditioning_prefix_identity"] = (
+            manifest.get("conditioning_prefix_identity") == prefix_hash.hexdigest()
+        )
+        boundary_contract = False
+        if len(boundary_events) == 1 and conditioning:
+            try:
+                event = boundary_events[0]
+                boundary = event["boundary"]
+                last_conditioning = conditioning[-1]
+                physical_state = boundary["physical_state"]
+                sensor_points = {
+                    str(mapping["temperature_sensor"]) for mapping in profile["zones"].values()
+                }
+                power_points = {str(point) for point in profile["global_inputs"]["power_meters"]}
+                boundary_contract = (
+                    set(event) == {"phase", "boundary", "evaluation_boundary_identity", "test_id"}
+                    and set(boundary)
+                    == {
+                        "physical_state",
+                        "last_setpoint_c",
+                        "last_pmv",
+                        "last_occupancy",
+                        "clothing_insulation",
+                    }
+                    and isinstance(physical_state, dict)
+                    and set(physical_state) >= {"time", *sensor_points, *power_points}
+                    and all(
+                        _finite_number(physical_state[point])
+                        for point in {"time", *sensor_points, *power_points}
+                    )
+                    and _same_number(physical_state["time"], evaluation_start)
+                    and _finite_exact_map(boundary["last_setpoint_c"], zone_set)
+                    and _finite_exact_map(boundary["last_pmv"], zone_set)
+                    and _finite_exact_map(boundary["last_occupancy"], zone_set)
+                    and _finite_number(boundary["clothing_insulation"])
+                    and boundary["last_setpoint_c"] == last_conditioning["setpoint_c"]
+                    and boundary["last_pmv"] == last_conditioning["zone_pmv"]
+                    and boundary["last_occupancy"] == last_conditioning["effective_occupancy"]
+                    and all(
+                        _same_number(
+                            float(physical_state[profile["zones"][zone]["temperature_sensor"]])
+                            - 273.15,
+                            last_conditioning["zone_temperature_c"][zone],
+                        )
+                        for zone in zones
+                    )
+                    and _same_number(
+                        sum(float(physical_state[point]) for point in power_points),
+                        last_conditioning["power_w"],
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                boundary_contract = False
+        checks["evaluation_boundary_identity"] = boundary_contract and boundary_events[0].get(
+            "evaluation_boundary_identity"
+        ) == _identity(boundary_events[0].get("boundary")) == manifest.get(
+            "evaluation_boundary_identity"
+        )
+        checks["metrics_recomputed"] = compute_run_metrics(directory) == recorded_metrics
+        retry_accounting_ok = True
+        attempt_cursor = 0
+        recomputed_retry_count = 0
+        attempt_fields = {
+            "hour",
+            "step",
+            "role",
+            "thinking_mode",
+            "request_model",
+            "logical_call_identity",
+            "request_identity",
+            "request_body",
+            "attempt_number",
+            "maximum_attempts",
+            "outcome",
+            "retryable",
+            "will_retry",
+            "error_type",
+            "provider_charge_status",
+            "elapsed_seconds",
+        }
+        retryable_error_types = {
+            "ConnectionResetError",
+            "ConnectionAbortedError",
+            "BrokenPipeError",
+            "TimeoutError",
+            "gaierror",
+            "IncompleteRead",
+            "SSLEOFError",
+            "SSLZeroReturnError",
+        }
+        for call, raw in zip(calls, raw_calls, strict=True):
+            try:
+                context = {"hour": call["hour"], "step": call["step"]}
+                if call["role"] == "executor":
+                    context["zone"] = call["zone"]
+                request_contract = model_request_contract(
+                    model=str(raw["request_parameters"]["model"]),
+                    system=str(raw["system"]),
+                    user=str(raw["user"]),
+                    thinking_mode=str(raw["thinking_mode"]),
+                )
+                expected_request_identity = model_request_identity(request_contract)
+                expected_request_body = model_request_body(request_contract)
+                expected_logical_identity = model_logical_call_identity(
+                    context,
+                    str(call["role"]),
+                    str(call["thinking_mode"]),
+                    expected_request_identity,
+                )
+                attempt_count = call["attempt_count"]
+                if (
+                    not isinstance(attempt_count, int)
+                    or isinstance(attempt_count, bool)
+                    or not 1 <= attempt_count <= runtime["model"]["retry_count"] + 1
+                ):
+                    retry_accounting_ok = False
+                    continue
+                group = model_attempts[attempt_cursor : attempt_cursor + attempt_count]
+                attempt_cursor += attempt_count
+                recomputed_retry_count += attempt_count - 1
+                retry_accounting_ok = retry_accounting_ok and (
+                    len(group) == attempt_count
+                    and call["request_identity"]
+                    == raw["request_identity"]
+                    == expected_request_identity
+                    and call["logical_call_identity"]
+                    == raw["logical_call_identity"]
+                    == expected_logical_identity
+                    and call["transport_retry_count"]
+                    == raw["transport_retry_count"]
+                    == attempt_count - 1
+                )
+                for index, attempt in enumerate(group, 1):
+                    expected_fields = attempt_fields | (
+                        {"zone"} if call["role"] == "executor" else set()
+                    )
+                    is_final = index == attempt_count
+                    retry_accounting_ok = retry_accounting_ok and (
+                        set(attempt) == expected_fields
+                        and all(attempt.get(key) == value for key, value in context.items())
+                        and attempt.get("role") == call["role"]
+                        and attempt.get("thinking_mode") == call["thinking_mode"]
+                        and attempt.get("request_model") == model_name
+                        and attempt.get("logical_call_identity") == expected_logical_identity
+                        and attempt.get("request_identity") == expected_request_identity
+                        and attempt.get("request_body") == expected_request_body
+                        and attempt.get("attempt_number") == index
+                        and attempt.get("maximum_attempts") == runtime["model"]["retry_count"] + 1
+                        and _finite_number(attempt.get("elapsed_seconds"))
+                        and float(attempt["elapsed_seconds"]) >= 0
+                        and (
+                            (
+                                attempt.get("outcome") == "response_received"
+                                and attempt.get("retryable") is False
+                                and attempt.get("will_retry") is False
+                                and attempt.get("error_type") is None
+                                and attempt.get("provider_charge_status")
+                                == "confirmed_response_usage_recorded"
+                            )
+                            if is_final
+                            else (
+                                attempt.get("outcome") == "request_failed"
+                                and attempt.get("retryable") is True
+                                and attempt.get("will_retry") is True
+                                and attempt.get("error_type") in retryable_error_types
+                                and attempt.get("provider_charge_status")
+                                == "unknown_after_request_failure"
+                            )
+                        )
+                    )
+            except (KeyError, TypeError, ValueError):
+                retry_accounting_ok = False
+        terminal_attempts = model_attempts[attempt_cursor:]
+        if terminal_attempts:
+            try:
+                first_terminal = terminal_attempts[0]
+                terminal_role = str(first_terminal["role"])
+                terminal_context = {
+                    "hour": first_terminal["hour"],
+                    "step": first_terminal["step"],
+                }
+                if terminal_role == "executor":
+                    terminal_context["zone"] = first_terminal["zone"]
+                terminal_body_text = first_terminal["request_body"]
+                terminal_body = json.loads(terminal_body_text)
+                messages = terminal_body["messages"]
+                terminal_contract = model_request_contract(
+                    model=str(terminal_body["model"]),
+                    system=str(messages[0]["content"]),
+                    user=str(messages[1]["content"]),
+                    thinking_mode=str(first_terminal["thinking_mode"]),
+                )
+                terminal_request_identity = model_request_identity(terminal_contract)
+                terminal_logical_identity = model_logical_call_identity(
+                    terminal_context,
+                    terminal_role,
+                    str(first_terminal["thinking_mode"]),
+                    terminal_request_identity,
+                )
+                maximum_attempts = runtime["model"]["retry_count"] + 1
+                retry_accounting_ok = retry_accounting_ok and (
+                    method["controller"] == "h3c_agent"
+                    and manifest.get("transport_error_count") == 1
+                    and 1 <= len(terminal_attempts) <= maximum_attempts
+                    and terminal_body_text == model_request_body(terminal_contract)
+                    and terminal_body["model"] == model_name
+                    and observed_surface == expected_call_surface[: len(calls)]
+                    and len(calls) < len(expected_call_surface)
+                    and (
+                        terminal_role,
+                        terminal_context["hour"],
+                        terminal_context["step"],
+                        terminal_context.get("zone"),
+                    )
+                    == expected_call_surface[len(calls)]
+                )
+                recomputed_retry_count += len(terminal_attempts) - 1
+                for index, attempt in enumerate(terminal_attempts, 1):
+                    expected_fields = attempt_fields | (
+                        {"zone"} if terminal_role == "executor" else set()
+                    )
+                    is_final = index == len(terminal_attempts)
+                    retryable = attempt.get("retryable") is True
+                    retry_accounting_ok = retry_accounting_ok and (
+                        set(attempt) == expected_fields
+                        and all(
+                            attempt.get(key) == value for key, value in terminal_context.items()
+                        )
+                        and attempt.get("role") == terminal_role
+                        and attempt.get("thinking_mode") == first_terminal["thinking_mode"]
+                        and attempt.get("request_model") == model_name
+                        and attempt.get("logical_call_identity") == terminal_logical_identity
+                        and attempt.get("request_identity") == terminal_request_identity
+                        and attempt.get("request_body") == terminal_body_text
+                        and attempt.get("attempt_number") == index
+                        and attempt.get("maximum_attempts") == maximum_attempts
+                        and attempt.get("outcome") == "request_failed"
+                        and isinstance(attempt.get("error_type"), str)
+                        and bool(attempt["error_type"])
+                        and _finite_number(attempt.get("elapsed_seconds"))
+                        and float(attempt["elapsed_seconds"]) >= 0
+                        and (
+                            (
+                                retryable
+                                and attempt.get("error_type") in retryable_error_types
+                                and attempt.get("provider_charge_status")
+                                == "unknown_after_request_failure"
+                                and attempt.get("will_retry") == (not is_final)
+                                and isinstance(attempt.get("will_retry"), bool)
+                                and (not is_final or len(terminal_attempts) == maximum_attempts)
+                            )
+                            or (
+                                not retryable
+                                and is_final
+                                and attempt.get("will_retry") is False
+                                and attempt.get("provider_charge_status")
+                                in {
+                                    "unknown_after_request_failure",
+                                    "response_received_usage_unavailable",
+                                }
+                            )
+                        )
+                    )
+                attempt_cursor = len(model_attempts)
+            except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+                retry_accounting_ok = False
+        checks["model_transport_retry_accounting"] = (
+            retry_accounting_ok
+            and attempt_cursor == len(model_attempts)
+            and recomputed_retry_count == manifest.get("retry_count")
+            and (
+                bool(calls)
+                or bool(terminal_attempts)
+                or (not model_attempts and manifest.get("retry_count") == 0)
+            )
+        )
+        checks["transport_error_count_zero"] = manifest.get("transport_error_count") == 0
+        checks["secret_exposure_count_zero"] = manifest.get(
+            "secret_exposure_count"
+        ) == 0 and manifest.get("secret_scan_status") == (
+            "completed" if method["controller"] == "h3c_agent" else "not_applicable"
+        )
+
+        checks["rationale_persistence"] = _rationale_persistence(
+            method=method,
+            raw_calls=raw_calls,
+            updates=updates,
+            decisions=decisions,
+            zones=zones,
+            allowed_edge_ids=allowed_edge_ids,
+            shared_power_edge_ids=shared_power_edge_ids,
+        )
+
+        raw_schema = all(
+            _raw_contract(
+                row,
+                zones=zones,
+                causal_enabled=causal_enabled,
+                allowed_edge_ids=allowed_edge_ids,
+                shared_power_edge_ids=shared_power_edge_ids,
+            )
+            for row in raw_calls
+        )
+        checks["json_schema"] = (
+            (raw_schema and all(row.get("status") != "model_output_rejected" for row in updates))
+            if method["controller"] == "h3c_agent"
+            else True
+        )
+        usage_fields = {
+            "available",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "reasoning_tokens",
+            "cache_hit_tokens",
+            "cache_miss_tokens",
+        }
+        token_fields = usage_fields - {"available"}
+        request_contract_ok = True
+        for row in raw_calls:
+            try:
+                expected_request: dict[str, Any] = {
+                    "model": model_name,
+                    "response_format": {"type": runtime["model"]["response_format"]},
+                    "thinking": {
+                        "type": "enabled" if row["thinking_mode"] == "low" else "disabled"
+                    },
+                }
+                if row["thinking_mode"] == "low":
+                    expected_request["reasoning_effort"] = runtime["model"][
+                        "thinking_reasoning_effort"
+                    ]
+                else:
+                    expected_request["temperature"] = runtime["model"]["no_thinking_temperature"]
+                    expected_request["top_p"] = runtime["model"]["no_thinking_top_p"]
+                request_contract_ok = request_contract_ok and (
+                    row["request_parameters"] == expected_request
+                    and isinstance(row["system"], str)
+                    and bool(row["system"])
+                    and isinstance(row["user"], str)
+                    and bool(row["user"])
+                    and isinstance(row["output"], str)
+                )
+            except (KeyError, TypeError):
+                request_contract_ok = False
+        checks["usage_contract"] = (
+            all(
+                isinstance(row.get("usage"), dict)
+                and set(row["usage"]) == usage_fields
+                and row["usage"]["available"] is True
+                and all(
+                    isinstance(row["usage"][field], int)
+                    and not isinstance(row["usage"][field], bool)
+                    and row["usage"][field] >= 0
+                    for field in token_fields
+                )
+                and row["usage"]["cache_hit_tokens"] + row["usage"]["cache_miss_tokens"]
+                == row["usage"]["prompt_tokens"]
+                and row["usage"]["prompt_tokens"] + row["usage"]["completion_tokens"]
+                == row["usage"]["total_tokens"]
+                and row["usage"]["reasoning_tokens"] <= row["usage"]["completion_tokens"]
+                and normalized_usage(row.get("provider_usage")) == row["usage"]
+                for row in calls
+            )
+            and request_contract_ok
+            if calls
+            else method["controller"] == "deterministic_baseline"
+        )
+
+        route_by_hour: dict[int, str] = {}
+        route_valid = True
+        for decision in decisions:
+            hour = int(decision["hour"])
+            first_rows = step_groups.get(hour * 4, [])
+            current = {
+                str(row["zone"]): float(row["observation"]["current_occupancy"])
+                for row in first_rows
+            }
+            future = {
+                str(row["zone"]): float(row["observation"]["next_hour_occupancy"])
+                for row in first_rows
+            }
+            expected_route = hourly_route(hour, current, future)
+            route_valid = route_valid and decision.get("route") == expected_route
+            route_by_hour[hour] = str(expected_route["thinking_mode"])
+        checks["thinking_route"] = route_valid and all(
+            row.get("thinking_mode")
+            == (
+                "disabled"
+                if method["thinking_policy"] == "all_roles_disabled"
+                else route_by_hour[int(row["hour"])]
+            )
+            for row in calls
+        )
+
+        fallback_count = sum(
+            row.get("orchestration", {}).get("fallback", {}).get("used") is True
+            for row in decisions
+        )
+        checks["fallback_count_zero"] = manifest.get("fallback_count") == fallback_count == 0
+        if method["coordination_enabled"]:
+            coordination_ok = True
+            orchestration_resolution_ok = True
+            previous_expected_allocation: dict[str, Any] | None = None
+            fallback_causal_edge_ids: list[str] | None = None
+            if causal_enabled and graph is not None:
+                site_node_ids = {str(node["id"]) for node in graph.nodes if node["scope"] == "site"}
+                fallback_causal_edge_ids = [
+                    edge.identifier for edge in graph.edges if edge.target in site_node_ids
+                ]
+            for decision in decisions:
+                try:
+                    audit = decision["orchestration"]
+                    allocation = audit["allocation_audit"]
+                    validate_allocation(
+                        allocation,
+                        zones,
+                        causal_enabled=causal_enabled,
+                        allowed_causal_edge_ids=allowed_edge_ids,
+                        site_causal_edge_ids=shared_power_edge_ids,
+                    )
+                    budget = decision["energy_budget"]
+                    granted = sum(float(value) for value in allocation["zone_budgets_c"].values())
+                    initial = float(allocation["site_cap_c"]) - granted
+                    matching_raw = [
+                        row
+                        for row in raw_calls
+                        if row.get("role") == "orchestrator"
+                        and row.get("hour") == decision.get("hour")
+                    ]
+                    if len(matching_raw) != 1:
+                        raise ValueError("one raw Orchestrator call is required per hour")
+                    raw_output = matching_raw[0]["output"]
+                    expected_rejection: dict[str, str] | None
+                    try:
+                        expected_allocation, expected_telemetry = resolve_orchestrator_model_output(
+                            raw_output,
+                            zones,
+                            causal_enabled=causal_enabled,
+                            allowed_causal_edge_ids=allowed_edge_ids,
+                            site_causal_edge_ids=shared_power_edge_ids,
+                        )
+                    except ModelContractError as error:
+                        expected_rejection = {
+                            "code": "orchestrator_model_contract_rejected",
+                            "message": str(error),
+                            "raw_output": error.raw_output,
+                        }
+                        expected_allocation, expected_source = validated_fallback_allocation(
+                            zones,
+                            previous_expected_allocation,
+                            site_cap_c=site_cap_max(zones),
+                            causal_enabled=causal_enabled,
+                            causal_edge_ids=fallback_causal_edge_ids,
+                            allowed_causal_edge_ids=allowed_edge_ids,
+                            site_causal_edge_ids=shared_power_edge_ids,
+                        )
+                        expected_status = "fallback"
+                        expected_telemetry = None
+                        expected_fallback = allocation_fallback_audit(
+                            used=True,
+                            reason=str(error),
+                            source=expected_source,
+                        )
+                    else:
+                        expected_status = "accepted"
+                        expected_rejection = None
+                        expected_fallback = allocation_fallback_audit(used=False)
+                    expected_raw_contract = {
+                        "status": "rejected" if expected_rejection is not None else "accepted",
+                        "rejection": expected_rejection,
+                    }
+                    rationale_resolution_ok = (
+                        audit.get("status") == expected_status
+                        and audit.get("raw_contract") == expected_raw_contract
+                        and audit.get("rationale_telemetry") == expected_telemetry
+                        and audit.get("fallback") == expected_fallback
+                        and allocation == expected_allocation
+                    )
+                    orchestration_resolution_ok = (
+                        orchestration_resolution_ok and rationale_resolution_ok
+                    )
+                    previous_expected_allocation = expected_allocation
+                    coordination_ok = coordination_ok and (
+                        audit["settlement_order"] == allocation["priority"]
+                        and float(budget["site_cap_c"]) == float(allocation["site_cap_c"])
+                        and float(budget["granted_c"]) == granted
+                        and float(budget["residual_initial_c"]) == initial
+                        and float(budget["used_c"]) <= granted + initial + 1e-9
+                        and audit["raw_contract"]["status"]
+                        == ("rejected" if audit["fallback"]["used"] else "accepted")
+                    )
+                except (KeyError, TypeError, ValueError):
+                    coordination_ok = False
+                    orchestration_resolution_ok = False
+            checks["coordination_surface"] = coordination_ok
+            checks["orchestration_resolution_recomputed"] = orchestration_resolution_ok
+        else:
+            no_coordination_surface = _canonical(
+                {"raw": raw_calls, "decisions": decisions, "updates": updates}
+            ).lower()
+            checks["coordination_surface"] = all(
+                row.get("role") != "orchestrator" for row in calls
+            ) and all(
+                token not in no_coordination_surface
+                for token in ("allocation", "allowance", "energy_budget", "ledger")
+            )
+            checks["orchestration_resolution_recomputed"] = True
+        checks["role_contract_audit"] = (
+            all(
+                (
+                    decision.get("reflector_contract", {}).get("status") == "accepted"
+                    and (
+                        not method["coordination_enabled"]
+                        or decision.get("orchestration", {}).get("raw_contract", {}).get("status")
+                        == "accepted"
+                    )
+                )
+                for decision in decisions
+            )
+            if method["controller"] == "h3c_agent"
+            else True
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, OSError) as error:
+        result = _classified(checks)
+        result["errors"] = [str(error), *result["errors"]]
+        return result
+
+    base_result = _classified(checks)
+    if not require_completion:
+        return base_result
+
+    completion_checks = dict(checks)
+    try:
+        recorded = _object(directory / "verification.json")
+        completion = _object(directory / "completion.json")
+        completion_checks["recorded_verification"] = recorded == base_result
+        completion_checks["completion"] = (
+            completion.get("status") == "complete"
+            and completion.get("run_identity") == manifest.get("run_identity")
+            and completion.get("classification") == base_result["classification"]
+            and (directory / "completion.json").stat().st_mtime_ns
+            >= max(
+                path.stat().st_mtime_ns
+                for path in directory.iterdir()
+                if path.is_file() and path.name != "completion.json"
+            )
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        completion_checks["recorded_verification"] = False
+        completion_checks["completion"] = False
+    final = _classified(completion_checks)
+    if not completion_checks.get("recorded_verification") or not completion_checks.get(
+        "completion"
+    ):
+        final["execution_integrity"] = False
+        final["model_contract_clean"] = base_result["model_contract_clean"]
+        final["classification"] = "RUN-INVALID"
+        final["passed"] = False
+        final["completion_eligible"] = False
+        final["errors"] = [
+            "completion publication failed checks",
+            *base_result["errors"],
+        ]
+    return final

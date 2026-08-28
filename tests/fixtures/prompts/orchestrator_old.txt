@@ -1,0 +1,53 @@
+
+### CAUSAL EVIDENCE
+| id | source | relation | target | tags | undirected |
+| --- | --- | --- | --- | --- | --- |
+| "ce_5a968228" | "solar_irr" | "Positive Corr" | "power_meters" | "[\"Delayed\",\"Weak Impact\"]" | false |
+
+### ALLOCATION LIMITS
+```json
+{"zones":["NZ","SZ"],"site_cap_c":5.0,"per_zone_cap_c":5.0}
+```
+
+### CONTROL DOMAIN
+```json
+{"domain_id":"cooling","controlled_setpoint":"zone cooling setpoint","unit":"degC","hard_bounds_c":[20.0,30.0],"occupied_base_c":25.0,"unoccupied_base_c":30.0,"pmv_comfort_band":[0.3,0.45],"preconditioning":{"label":"precool","lead_steps":4,"target_c":25.0},"energy_intensive_setpoint_direction":"decrease"}
+```
+
+### WHAT SOME OF THE FIELD NAMES MEAN
+comfort_headroom_c -- how far zone temperature would have to rise, or fall, to reach the band edge. Room in zone temperature, not in the setpoint; the edge of the score, not of what people feel
+mean_pmv -- the mean PMV recorded for the represented observations; it does not establish a comfort judgment or a target
+mean_residual_c -- the mean residual value recorded for the represented observations; it does not establish a control direction or target
+outdoor_temp_change_next_1h_c -- outdoor dry-bulb temperature at the fourth future 15-minute step minus the current value, in degrees Celsius; it describes the forecast change and does not prescribe an action
+pmv_h -- how far comfort went past the band, summed over the time it was past. Sizes excursions; not when they happened
+program_version -- the program-version label recorded with a result; it does not establish result quality or control suitability
+solar_irr_max_next_1h_w_m2 -- the maximum forecast solar irradiance over the next four 15-minute steps, in watts per square metre; it describes the forecast magnitude and does not prescribe an action
+solar_irr_mean_next_1h_w_m2 -- the mean forecast solar irradiance over the next four 15-minute steps, in watts per square metre; it describes the forecast magnitude and does not prescribe an action
+zone_h -- how long comfort spent outside the band. Counts time, not depth
+
+### WORKING MEMORY
+| hour | zone | program_version | mean_residual_c | mean_setpoint_c | mean_pmv | cost | zone_h | pmv_h |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | "NZ" | 0 | 0.15 | 25.15 | 0.1 | 0.12 | 0.0 | 0.0 |
+| 0 | "SZ" | 0 | 0.15 | 25.15 | 0.1 | 0.12 | 0.0 | 0.0 |
+
+### CROSS-ZONE CONSTRAINTS
+zone coupling:
+```json
+{"NZ":{"current_setpoint_c":25.0,"last_pmv":0.1,"current_occupancy":1.0,"next_hour_occupancy":1.0,"temp_targets":{"precool_residual_c":-5.0},"comfort_headroom_c":{"warmer_c":1.2,"cooler_c":2.5},"granted_c":1.0,"used_c":0.2},"SZ":{"current_setpoint_c":25.3,"last_pmv":0.2,"current_occupancy":1.0,"next_hour_occupancy":0.0,"temp_targets":{"precool_residual_c":-5.0}}}
+```
+
+### PREVIOUS ALLOCATION AND UTILISATION
+previous allocation:
+```json
+{"site_cap_c":5.0,"zone_budgets_c":{"NZ":2.0,"SZ":2.0},"priority":["NZ","SZ"],"rationale_per_zone":{"NZ":"prior","SZ":"prior"},"causal_edge_ids":["ce_5a968228"]}
+```
+previous utilisation:
+```json
+{"granted_c":4.0,"used_c":0.2,"utilisation":0.05,"site_cap_c":5.0,"group_remainder_at_the_start_c":1.0,"group_remainder_left_c":1.0}
+```
+
+### CURRENT SITE STATE AND FORECAST
+```json
+{"outdoor_temp_c":25.0,"solar_irr":200.0,"price_now":0.1,"price_next_hour":0.12,"outdoor_temp_change_next_1h_c":1.2,"solar_irr_max_next_1h_w_m2":420.0,"solar_irr_mean_next_1h_w_m2":315.0,"weather_next_steps":[{"step_ahead":1,"outdoor_temp_c":25.3,"solar_irr":255.0},{"step_ahead":2,"outdoor_temp_c":25.6,"solar_irr":310.0},{"step_ahead":3,"outdoor_temp_c":25.9,"solar_irr":365.0},{"step_ahead":4,"outdoor_temp_c":26.2,"solar_irr":420.0}]}
+```

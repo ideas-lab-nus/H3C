@@ -1,0 +1,118 @@
+{
+  "fixture_schema": "h3c_historical_rationale_replay",
+  "schema_version": 1,
+  "source_commit": "8a58a84c7e82e3dd48b0e72cf065033c895edcd0",
+  "selection": "all final-source release-6h Orchestrator and Executor outputs with a parsed rationale longer than 240 characters",
+  "cases": [
+    {
+      "profile": "MZ_Air",
+      "run_identity": "d834126e929cb0795869ef1e16ef65632a19dc07afc5b75d8bb7a69b64b5cfbe",
+      "role": "executor",
+      "hour": 5,
+      "step": 20,
+      "zone": "eas",
+      "rationale_lengths": {"eas": 477},
+      "raw_output": "{\"patch\":[{\"op\":\"no_change\",\"rationale\":\"Zone unoccupied with no next-hour occupancy; setpoint at 30C is already at the unoccupied base and the zone temperature (27.0C) is below the setpoint, so no cooling energy is being used. PMV is 0.55, slightly above the 0.5 limit, but correcting it would require lowering the setpoint to below the zone temperature, which is an energy-intensive action and exceeds the available allowance (0.0C). No non-energy-intensive adjustment can reduce PMV, so no rule change is warranted.\"}]}"
+    },
+    {
+      "profile": "MZ_Air",
+      "run_identity": "b239ca172683f411472e9bafe97a91443504c9bbcecd4b7cc63247e9bd3f62b4",
+      "role": "executor",
+      "hour": 5,
+      "step": 20,
+      "zone": "wes",
+      "rationale_lengths": {"wes": 364},
+      "raw_output": "{\"patch\":[{\"op\":\"no_change\",\"rationale\":\"Zone unoccupied with no upcoming occupancy; setpoint at unoccupied base 30C, zone temp 27.25C, PMV 0.62 above band but no comfort risk since unoccupied. Any cooling would increase energy consumption without benefit; increasing setpoint worsens PMV beyond 0.5 constraint. No energy-saving opportunity exists without violating the PMV cap, so no change is warranted.\"}]}"
+    },
+    {
+      "profile": "MZ_Air",
+      "run_identity": "08e581b413e625fe2890552c3feb754c6778b102dcb15780393cbcd7bfbf99d1",
+      "role": "executor",
+      "hour": 5,
+      "step": 20,
+      "zone": "sou",
+      "rationale_lengths": {"sou": 264},
+      "raw_output": "{\"patch\":[{\"op\":\"no_change\",\"rationale\":\"Zone is unoccupied with no upcoming occupancy and setpoint already at upper bound. Zone temperature is below setpoint, so no cooling is occurring. No energy-saving action is warranted; any adjustment would either increase energy use or violate comfort constraints.\"}]}"
+    },
+    {
+      "profile": "MZ_Air",
+      "run_identity": "fff6aefd7c23f0876d0f3b5975f7d0b2890198b131b293245c5ae0f28f8d36d1",
+      "role": "executor",
+      "hour": 5,
+      "step": 20,
+      "zone": "sou",
+      "rationale_lengths": {"sou": 246},
+      "raw_output": "{\"patch\":[{\"op\":\"no_change\",\"rationale\":\"Zone unoccupied with setpoint at maximum 30°C, no upcoming occupancy, no precool due. Forecast solar and temp rise but no immediate or future occupancy to serve, so no energy-saving action is warranted without risking comfort or exceeding bounds.\"}]}"
+    },
+    {
+      "profile": "MZ_Air",
+      "run_identity": "fff6aefd7c23f0876d0f3b5975f7d0b2890198b131b293245c5ae0f28f8d36d1",
+      "role": "executor",
+      "hour": 5,
+      "step": 20,
+      "zone": "wes",
+      "rationale_lengths": {"wes": 242},
+      "raw_output": "{\"patch\":[{\"op\":\"no_change\",\"rationale\":\"Zone unoccupied with no upcoming occupancy, setpoint already at max unoccupied bound (30°C), no precool due, and no energy-saving opportunity without exceeding setpoint bounds. Comfort not required while unoccupied, so no change is warranted.\"}]}"
+    },
+    {
+      "profile": "SZ_Air",
+      "run_identity": "e2e17afade4912c0b004ae47dc8beb26b9712c8dedefb7fbd7bed10da0c018ee",
+      "role": "orchestrator",
+      "hour": 0,
+      "step": 0,
+      "zone": null,
+      "rationale_lengths": {"zone1": 297},
+      "raw_output": "{\"site_cap_c\":2.5,\"zone_budgets_c\":{\"zone1\":2.5},\"priority\":[\"zone1\"],\"rationale_per_zone\":{\"zone1\":\"Zone is unoccupied with no forecast occupancy, and outdoor temperature is falling, reducing cooling demand. The site cap is 2.5°C, and the zone has ample cooler headroom (4.68°C), so the full allowance is allocated to enable potential energy-intensive setpoint movements while maintaining comfort.\"},\"causal_edge_ids\":[\"ce_660795c7\",\"ce_e8f5f362\",\"ce_00f91137\"]}"
+    },
+    {
+      "profile": "SZ_Air",
+      "run_identity": "e2e17afade4912c0b004ae47dc8beb26b9712c8dedefb7fbd7bed10da0c018ee",
+      "role": "orchestrator",
+      "hour": 1,
+      "step": 4,
+      "zone": null,
+      "rationale_lengths": {"zone1": 295},
+      "raw_output": "{\n  \"site_cap_c\": 2.5,\n  \"zone_budgets_c\": {\n    \"zone1\": 2.5\n  },\n  \"priority\": [\"zone1\"],\n  \"rationale_per_zone\": {\n    \"zone1\": \"Zone is unoccupied with no forecast occupancy, and outdoor temperature is stable, reducing cooling demand. The site cap is 2.5°C, and the zone has ample cooler headroom (4.54°C), so the full allowance is allocated to enable potential energy-intensive setpoint movement while maintaining comfort.\"\n  },\n  \"causal_edge_ids\": [\"ce_660795c7\", \"ce_e8f5f362\", \"ce_00f91137\"]\n}"
+    },
+    {
+      "profile": "SZ_Air",
+      "run_identity": "e2e17afade4912c0b004ae47dc8beb26b9712c8dedefb7fbd7bed10da0c018ee",
+      "role": "orchestrator",
+      "hour": 2,
+      "step": 8,
+      "zone": null,
+      "rationale_lengths": {"zone1": 280},
+      "raw_output": "{\"site_cap_c\":2.5,\"zone_budgets_c\":{\"zone1\":2.5},\"priority\":[\"zone1\"],\"rationale_per_zone\":{\"zone1\":\"Zone is unoccupied with no forecast occupancy, and outdoor temperature is dropping, reducing cooling demand. The site cap is 2.5°C, and the zone has ample cooler headroom (4.3°C), so the full allowance is allocated to enable potential energy-intensive setpoint movement if needed.\"},\"causal_edge_ids\":[\"ce_660795c7\",\"ce_e8f5f362\",\"ce_00f91137\"]}"
+    },
+    {
+      "profile": "SZ_Air",
+      "run_identity": "e2e17afade4912c0b004ae47dc8beb26b9712c8dedefb7fbd7bed10da0c018ee",
+      "role": "orchestrator",
+      "hour": 3,
+      "step": 12,
+      "zone": null,
+      "rationale_lengths": {"zone1": 308},
+      "raw_output": "{\"site_cap_c\":2.5,\"zone_budgets_c\":{\"zone1\":2.5},\"priority\":[\"zone1\"],\"rationale_per_zone\":{\"zone1\":\"Zone is unoccupied with no forecast occupancy, and outdoor temperature is dropping, reducing cooling demand. The site cap is 2.5°C, and the zone has ample cooler headroom (3.78°C), so the full allowance is allocated to enable potential energy-intensive setpoint movement if needed, while maintaining comfort.\"},\"causal_edge_ids\":[\"ce_660795c7\",\"ce_e8f5f362\",\"ce_00f91137\"]}"
+    },
+    {
+      "profile": "SZ_Air",
+      "run_identity": "e2e17afade4912c0b004ae47dc8beb26b9712c8dedefb7fbd7bed10da0c018ee",
+      "role": "orchestrator",
+      "hour": 4,
+      "step": 16,
+      "zone": null,
+      "rationale_lengths": {"zone1": 308},
+      "raw_output": "{\"site_cap_c\":2.5,\"zone_budgets_c\":{\"zone1\":2.5},\"priority\":[\"zone1\"],\"rationale_per_zone\":{\"zone1\":\"Zone is unoccupied with no forecast occupancy, and outdoor temperature is dropping, reducing cooling demand. The site cap is 2.5°C, and the zone has ample cooler headroom (3.42°C), so the full allowance is allocated to enable potential energy-intensive setpoint movement if needed, while maintaining comfort.\"},\"causal_edge_ids\":[\"ce_660795c7\",\"ce_e8f5f362\",\"ce_00f91137\"]}"
+    },
+    {
+      "profile": "SZ_Air",
+      "run_identity": "e2e17afade4912c0b004ae47dc8beb26b9712c8dedefb7fbd7bed10da0c018ee",
+      "role": "orchestrator",
+      "hour": 5,
+      "step": 20,
+      "zone": null,
+      "rationale_lengths": {"zone1": 351},
+      "raw_output": "{\"site_cap_c\":2.5,\"zone_budgets_c\":{\"zone1\":2.5},\"priority\":[\"zone1\"],\"rationale_per_zone\":{\"zone1\":\"Zone is unoccupied with no forecast occupancy, and outdoor temperature is rising slightly, but solar irradiance is increasing, which may increase cooling demand. The zone has cooler headroom of 3.09°C, and the previous allocation was unused, so the full allowance is allocated to maintain flexibility for potential energy-intensive setpoint movements.\"},\"causal_edge_ids\":[\"ce_660795c7\",\"ce_e8f5f362\",\"ce_5a968228\",\"ce_00f91137\"]}"
+    }
+  ]
+}
