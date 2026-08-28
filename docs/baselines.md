@@ -117,3 +117,8 @@ h3c-baseline report outputs/baselines/runs/formal-7d
 Dry plans do not connect to BOPTEST. Add `--execute` only after reviewing the resolved plan.
 The full suite runs its three identifications followed by fourteen evaluations in registered
 order. Output schemas and metrics are summarized in [`outputs/README.md`](../outputs/README.md).
+
+The first complete registered 7+7+7 execution is summarized in
+[`baseline_formal_7d_result_20260828.md`](baseline_formal_7d_result_20260828.md). The tracked note
+binds the result to its production source while the generated trajectories and figures remain
+under ignored `outputs/baselines/` directories.
