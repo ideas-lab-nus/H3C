@@ -4,6 +4,8 @@
 > is superseded by `drl_time_feature_contract_repair_preregistration.md`. Inspection of the copied
 > training-machine evaluator proved that the migrated adapter used the wrong sin/cos bounds.
 > Restoring `[0,1]` reproduces the archived first H-DRL action with the retained epoch-298 model.
+> The completed repaired replay and full-trajectory comparison are recorded in
+> `drl_input_contract_repair_result.md`.
 > The original adverse text is retained below as the historical conclusion reached before that
 > source code was available.
 

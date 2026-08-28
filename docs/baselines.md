@@ -65,10 +65,10 @@ not by the case-profile display order.
   archived training-log mean reward, together with the tensor contract saved in `FinalMZAIR.ipynb`.
   The historical CSV records neither its checkpoint hash nor pre-action observation, so this is the
   best-supported paper-era checkpoint reconstruction rather than a cryptographically exact replay.
-- MZ_Air MAPPO uses the currently readable epoch-298 checkpoint. The saved evaluator contract and
-  this checkpoint are internally reproducible, but the historical CSV is not cryptographically
-  bound to it and no surviving checkpoint reproduces the CSV's first action. It is therefore a
-  current-checkpoint reconstruction, not a strict replay of the historical H-DRL trajectory.
+- MZ_Air MAPPO uses the epoch-298 checkpoint. The copied training-computer evaluator establishes
+  its time-feature contract, and the archived 672-row validation CSV provides an independent
+  trajectory oracle. With the historical `[0,1]` sin/cos bounds restored, this checkpoint
+  reproduces the archived actions and physical trajectory to numerical simulation tolerance.
 - MZ_Hydro PPO/MAPPO are the user-designated extended-training checkpoints from
   `Revision1/MZ_Hydronic_Final_PPO_MAPPO_1h_Epoch700_20260822`.
 
