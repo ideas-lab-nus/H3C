@@ -10,15 +10,19 @@ from h3c_baselines.configuration import (
 from h3c_baselines.models import load_registry, verify_all_checkpoints
 
 
-def test_formal_matrix_has_three_identification_and_fourteen_evaluation_arms() -> None:
-    assert formal_identification_cases() == [("SZ_Air", 7), ("MZ_Hydro", 5), ("MZ_Air", 7)]
+def test_formal_drl_matrix_has_no_mpc_identification_and_eleven_evaluation_arms() -> None:
+    assert formal_identification_cases() == []
     plans = formal_evaluation_plans()
-    assert len(plans) == 14
-    assert [(plan.case, plan.controller) for plan in plans[:4]] == [
+    assert len(plans) == 11
+    assert {plan.case: plan.evaluation_hours for plan in plans} == {
+        "SZ_Air": 168,
+        "MZ_Hydro": 120,
+        "MZ_Air": 168,
+    }
+    assert [(plan.case, plan.controller) for plan in plans[:3]] == [
         ("SZ_Air", "basic-rbc"),
         ("SZ_Air", "enhanced-rbc"),
         ("SZ_Air", "c-drl"),
-        ("SZ_Air", "linear-mpc"),
     ]
 
 

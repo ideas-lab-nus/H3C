@@ -7,13 +7,13 @@ Orchestrator, Executor, Reflector or causal admission path.
 
 ## Registered evaluation protocol
 
-`configs/baselines/formal_7d.json` is the suite owner. It registers three independent MPC
-identification trajectories and fourteen fresh evaluations. Each evaluation uses:
+`configs/baselines/formal_drl.json` is the current suite owner. It registers eleven fresh RBC/DRL
+evaluations and deliberately excludes MPC. Each evaluation uses:
 
 ```text
 7-day BOPTEST server warm-up
 → same-test-id 7-day vanilla prefix (occupied 25 °C / otherwise 30 °C)
-→ 7-day evaluation
+→ case-declared evaluation (Air: 7 days; MZ_Hydro: 5 occupied weekdays)
 ```
 
 All physical arms are strictly serial and use a fresh test identity. Prefix observations never
@@ -47,10 +47,11 @@ policy and deliberately has no invented H-DRL arm.
 
 The golden fixture in `tests/fixtures/baseline_policy_inference_golden.json` traces captured
 observation → raw vector → normalized vector → local actor vector → raw action → setpoint → full
-BOPTEST payload. It also protects the legacy MAPPO local ordering:
+BOPTEST payload. It also protects the two case-specific legacy MAPPO local orderings:
 
 ```text
-time → own temperature/PMV/action → shared power/weather/price → own occupancy
+MZ_Hydro: time → own temperature/PMV/action → shared power/weather/price → own occupancy
+MZ_Air:   time → shared power/weather/price → own temperature/PMV/action → own occupancy
 ```
 
 The MZ_Air policy zone order is `cor,nor,sou,eas,wes`; actuator payloads are mapped by zone name,
@@ -60,8 +61,8 @@ not by the case-profile display order.
 
 - SZ_Air PPO was selected from the archived `SZ_AIR/models_drl4` records by best training-log
   mean reward.
-- MZ_Air PPO/MAPPO were selected from the archived
-  `multizone_office_simple_air_residual_transfer` records by training return and checkpoint step.
+- MZ_Air PPO/MAPPO are the exact checkpoints used by the archived evaluation workflows; the PPO
+  archive embeds 295,680 steps and does not retain an authoritative epoch-to-file map.
 - MZ_Hydro PPO/MAPPO are the user-designated extended-training checkpoints from
   `Revision1/MZ_Hydronic_Final_PPO_MAPPO_1h_Epoch700_20260822`.
 
@@ -109,16 +110,20 @@ controller. The limitation is preserved even if the physical result is favorable
 ```console
 h3c-baseline models verify
 h3c-baseline run --case MZ_Air --controller c-drl
-h3c-baseline suite formal-7d
+h3c-baseline suite formal-drl
 h3c-baseline verify outputs/baselines/runs/<suite>/<case>/<run_id>
-h3c-baseline report outputs/baselines/runs/formal-7d
+h3c-baseline report outputs/baselines/runs/formal-drl
 ```
 
 Dry plans do not connect to BOPTEST. Add `--execute` only after reviewing the resolved plan.
-The full suite runs its three identifications followed by fourteen evaluations in registered
-order. Output schemas and metrics are summarized in [`outputs/README.md`](../outputs/README.md).
+The current suite runs eleven RBC/DRL evaluations in registered order. Output schemas and metrics
+are summarized in [`outputs/README.md`](../outputs/README.md). The optional MPC implementation is
+not part of this benchmark.
 
-The first complete registered 7+7+7 execution is summarized in
+The superseded first complete 7+7+7 baseline execution is summarized in
 [`baseline_formal_7d_result_20260828.md`](baseline_formal_7d_result_20260828.md). The tracked note
 binds the result to its production source while the generated trajectories and figures remain
 under ignored `outputs/baselines/` directories.
+
+The corrected per-policy adapter and current 7/5/7 RBC/DRL benchmark are frozen in
+[`drl_adapter_contract_repair_preregistration.md`](drl_adapter_contract_repair_preregistration.md).

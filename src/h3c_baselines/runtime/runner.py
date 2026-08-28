@@ -1,4 +1,4 @@
-"""Fresh 7+7+7 BOPTEST runner shared by RBC, frozen DRL, and linear MPC."""
+"""Fresh conditioned BOPTEST runner shared by independent baseline controllers."""
 
 from __future__ import annotations
 
@@ -547,7 +547,7 @@ def execute_formal_suite() -> dict[str, Any]:
         identification_dirs[case] = Path(result["run_dir"])
     evaluation = execute_baseline_plans(
         formal_evaluation_plans(),
-        suite="formal-7d",
+        suite="formal-drl",
         mpc_identification_dirs=identification_dirs,
     )
     return {

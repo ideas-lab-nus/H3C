@@ -31,7 +31,7 @@ from h3c.runtime.protocol import (
     site_power,
     zone_temperature_c,
 )
-from h3c_baselines.configuration import load_formal_suite
+from h3c_baselines.configuration import load_mpc_suite
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.mpc.vector_arx import (
     ArxLayout,
@@ -148,7 +148,7 @@ def verify_identification_run(run_dir: Path, *, require_completion: bool = True)
     profile = load_profile(case)
     zones = tuple(profile["zones"])
     evaluation_start = int(profile["evaluation_start_day"]) * 86400
-    suite = load_formal_suite()
+    suite = load_mpc_suite()
     layout = ArxLayout(
         zones,
         (
@@ -226,7 +226,7 @@ def execute_identification(
     physical_factory: PhysicalFactory | None = None,
 ) -> dict[str, Any]:
     profile = load_profile(case)
-    expected_days = int(load_formal_suite()["mpc_identification_days"][case])
+    expected_days = int(load_mpc_suite()["mpc_identification_days"][case])
     if days != expected_days:
         raise ValueError("identification duration differs from the frozen suite")
     zones = tuple(profile["zones"])
@@ -385,7 +385,7 @@ def execute_identification(
             features, targets, _ = build_dataset(
                 layout, time_array, output_array, control_array, disturbance_array
             )
-            suite = load_formal_suite()
+            suite = load_mpc_suite()
             model, fit_report = fit_vector_arx(
                 layout,
                 features,

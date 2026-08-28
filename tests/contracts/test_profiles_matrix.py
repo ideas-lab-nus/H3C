@@ -12,7 +12,7 @@ def test_three_profiles_are_complete_and_configuration_owned() -> None:
         2,
         5,
     ]
-    expected_formal_days = {"SZ_Air": 7, "MZ_Hydro": 7, "MZ_Air": 7}
+    expected_formal_days = {"SZ_Air": 7, "MZ_Hydro": 5, "MZ_Air": 7}
     for name, profile in loaded.items():
         assert profile["protocol"] == {
             "server_warmup_days": 7,
@@ -43,7 +43,7 @@ def test_all_matrix_deduplicates_main_and_one_hour_memory_identity() -> None:
     )
     assert (
         sum(plan.expected_agent_calls(len(loaded[plan.profile]["zones"])) for plan in matrix)
-        == 18312
+        == 16824
     )
 
     graph_plans = plan_suite("graph-sensitivity")

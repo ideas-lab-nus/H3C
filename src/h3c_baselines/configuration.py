@@ -45,17 +45,29 @@ class BaselineRunPlan:
 
 
 def load_formal_suite(path: Path | None = None) -> dict[str, Any]:
-    source = path or repository_root() / "configs" / "baselines" / "formal_7d.json"
+    source = path or repository_root() / "configs" / "baselines" / "formal_drl.json"
     value = cast(dict[str, Any], json.loads(source.read_text(encoding="utf-8")))
-    if value.get("schema") != "h3c_baseline_suite" or value.get("name") != "formal-7d":
+    if value.get("schema") != "h3c_baseline_suite" or value.get("name") not in {
+        "formal-drl",
+        "formal-7d",
+    }:
         raise ValueError("baseline suite schema is invalid")
     return value
+
+
+def load_mpc_suite() -> dict[str, Any]:
+    """Load the retained optional MPC contract without adding it to the DRL benchmark."""
+    return load_formal_suite(repository_root() / "configs" / "baselines" / "formal_7d.json")
 
 
 def formal_evaluation_plans() -> list[BaselineRunPlan]:
     suite = load_formal_suite()
     return [
-        BaselineRunPlan(case=case, controller=controller)
+        BaselineRunPlan(
+            case=case,
+            controller=controller,
+            evaluation_hours=int(load_profile(case)["protocol"]["formal_evaluation_days"]) * 24,
+        )
         for case in suite["case_order"]
         for controller in suite["controller_order"][case]
     ]
@@ -63,4 +75,9 @@ def formal_evaluation_plans() -> list[BaselineRunPlan]:
 
 def formal_identification_cases() -> list[tuple[str, int]]:
     suite = load_formal_suite()
-    return [(case, int(suite["mpc_identification_days"][case])) for case in suite["case_order"]]
+    identification_days = suite.get("mpc_identification_days", {})
+    return [
+        (case, int(identification_days[case]))
+        for case in suite["case_order"]
+        if "linear-mpc" in suite["controller_order"][case]
+    ]

@@ -2,23 +2,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from h3c.experiments.profiles import load_profile
 from h3c.runtime.protocol import control_input
 from h3c_baselines.controllers.drl import FrozenDrlController
 from h3c_baselines.models import model_entry
 from h3c_baselines.policies.normalization import symmetric_minmax
-from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
+from h3c_baselines.policies.observation_contracts import ObservationPacket, PolicyObservationBuilder
 
 
 def _state(profile: dict[str, object]) -> dict[str, float]:
     zones = profile["zones"]
     global_inputs = profile["global_inputs"]
     assert isinstance(zones, dict) and isinstance(global_inputs, dict)
-    state = {"time": float(int(profile["evaluation_start_day"]) * 86400)}
+    evaluation_start_day = profile["evaluation_start_day"]
+    assert isinstance(evaluation_start_day, int)
+    state = {"time": float(evaluation_start_day * 86400)}
     for index, zone in enumerate(zones.values()):
         assert isinstance(zone, dict)
         state[str(zone["temperature_sensor"])] = 297.15 + index * 0.1
@@ -64,6 +68,26 @@ def _identity(value: object) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _columns(packet: ObservationPacket, prefix: str) -> list[float]:
+    return [
+        float(packet.raw[index])
+        for index, name in enumerate(packet.columns)
+        if name.startswith(prefix)
+    ]
+
+
+def _updated_state(profile: dict[str, object], update_index: int) -> dict[str, float]:
+    state = _state(profile)
+    zones = profile["zones"]
+    assert isinstance(zones, dict)
+    for zone_index, zone in enumerate(zones.values()):
+        assert isinstance(zone, dict)
+        state[str(zone["temperature_sensor"])] = (
+            299.15 + 2.0 * (update_index - 1) + zone_index * 0.1
+        )
+    return state
+
+
 def test_legacy_normalization_does_not_clip() -> None:
     result = symmetric_minmax(
         np.asarray([-1.0, 3.0, np.nan]),
@@ -106,6 +130,161 @@ def test_mz_air_policy_order_is_independent_of_profile_order() -> None:
     entry = model_entry("MZ_Air", "c-drl")
     assert list(profile["zones"]) == ["cor", "eas", "nor", "sou", "wes"]
     assert entry["policy_zone_order"] == ["cor", "nor", "sou", "eas", "wes"]
+
+
+@pytest.mark.parametrize(
+    ("case", "controller", "temperature_sequences", "action_sequences", "power_sequences"),
+    [
+        (
+            "SZ_Air",
+            "c-drl",
+            [
+                [297.15, 297.15, 297.15, 297.15, 297.15],
+                [299.15, 297.15, 297.15, 297.15, 297.15],
+                [301.15, 299.15, 297.15, 297.15, 297.15],
+            ],
+            [
+                [298.15, 298.15, 298.15, 298.15],
+                [298.15, 298.15, 298.15, 298.15],
+                [299.15, 298.15, 298.15, 298.15],
+            ],
+            [[0.0] * 4, [0.0] * 4, [0.25, 0.0, 0.0, 0.0]],
+        ),
+        (
+            "MZ_Hydro",
+            "c-drl",
+            [
+                [297.15, 298.15, 298.15, 298.15, 298.15],
+                [299.15, 297.15, 298.15, 298.15, 298.15],
+                [301.15, 299.15, 297.15, 298.15, 298.15],
+            ],
+            [[298.15], [298.15], [299.15]],
+            [[0.0] * 4, [0.0] * 4, [0.25, 0.0, 0.0, 0.0]],
+        ),
+        (
+            "MZ_Air",
+            "c-drl",
+            [
+                [297.15, 297.15, 298.15, 298.15, 298.15],
+                [299.15, 299.15, 297.15, 298.15, 298.15],
+                [301.15, 301.15, 299.15, 297.15, 298.15],
+            ],
+            [[298.15], [299.15], [300.15]],
+            [[0.0] * 4, [0.25, 0.0, 0.0, 0.0], [0.5, 0.25, 0.0, 0.0]],
+        ),
+        (
+            "MZ_Air",
+            "h-drl",
+            [
+                [297.15, 297.15, 297.15, 297.15, 297.15],
+                [299.15, 299.15, 297.15, 297.15, 297.15],
+                [301.15, 301.15, 299.15, 297.15, 297.15],
+            ],
+            [[298.15], [299.15], [300.15]],
+            [[0.0] * 4, [0.25, 0.0, 0.0, 0.0], [0.5, 0.25, 0.0, 0.0]],
+        ),
+    ],
+)
+def test_history_windows_match_the_independent_legacy_owner_contract(
+    case: str,
+    controller: str,
+    temperature_sequences: list[list[float]],
+    action_sequences: list[list[float]],
+    power_sequences: list[list[float]],
+) -> None:
+    profile = load_profile(case)
+    entry = model_entry(case, controller)
+    builder = PolicyObservationBuilder(profile, entry)
+    builder.reset(_state(profile))
+    zone = str(entry["policy_zone_order"][0])
+    forecast = _golden_forecast(profile)
+    maximum_power = float(profile["performance"]["maximum_power_w"])
+    for index in range(3):
+        if index:
+            setpoints = {
+                candidate: 25.0 + index + zone_index * 0.1
+                for zone_index, candidate in enumerate(entry["policy_zone_order"])
+            }
+            builder.update(
+                _updated_state(profile, index),
+                setpoints,
+                dict.fromkeys(entry["policy_zone_order"], index * 0.1),
+                maximum_power * 0.25 * index,
+            )
+        packet = builder.build(
+            forecast,
+            step=index,
+            action_time_seconds=int(profile["evaluation_start_day"]) * 86400 + index * 900,
+            step_seconds=900,
+        )
+        assert _columns(packet, f"temperature_{zone}") == pytest.approx(
+            temperature_sequences[index]
+        )
+        action_prefix = "action_zone1" if case == "SZ_Air" else "last_action"
+        action_values = _columns(packet, action_prefix)
+        if case != "SZ_Air":
+            action_values = action_values[:1]
+        assert action_values == pytest.approx(action_sequences[index])
+        assert _columns(packet, "power_norm") == pytest.approx(power_sequences[index])
+
+
+def test_mz_air_policy_uses_raw_binary_occupancy_at_midnight() -> None:
+    profile = load_profile("MZ_Air")
+    builder = PolicyObservationBuilder(profile, model_entry("MZ_Air", "c-drl"))
+    builder.reset(_state(profile))
+    packet = builder.build(
+        _golden_forecast(profile),
+        step=0,
+        action_time_seconds=int(profile["evaluation_start_day"]) * 86400,
+        step_seconds=900,
+    )
+    assert _columns(packet, "occupancy_cor") == [1.0] * 5
+
+
+def test_case_specific_mappo_local_layouts_match_legacy_actor_inputs() -> None:
+    for case, shared_first in (("MZ_Hydro", False), ("MZ_Air", True)):
+        profile = load_profile(case)
+        entry = model_entry(case, "h-drl")
+        builder = PolicyObservationBuilder(profile, entry)
+        builder.reset(_state(profile))
+        packet = builder.build(
+            _golden_forecast(profile),
+            step=0,
+            action_time_seconds=int(profile["evaluation_start_day"]) * 86400,
+            step_seconds=900,
+        )
+        indices = {name: index for index, name in enumerate(packet.columns)}
+        zone = str(entry["policy_zone_order"][0])
+        local = packet.local_normalized[zone]
+        temperature = packet.normalized[indices[f"temperature_{zone}_0"]]
+        power = packet.normalized[indices["power_norm_0"]]
+        assert local[2] == (power if shared_first else temperature)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value", "message"),
+    [
+        ("temperature_past_offset", 2, "policy history offset is invalid"),
+        ("action_past_offset", -1, "policy history offset is invalid"),
+        ("power_past_offset", 3, "policy history offset is invalid"),
+        ("temperature_missing", "zero", "temperature missing-value rule is invalid"),
+        ("occupancy_encoding", "binary_effective", "occupancy encoding is invalid"),
+    ],
+)
+def test_policy_contract_rejects_unregistered_history_or_occupancy_semantics(
+    field: str, invalid_value: object, message: str
+) -> None:
+    entry = deepcopy(model_entry("MZ_Air", "c-drl"))
+    entry[field] = invalid_value
+    with pytest.raises(ValueError, match=message):
+        PolicyObservationBuilder(load_profile("MZ_Air"), entry)
+
+
+def test_policy_contract_rejects_unregistered_mappo_local_layout() -> None:
+    entry = deepcopy(model_entry("MZ_Air", "h-drl"))
+    entry["local_observation_layout"] = "zone_interleaved"
+    with pytest.raises(ValueError, match="local MAPPO observation layout is invalid"):
+        PolicyObservationBuilder(load_profile("MZ_Air"), entry)
 
 
 def test_frozen_policy_inference_matches_migrated_golden_contract() -> None:

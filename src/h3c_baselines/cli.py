@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from h3c.experiments.profiles import load_profile
 from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
@@ -40,7 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--execute", action="store_true")
     suite = commands.add_parser("suite", help="resolve or execute a registered suite")
-    suite.add_argument("name", choices=("formal-7d",))
+    suite.add_argument("name", choices=("formal-drl",))
     suite.add_argument("--execute", action="store_true")
     verify = commands.add_parser("verify")
     verify.add_argument("run_directory", type=Path)
@@ -66,7 +67,10 @@ def main(argv: list[str] | None = None) -> int:
         _print(verify_all_checkpoints(load_cpu=not arguments.identity_only))
         return 0
     if arguments.command == "run":
-        plan = BaselineRunPlan(arguments.case, arguments.controller)
+        evaluation_hours = (
+            int(load_profile(arguments.case)["protocol"]["formal_evaluation_days"]) * 24
+        )
+        plan = BaselineRunPlan(arguments.case, arguments.controller, evaluation_hours)
         if not arguments.execute:
             _print({"execution": False, "plan": plan.resolved()})
             return 0
@@ -88,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "suite":
         dry = {
             "execution": False,
-            "suite": "formal-7d",
+            "suite": "formal-drl",
             "identification_runs": [
                 {"case": case, "days": days} for case, days in formal_identification_cases()
             ],

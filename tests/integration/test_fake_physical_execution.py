@@ -567,14 +567,14 @@ def test_hydronic_missing_occupancy_resolution_is_audited_and_verified(
     assert corrupted["checks"]["occupancy_forecast_missing_value_resolution"] is False
 
 
-def test_hydronic_formal_profile_evaluates_seven_days(tmp_path: Path, monkeypatch: Any) -> None:
+def test_hydronic_formal_profile_evaluates_five_days(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
     plan = next(
         candidate
         for candidate in plan_suite("main")
         if candidate.profile == "MZ_Hydro" and candidate.controller == "deterministic_baseline"
     )
-    assert plan.evaluation_hours == 168
+    assert plan.evaluation_hours == 120
     physical = HydronicMissingOccupancyPhysical()
     result = execute_serial(
         [plan],
@@ -585,8 +585,8 @@ def test_hydronic_formal_profile_evaluates_seven_days(tmp_path: Path, monkeypatc
     run_dir = Path(result["completed_runs"][0]["completion"]).parent
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert physical.initialize_count == physical.stop_count == 1
-    assert physical.advance_count == 672 + 672
-    assert metrics["physical"]["evaluation_steps"] == 672
+    assert physical.advance_count == 672 + 480
+    assert metrics["physical"]["evaluation_steps"] == 480
     assert verify_run(run_dir)["passed"]
 
 

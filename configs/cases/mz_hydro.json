@@ -60,7 +60,7 @@
   "protocol": {
     "server_warmup_days": 7,
     "vanilla_conditioning_days": 7,
-    "formal_evaluation_days": 7,
+    "formal_evaluation_days": 5,
     "occupied_vanilla_setpoint_c": 25.0,
     "unoccupied_vanilla_setpoint_c": 30.0
   },

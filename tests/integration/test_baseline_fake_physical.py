@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,7 @@ class FakeBaselinePhysical:
         return self._state()
 
     def forecast(
-        self, points: list[str], horizon_seconds: int, interval_seconds: int
+        self, points: Sequence[str], horizon_seconds: int, interval_seconds: int
     ) -> dict[str, list[float | None]]:
         assert interval_seconds == 900
         length = horizon_seconds // interval_seconds + 1
@@ -59,7 +60,7 @@ class FakeBaselinePhysical:
                 result[point] = [1.0] * length
         return result
 
-    def advance(self, controls: dict[str, float]) -> dict[str, Any]:
+    def advance(self, controls: Mapping[str, float]) -> dict[str, Any]:
         assert controls
         self.advance_count += 1
         self.time += 900

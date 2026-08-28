@@ -68,13 +68,13 @@ h3c suite main
 # Verify the five frozen inference checkpoints on CPU
 h3c-baseline models verify
 
-# Resolve one independent baseline and the full registered benchmark
+# Resolve one independent baseline and the registered RBC/DRL benchmark
 h3c-baseline run --case MZ_Hydro --controller h-drl
-h3c-baseline suite formal-7d
+h3c-baseline suite formal-drl
 
 # Verify or report completed baseline artifacts
 h3c-baseline verify outputs/baselines/runs/<suite>/<case>/<run_id>
-h3c-baseline report outputs/baselines/runs/formal-7d
+h3c-baseline report outputs/baselines/runs/formal-drl
 ```
 
 Offline onboarding has two genuine human review pauses and can resume from a checkpoint:
@@ -96,18 +96,17 @@ Every formal evaluation uses a fresh BOPTEST test identity:
 ```text
 7-day server warm-up
 → same-test-id 7-day vanilla RBC prefix (occupied 25 °C, otherwise 30 °C)
-→ 7-day formal evaluation
+→ case-declared formal evaluation (Air: 7 days; MZ_Hydro: 5 occupied weekdays)
 ```
 
-| Case | basic RBC | enhanced RBC | C-DRL | H-DRL | linear MPC |
-|---|:---:|:---:|:---:|:---:|:---:|
-| SZ_Air | ✓ | ✓ | 1-policy PPO | — | ✓ |
-| MZ_Hydro | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO | ✓ |
-| MZ_Air | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO | ✓ |
+| Case | Evaluation | basic RBC | enhanced RBC | C-DRL | H-DRL |
+|---|---:|:---:|:---:|:---:|:---:|
+| SZ_Air | 7 days | ✓ | ✓ | 1-policy PPO | — |
+| MZ_Hydro | 5 weekdays | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO |
+| MZ_Air | 7 days | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO |
 
-This gives 14 fresh evaluation arms. MPC additionally uses one independent, pre-evaluation eRBC
-identification trajectory per case: 7 days for SZ_Air, 5 days for MZ_Hydro, and 7 days for
-MZ_Air. Evaluation data never enter identification or model selection.
+This gives 11 fresh evaluation arms. Linear MPC remains an optional experimental controller in
+the package but is intentionally excluded from the current registered benchmark.
 
 ### Frozen DRL identity
 
@@ -120,7 +119,7 @@ the new formal evaluation.
 | SZ_Air C-DRL | PPO epoch 297 | 798,336 | `abd5d1adb751` |
 | MZ_Hydro C-DRL | PPO epoch 650 | 1,248,000 | `beba50eb178a` |
 | MZ_Hydro H-DRL | MAPPO epoch 700 | 1,344,000 | `3644b477c4e0` |
-| MZ_Air C-DRL | PPO epoch 281 | 755,328 | `7385e6d9e055` |
+| MZ_Air C-DRL | archived evaluation PPO | 295,680 | `368a19d88522` |
 | MZ_Air H-DRL | MAPPO epoch 298 | 801,024 | `2b6b1c2c83f4` |
 
 Each load verifies the full SHA-256 and byte count from `models/registry.json`, then performs

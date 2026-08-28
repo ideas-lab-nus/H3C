@@ -15,8 +15,9 @@ The lifecycle is fixed:
 5. Carry the physical boundary state into evaluation while starting the Agent at
    the initial program, version zero, an empty accepted ledger, and empty working
    memory.
-6. Evaluate for the case-declared formal duration: seven days for all three
-   current profiles, or six hours for every `release-6h` arm.
+6. Evaluate for the case-declared formal duration: seven days for SZ_Air and
+   MZ_Air, five occupied weekdays for MZ_Hydro, or six hours for every
+   `release-6h` arm.
 7. Stop the same test id exactly once.
 
 Only evaluation rows contribute to `performance.csv` and `metrics.json`.

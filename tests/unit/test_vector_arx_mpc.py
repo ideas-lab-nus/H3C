@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import NDArray
 
 from h3c.runtime.comfort import ComfortModel
 from h3c_baselines.mpc.optimizer import LinearMpcController
@@ -13,7 +14,13 @@ from h3c_baselines.mpc.vector_arx import (
 )
 
 
-def _dataset() -> tuple[ArxLayout, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _dataset() -> tuple[
+    ArxLayout,
+    NDArray[np.int64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
     layout = ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos"))
     times = np.arange(0, 150 * 900, 900, dtype=np.int64)
     controls = np.full((150, 1), 25.0)

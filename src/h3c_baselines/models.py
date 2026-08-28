@@ -13,7 +13,7 @@ from h3c.experiments.profiles import repository_root
 def load_registry() -> dict[str, Any]:
     path = repository_root() / "models" / "registry.json"
     value = cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
-    if value.get("schema") != "h3c_frozen_policy_registry" or value.get("schema_version") != 1:
+    if value.get("schema") != "h3c_frozen_policy_registry" or value.get("schema_version") != 2:
         raise ValueError("frozen policy registry schema is invalid")
     models = value.get("models")
     if not isinstance(models, dict) or len(models) != 5:

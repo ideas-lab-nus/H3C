@@ -86,9 +86,9 @@ def test_release_smoke_plan_freezes_expected_call_count(
 @pytest.mark.parametrize(
     ("arguments", "expected_runs", "expected_calls"),
     [
-        (["run", "--profile", "MZ_Hydro"], 1, 4 * 168),
+        (["run", "--profile", "MZ_Hydro"], 1, 4 * 120),
         (["smoke", "release-6h"], 13, 372),
-        (["suite", "all"], 27, 18312),
+        (["suite", "all"], 27, 16824),
     ],
 )
 def test_dry_plans_do_not_import_runtime_or_thermal_comfort(
@@ -177,9 +177,9 @@ def test_hydronic_single_run_defaults_to_profile_formal_duration(
 ) -> None:
     main(["run", "--profile", "MZ_Hydro"])
     output = json.loads(capsys.readouterr().out)
-    assert output["runs"][0]["method"]["evaluation_hours"] == 168
+    assert output["runs"][0]["method"]["evaluation_hours"] == 120
     with pytest.raises(ValueError, match="profile formal duration"):
-        main(["run", "--profile", "MZ_Hydro", "--evaluation-hours", "120"])
+        main(["run", "--profile", "MZ_Hydro", "--evaluation-hours", "168"])
 
 
 @pytest.mark.parametrize(
