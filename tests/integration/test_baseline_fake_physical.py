@@ -111,6 +111,39 @@ def test_basic_rbc_fake_lifecycle_and_artifact_contract(tmp_path: Path, monkeypa
     assert (report_dir / "SZ_Air_basic-rbc_timeseries.png").is_file()
 
 
+def test_legacy_internal_warmup_has_no_explicit_prefix_advances(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    FakeBaselinePhysical.instances.clear()
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    result = execute_baseline_plans(
+        [
+            BaselineRunPlan(
+                "SZ_Air",
+                "basic-rbc",
+                evaluation_hours=1,
+                conditioning_mode="legacy_internal_warmup",
+            )
+        ],
+        suite="legacy-replay-test",
+        output_root=tmp_path / "runs",
+        lock_root=tmp_path / "lock",
+        physical_factory=FakeBaselinePhysical,
+    )
+    run_dir = Path(result["completed_runs"][0]["run_dir"])
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["lifecycle"] == {
+        "initialize_count": 1,
+        "conditioning_advance_count": 0,
+        "evaluation_advance_count": 4,
+        "stop_count": 1,
+        "test_id_changes": 0,
+    }
+    assert (run_dir / "physical_conditioning.jsonl").read_text(encoding="utf-8") == ""
+    physical = FakeBaselinePhysical.instances[0]
+    assert (physical.initialize_count, physical.advance_count, physical.stop_count) == (1, 4, 1)
+
+
 def test_drl_dependency_preflight_fails_before_artifacts_or_physical_initialize(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

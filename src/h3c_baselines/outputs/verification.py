@@ -34,6 +34,8 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
     case = str(manifest["case"])
     controller = str(manifest["controller"])
     expected_steps = int(resolved["evaluation_hours"]) * 4
+    conditioning_mode = str(resolved.get("conditioning_mode", "explicit_vanilla_prefix"))
+    expected_conditioning_count = 0 if conditioning_mode == "legacy_internal_warmup" else 672
     zone_count = len(resolved["case_profile"]["zones"])
     action_rows = sum(
         1 for line in (run_dir / "actions.jsonl").read_text(encoding="utf-8").splitlines() if line
@@ -48,7 +50,8 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
         "evaluation_steps": performance_rows == expected_steps,
         "zone_action_rows": action_rows == expected_steps * zone_count,
         "initialize_once": manifest["lifecycle"]["initialize_count"] == 1,
-        "conditioning_count": manifest["lifecycle"]["conditioning_advance_count"] == 672,
+        "conditioning_count": manifest["lifecycle"]["conditioning_advance_count"]
+        == expected_conditioning_count,
         "evaluation_count": manifest["lifecycle"]["evaluation_advance_count"] == expected_steps,
         "stop_once": manifest["lifecycle"]["stop_count"] == 1,
         "test_id_unchanged": manifest["lifecycle"]["test_id_changes"] == 0,

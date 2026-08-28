@@ -130,3 +130,12 @@ The corrected per-policy adapter and current 7/5/7 RBC/DRL benchmark are frozen 
 Its completed 11-arm result, checkpoint identities, occupancy interpretation and time-series
 findings are recorded in
 [`drl_adapter_contract_repair_result.md`](drl_adapter_contract_repair_result.md).
+
+## Archived-protocol reproduction
+
+`h3c-baseline suite legacy-replay` resolves a separate eight-arm diagnostic matrix that reproduces
+the archived evaluation reset: direct initialization at the old evaluation start with BOPTEST's
+seven-day internal warm-up and no explicit control prefix. Add `--execute` to run it. The suite is
+defined in `configs/baselines/legacy_replay.json`; it does not replace the common-prefix benchmark.
+Its frozen question and interpretation rules are in
+[`legacy_drl_reproduction_preregistration.md`](legacy_drl_reproduction_preregistration.md).

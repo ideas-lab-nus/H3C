@@ -37,6 +37,7 @@ from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
     formal_identification_cases,
+    legacy_replay_plans,
 )
 from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
 from h3c_baselines.controllers.drl import FrozenDrlController
@@ -50,6 +51,7 @@ from h3c_baselines.outputs.integrity import secret_occurrences
 from h3c_baselines.outputs.metrics import compute_baseline_metrics
 from h3c_baselines.outputs.verification import verify_baseline_run
 from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
+from h3c_baselines.runtime.legacy_protocol import run_legacy_internal_warmup
 
 PhysicalFactory = Callable[[str], PhysicalClient]
 
@@ -253,7 +255,12 @@ def _execute_one(
     stop_attempted = False
     started = time.perf_counter()
     try:
-        conditioning = run_conditioning(
+        conditioning_runner = (
+            run_legacy_internal_warmup
+            if plan.conditioning_mode == "legacy_internal_warmup"
+            else run_conditioning
+        )
+        conditioning = conditioning_runner(
             physical,
             profile,
             artifacts,
@@ -262,7 +269,9 @@ def _execute_one(
         initialized = True
         manifest["conditioning_prefix_identity"] = conditioning.conditioning_prefix_identity
         manifest["evaluation_boundary_identity"] = conditioning.evaluation_boundary_identity
-        manifest["lifecycle"]["conditioning_advance_count"] = 672
+        manifest["lifecycle"]["conditioning_advance_count"] = (
+            0 if plan.conditioning_mode == "legacy_internal_warmup" else 672
+        )
         zones = tuple(profile["zones"])
         steps = plan.evaluation_hours * 4
         evaluation_start = int(profile["evaluation_start_day"]) * 86400
@@ -563,3 +572,7 @@ def execute_formal_suite() -> dict[str, Any]:
         "identification_runs": identification_results,
         "evaluation_runs": evaluation["completed_runs"],
     }
+
+
+def execute_legacy_replay_suite() -> dict[str, Any]:
+    return execute_baseline_plans(legacy_replay_plans(), suite="legacy-replay")

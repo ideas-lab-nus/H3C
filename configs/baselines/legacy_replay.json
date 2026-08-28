@@ -1,0 +1,29 @@
+{
+  "schema": "h3c_baseline_suite",
+  "schema_version": 1,
+  "name": "legacy-replay",
+  "conditioning_mode": "legacy_internal_warmup",
+  "case_order": ["SZ_Air", "MZ_Hydro", "MZ_Air"],
+  "controller_order": {
+    "SZ_Air": ["basic-rbc", "c-drl"],
+    "MZ_Hydro": ["basic-rbc", "c-drl", "h-drl"],
+    "MZ_Air": ["basic-rbc", "c-drl", "h-drl"]
+  },
+  "evaluation_hours": {
+    "SZ_Air": 168,
+    "MZ_Hydro": 120,
+    "MZ_Air": 168
+  },
+  "profile_overrides": {
+    "MZ_Air": {
+      "occupancy": {
+        "__replace__": true,
+        "mode": "raw_count_positive",
+        "source": "Archived FinalMZAIR evaluation workflow"
+      },
+      "objective": {
+        "smoothness_scale": 0.193466
+      }
+    }
+  }
+}
