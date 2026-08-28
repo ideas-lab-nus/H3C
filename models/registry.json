@@ -1,6 +1,6 @@
 {
   "schema": "h3c_frozen_policy_registry",
-  "schema_version": 2,
+  "schema_version": 3,
   "models": {
     "sz_air_c_drl": {
       "case": "SZ_Air",
@@ -18,6 +18,7 @@
       "occupancy_upper": 2.0,
       "action_history_steps": 4,
       "cold_start_action_c": 25.0,
+      "time_observation_bounds": [-1.0, 1.0],
       "action_observation_bounds_k": [293.15, 303.15],
       "temperature_past_offset": 1,
       "action_past_offset": 1,
@@ -42,6 +43,7 @@
       "occupancy_upper": 200.0,
       "action_history_steps": 1,
       "cold_start_action_c": 25.0,
+      "time_observation_bounds": [0.0, 1.0],
       "action_observation_bounds_k": [288.15, 308.15],
       "temperature_past_offset": 1,
       "action_past_offset": 1,
@@ -67,6 +69,7 @@
       "occupancy_upper": 200.0,
       "action_history_steps": 1,
       "cold_start_action_c": 25.0,
+      "time_observation_bounds": [0.0, 1.0],
       "action_observation_bounds_k": [288.15, 308.15],
       "temperature_past_offset": 1,
       "action_past_offset": 1,
@@ -92,6 +95,7 @@
       "occupancy_upper": 50.0,
       "action_history_steps": 1,
       "cold_start_action_c": 25.0,
+      "time_observation_bounds": [0.0, 1.0],
       "action_observation_bounds_k": [293.15, 303.15],
       "temperature_past_offset": 0,
       "action_past_offset": 0,
@@ -117,6 +121,7 @@
       "occupancy_upper": 50.0,
       "action_history_steps": 1,
       "cold_start_action_c": 25.0,
+      "time_observation_bounds": [0.0, 1.0],
       "action_observation_bounds_k": [293.15, 303.15],
       "temperature_past_offset": 0,
       "action_past_offset": 0,

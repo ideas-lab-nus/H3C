@@ -39,6 +39,19 @@ class PolicyObservationBuilder:
         self.local_dimension = int(model.get("local_observation_dimension", 0))
         self.action_history_steps = int(model["action_history_steps"])
         self.cold_start_action_c = float(model["cold_start_action_c"])
+        time_bounds = model["time_observation_bounds"]
+        if (
+            not isinstance(time_bounds, list)
+            or len(time_bounds) != 2
+            or not all(isinstance(value, (int, float)) for value in time_bounds)
+        ):
+            raise ValueError("policy time-observation bounds are invalid")
+        self.time_observation_bounds = (float(time_bounds[0]), float(time_bounds[1]))
+        if (
+            not all(math.isfinite(value) for value in self.time_observation_bounds)
+            or self.time_observation_bounds[0] >= self.time_observation_bounds[1]
+        ):
+            raise ValueError("policy time-observation bounds are invalid")
         action_bounds = model["action_observation_bounds_k"]
         if (
             not isinstance(action_bounds, list)
@@ -257,7 +270,7 @@ class PolicyObservationBuilder:
                 name if len(values) == 1 else f"{name}_{index}" for index in range(len(values))
             )
 
-        add("time", time_values, (-1.0, 1.0))
+        add("time", time_values, self.time_observation_bounds)
         for zone in self.zone_order:
             add(f"temperature_{zone}", self._temperature_values(zone), (288.15, 308.15))
         add("pmv", [self.current_pmv[zone] for zone in self.zone_order], (-3.0, 3.0))

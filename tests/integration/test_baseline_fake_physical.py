@@ -78,6 +78,22 @@ class FakeBaselinePhysical:
         self.test_id = None
 
 
+class FakeMZAirPhysical(FakeBaselinePhysical):
+    def __init__(self, endpoint: str) -> None:
+        super().__init__(endpoint)
+        self.profile = load_profile("MZ_Air")
+
+    def forecast(
+        self, points: Sequence[str], horizon_seconds: int, interval_seconds: int
+    ) -> dict[str, list[float | None]]:
+        values = super().forecast(points, horizon_seconds, interval_seconds)
+        outdoor = self.profile["global_inputs"]["outdoor_temperature"]
+        values[outdoor] = [
+            273.65 + index * 0.2 for index in range(horizon_seconds // interval_seconds + 1)
+        ]
+        return values
+
+
 def test_basic_rbc_fake_lifecycle_and_artifact_contract(tmp_path: Path, monkeypatch: Any) -> None:
     FakeBaselinePhysical.instances.clear()
     monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
@@ -142,6 +158,55 @@ def test_legacy_internal_warmup_has_no_explicit_prefix_advances(
     assert (run_dir / "physical_conditioning.jsonl").read_text(encoding="utf-8") == ""
     physical = FakeBaselinePhysical.instances[0]
     assert (physical.initialize_count, physical.advance_count, physical.stop_count) == (1, 4, 1)
+
+
+def test_drl_policy_comfort_is_logged_and_reaches_next_observation(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    FakeBaselinePhysical.instances.clear()
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    monkeypatch.setattr("h3c_baselines.runtime.runner._source_commit", lambda: "a" * 40)
+    result = execute_baseline_plans(
+        [
+            BaselineRunPlan(
+                "MZ_Air",
+                "h-drl",
+                evaluation_hours=1,
+                conditioning_mode="legacy_internal_warmup",
+            )
+        ],
+        suite="policy-comfort-test",
+        output_root=tmp_path / "runs",
+        lock_root=tmp_path / "lock",
+        physical_factory=FakeMZAirPhysical,
+    )
+    run_dir = Path(result["completed_runs"][0]["run_dir"])
+    diagnostics = [
+        json.loads(line)
+        for line in (run_dir / "controller_diagnostics.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    observations = [
+        json.loads(line)
+        for line in (run_dir / "observations.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    actions = [
+        json.loads(line)
+        for line in (run_dir / "actions.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert all("policy_input_clothing_insulation" in row for row in diagnostics)
+    first_policy_pmv = diagnostics[0]["policy_input_pmv"]
+    second_observation = observations[1]
+    pmv_indices = [
+        index for index, name in enumerate(second_observation["columns"]) if name.startswith("pmv_")
+    ]
+    policy_order = ["cor", "nor", "sou", "eas", "wes"]
+    assert [second_observation["raw"][index] for index in pmv_indices] == pytest.approx(
+        [first_policy_pmv[zone] for zone in policy_order]
+    )
+    public_pmv = {row["zone"]: row["outcome"]["pmv"] for row in actions[:5]}
+    assert any(public_pmv[zone] != first_policy_pmv[zone] for zone in policy_order)
 
 
 def test_drl_dependency_preflight_fails_before_artifacts_or_physical_initialize(

@@ -7,17 +7,18 @@
 - Policy zone order: `cor, nor, sou, eas, wes`
 - Local actor order: time, shared power/weather/price, own temperature/PMV/action, own raw-binary
   occupancy; histories include the latest sample
+- Time-feature bounds: `[0, 1]` before symmetric min-max normalization, as executed by the
+  training-machine evaluator
 - Action contract: 25 °C base plus residual [-5, 5] °C, clamped to [20, 30] °C
 - Selection: highest training-log mean return; no formal evaluation result was used
 
-## Provenance limitation
+## Provenance recovery
 
-This is the currently readable epoch-298 checkpoint. Its bytes and the saved `Visfinal.ipynb`
-tensor contract are internally reproducible, but they cannot be cryptographically bound to the
-legacy `mappo_validation_air_5zone.csv` trajectory. The saved notebook stopped at a checkpoint
-load error, the later CSV records no checkpoint hash, and none of the eight surviving MAPPO
-checkpoints reproduces that CSV's first action. Results from this file must therefore be described
-as a reconstruction with the surviving checkpoint, not as an exact replay of the historical
-H-DRL trajectory.
+The training-computer copy binds the epoch-298 checkpoint, the `Visfinal` evaluator and
+`mappo_validation_air_5zone.csv` by path and file chronology. More importantly, restoring the
+evaluator's `[0, 1]` fallback bounds for the two sin/cos columns makes this checkpoint reproduce
+the archived first five raw actions within approximately `2e-6`. The earlier failure to reproduce
+that action was caused by the migrated adapter's global `[-1, 1]` time bound, not by missing actor
+bytes. The source-accounted action oracle is enforced in the test suite.
 
 The immutable byte count and SHA-256 are owned by `models/registry.json`.

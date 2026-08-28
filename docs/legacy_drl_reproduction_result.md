@@ -1,5 +1,12 @@
 # Archived-protocol RBC/DRL reproduction result
 
+> **Post-result correction (2026-08-29):** the MZ Air H-DRL checkpoint-recovery diagnosis below
+> is superseded by `drl_time_feature_contract_repair_preregistration.md`. Inspection of the copied
+> training-machine evaluator proved that the migrated adapter used the wrong sin/cos bounds.
+> Restoring `[0,1]` reproduces the archived first H-DRL action with the retained epoch-298 model.
+> The original adverse text is retained below as the historical conclusion reached before that
+> source code was available.
+
 Date: 2026-08-29
 
 ## Scope

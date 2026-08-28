@@ -20,7 +20,7 @@ from numpy.typing import NDArray
 from h3c.experiments.profiles import repository_root
 from h3c.experiments.settings import load_runtime_contract
 from h3c.runtime.clients import BoptestHttpClient
-from h3c.runtime.comfort import step_reward
+from h3c.runtime.comfort import ComfortModel, step_reward
 from h3c.runtime.execution_lock import physical_execution_lock
 from h3c.runtime.occupancy import effective_count
 from h3c.runtime.protocol import (
@@ -91,6 +91,36 @@ def _future_occupancy(
         ]
         for zone in zones
     }
+
+
+def _legacy_policy_daily_outdoor_mean_c(
+    profile: Mapping[str, Any],
+    forecast: Mapping[str, Sequence[float]],
+    *,
+    step: int,
+) -> float:
+    """Return the original DRL policy's 96 consecutive 15-minute samples."""
+    outdoor_point = str(profile["global_inputs"]["outdoor_temperature"])
+    values = forecast[outdoor_point][step : step + 96]
+    if len(values) != 96:
+        raise ValueError("policy comfort forecast lacks 96 consecutive samples")
+    return sum(float(value) - 273.15 for value in values) / 96.0
+
+
+def _legacy_policy_pmv(
+    comfort: ComfortModel,
+    profile: Mapping[str, Any],
+    forecast: Mapping[str, Sequence[float]],
+    temperatures_c: Mapping[str, float],
+    *,
+    step: int,
+    action_time: int,
+) -> dict[str, float]:
+    comfort.update_clothing(
+        action_time,
+        _legacy_policy_daily_outdoor_mean_c(profile, forecast, step=step),
+    )
+    return {zone: comfort.pmv(value) for zone, value in temperatures_c.items()}
 
 
 def _mpc_disturbances(
@@ -293,6 +323,7 @@ def _execute_one(
         last_pmv = dict(conditioning.last_pmv)
         last_occupancy = dict(conditioning.last_occupancy)
         enhanced = EnhancedRbcController(zones, repository_root() / profile["program"])
+        policy_comfort = ComfortModel(profile["comfort"]) if drl is not None else None
         if observation_builder is not None:
             observation_builder.reset(state)
         mpc: LinearMpcController | None = None
@@ -412,6 +443,18 @@ def _execute_one(
             )
             temperatures = {zone: zone_temperature_c(profile, next_state, zone) for zone in zones}
             pmv = {zone: conditioning.comfort.pmv(temperatures[zone]) for zone in zones}
+            policy_pmv = pmv
+            if policy_comfort is not None:
+                policy_pmv = _legacy_policy_pmv(
+                    policy_comfort,
+                    profile,
+                    forecast,
+                    temperatures,
+                    step=step,
+                    action_time=action_time,
+                )
+                diagnostics["policy_input_clothing_insulation"] = policy_comfort.clothing_insulation
+                diagnostics["policy_input_pmv"] = policy_pmv
             power = site_power(profile, next_state)
             price = float(forecast[profile["global_inputs"]["electricity_price"]][step])
             cost = power * 0.25 / 1000.0 * price
@@ -456,7 +499,7 @@ def _execute_one(
                 )
             )
             if observation_builder is not None:
-                observation_builder.update(next_state, setpoints, pmv, power)
+                observation_builder.update(next_state, setpoints, policy_pmv, power)
             if output_history is not None and control_history is not None:
                 output_history = np.vstack(
                     ([*[temperatures[zone] for zone in zones], power], output_history[:-1])
