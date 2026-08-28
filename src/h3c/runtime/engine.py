@@ -52,6 +52,7 @@ from h3c.runtime.clients import (
     TransportError,
 )
 from h3c.runtime.comfort import MetricsAccumulator, comfort_headroom, step_reward
+from h3c.runtime.execution_lock import physical_execution_lock
 from h3c.runtime.occupancy import effective_count, hourly_route
 from h3c.runtime.protocol import (
     PhysicalClient,
@@ -1059,22 +1060,8 @@ def execute_serial(
         raise ValueError("serial execution requires at least one run")
     root = (output_root or repository_root() / "outputs" / "runs").resolve()
     root.mkdir(parents=True, exist_ok=True)
-    lock = root / ".execution.lock"
-    try:
-        with lock.open("x", encoding="utf-8") as file:
-            file.write(str(os.getpid()))
-    except FileExistsError as error:
-        try:
-            recorded_pid = lock.read_text(encoding="utf-8").strip() or "unavailable"
-        except OSError:
-            recorded_pid = "unreadable"
-        raise RuntimeError(
-            f"execution lock already exists at {lock}; recorded PID={recorded_pid}. "
-            "Do not delete it automatically: verify the process and active physical test "
-            "read-only, then remove the stale lock manually only after confirming no run is active."
-        ) from error
     results: list[dict[str, Any]] = []
-    try:
+    with physical_execution_lock(root):
         for plan in plans:
             try:
                 result = asyncio.run(
@@ -1094,6 +1081,4 @@ def execute_serial(
                     "verification": error.verification,
                 }
             results.append(result)
-    finally:
-        lock.unlink(missing_ok=False)
     return {"execution": "serial", "completed_runs": results}

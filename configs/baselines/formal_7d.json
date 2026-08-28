@@ -1,0 +1,26 @@
+{
+  "schema": "h3c_baseline_suite",
+  "schema_version": 1,
+  "name": "formal-7d",
+  "case_order": ["SZ_Air", "MZ_Hydro", "MZ_Air"],
+  "controller_order": {
+    "SZ_Air": ["basic-rbc", "enhanced-rbc", "c-drl", "linear-mpc"],
+    "MZ_Hydro": ["basic-rbc", "enhanced-rbc", "c-drl", "h-drl", "linear-mpc"],
+    "MZ_Air": ["basic-rbc", "enhanced-rbc", "c-drl", "h-drl", "linear-mpc"]
+  },
+  "mpc_identification_days": {
+    "SZ_Air": 7,
+    "MZ_Hydro": 5,
+    "MZ_Air": 7
+  },
+  "mpc": {
+    "lag_steps": 4,
+    "prediction_steps": 4,
+    "ridge_alpha_candidates": [0.000001, 0.0001, 0.01, 1.0, 100.0],
+    "validation_days": 1,
+    "selection_metric": "mean_standardized_output_rmse",
+    "tie_break": "larger_alpha",
+    "optimizer": "SLSQP",
+    "setpoint_bounds_c": [20.0, 30.0]
+  }
+}

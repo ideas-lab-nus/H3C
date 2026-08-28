@@ -14,6 +14,7 @@ dependencies = ["pythermalcomfort>=3.6,<4"]
 
 [project.scripts]
 h3c = "h3c.cli:main"
+h3c-baseline = "h3c_baselines.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -25,9 +26,17 @@ offline = [
   "agent-framework-core==1.15.0",
   "agent-framework-openai==1.14.0",
 ]
+baselines = [
+  "numpy==2.2.6",
+  "scipy==1.15.3",
+  "torch==2.9.0",
+  "stable-baselines3==2.7.0",
+  "gymnasium==1.2.1",
+  "matplotlib==3.10.7",
+]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/h3c"]
+packages = ["src/h3c", "src/h3c_baselines"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
@@ -44,4 +53,4 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["h3c"]
+packages = ["h3c", "h3c_baselines"]

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from h3c.outputs.artifacts import PERFORMANCE_COLUMNS
+from h3c.outputs.physical_metrics import compute_physical_metrics
 
 PRICE_BOOK_ID = "project-fixed-v1"
 USD_PER_MILLION = {"cache_hit": 0.0028, "cache_miss": 0.14, "output": 0.28}
@@ -102,28 +103,22 @@ def compute_run_metrics(run_dir: Path) -> dict[str, Any]:
     calls = _rows(run_dir / "agent_calls.jsonl")
     attempts = _rows(run_dir / "model_request_attempts.jsonl")
 
-    total_cost = sum(float(row["step_cost"]) for row in performance)
-    energy_kwh = sum(float(row["total_power_w"]) * 0.25 / 1000.0 for row in performance)
-    reward = sum(float(row["step_reward"]) for row in performance)
-    discomfort_zone_hours = 0.0
-    discomfort_pmv_hours = 0.0
-    occupied_peak_absolute_pmv = 0.0
-    setpoints: dict[str, list[tuple[int, float]]] = defaultdict(list)
-    comfort_state: dict[str, list[tuple[int, bool]]] = defaultdict(list)
+    physical_metrics = compute_physical_metrics(
+        performance,
+        [
+            {
+                "zone": row["zone"],
+                "step": row["step"],
+                "final_setpoint_c": row["final_setpoint_c"],
+                "effective_occupancy": row["outcome"]["effective_occupancy"],
+                "pmv": row["outcome"]["pmv"],
+            }
+            for row in zone_steps
+        ],
+    )
     assurance_count = Counter[str]()
     assurance_magnitude: defaultdict[str, float] = defaultdict(float)
     for row in zone_steps:
-        outcome = row["outcome"]
-        occupancy = float(outcome["effective_occupancy"])
-        pmv = float(outcome["pmv"])
-        if occupancy > 0:
-            absolute = abs(pmv)
-            occupied_peak_absolute_pmv = max(occupied_peak_absolute_pmv, absolute)
-            if absolute > 0.5:
-                discomfort_zone_hours += 0.25
-                discomfort_pmv_hours += (absolute - 0.5) * 0.25
-            comfort_state[str(row["zone"])].append((int(row["step"]), absolute <= 0.5))
-        setpoints[str(row["zone"])].append((int(row["step"]), float(row["final_setpoint_c"])))
         audit = row["action_assurance"]
         stages = (
             (
@@ -148,23 +143,6 @@ def compute_run_metrics(run_dir: Path) -> dict[str, Any]:
         for stage, trigger, before, after in stages:
             assurance_count[stage] += int(bool(audit[trigger]))
             assurance_magnitude[stage] += abs(float(audit[after]) - float(audit[before]))
-
-    total_variation = 0.0
-    reversals = 0
-    comfort_crossings = 0
-    for setpoint_values in setpoints.values():
-        ordered = [value for _, value in sorted(setpoint_values)]
-        deltas = [right - left for left, right in zip(ordered, ordered[1:], strict=False)]
-        total_variation += sum(abs(delta) for delta in deltas)
-        directions = [1 if delta > 0 else -1 for delta in deltas if abs(delta) > 1e-12]
-        reversals += sum(
-            left != right for left, right in zip(directions, directions[1:], strict=False)
-        )
-    for comfort_values in comfort_state.values():
-        ordered = [value for _, value in sorted(comfort_values)]
-        comfort_crossings += sum(
-            left != right for left, right in zip(ordered, ordered[1:], strict=False)
-        )
 
     status_counts = Counter(str(row.get("status")) for row in updates)
     accepted = sum(
@@ -244,20 +222,7 @@ def compute_run_metrics(run_dir: Path) -> dict[str, Any]:
     return {
         "metrics_schema": "h3c_run_metrics",
         "schema_version": 3,
-        "physical": {
-            "total_cost": total_cost,
-            "energy_kwh": energy_kwh,
-            "reward": reward,
-            "discomfort_zone_hours": discomfort_zone_hours,
-            "discomfort_pmv_hours": discomfort_pmv_hours,
-            "occupied_peak_absolute_pmv": occupied_peak_absolute_pmv,
-            "evaluation_steps": len(performance),
-        },
-        "setpoint_dynamics": {
-            "total_variation_c": total_variation,
-            "direction_reversals": reversals,
-            "occupied_comfort_band_crossings": comfort_crossings,
-        },
+        **physical_metrics,
         "program_decisions": {
             "accepted": accepted,
             "rejected": status_counts["rejected"],

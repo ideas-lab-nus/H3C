@@ -9,7 +9,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from h3c.outputs.artifacts import RunArtifacts
 from h3c.runtime.comfort import ComfortModel
 from h3c.runtime.occupancy import effective_count, resolve_missing_occupancy_values
 
@@ -28,6 +27,12 @@ class PhysicalClient(Protocol):
     def advance(self, controls: Mapping[str, float]) -> dict[str, Any]: ...
 
     def stop(self) -> None: ...
+
+
+class ConditioningArtifactSink(Protocol):
+    """Minimal artifact surface required by the shared conditioning protocol."""
+
+    def append_jsonl(self, name: str, value: Mapping[str, Any]) -> None: ...
 
 
 @dataclass
@@ -198,7 +203,7 @@ def _temperature_c(profile: Mapping[str, Any], state: Mapping[str, Any], zone: s
 def run_conditioning(
     client: PhysicalClient,
     profile: Mapping[str, Any],
-    artifacts: RunArtifacts,
+    artifacts: ConditioningArtifactSink,
     *,
     on_initialized: Callable[[str], None] | None = None,
 ) -> ConditioningResult:

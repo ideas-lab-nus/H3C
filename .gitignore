@@ -17,3 +17,5 @@ outputs/reports/*
 !outputs/reports/.gitkeep
 outputs/offline/*
 !outputs/offline/.gitkeep
+outputs/baselines/*
+!outputs/baselines/.gitkeep

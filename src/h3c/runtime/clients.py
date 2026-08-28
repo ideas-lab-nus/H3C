@@ -274,6 +274,16 @@ class BoptestHttpClient:
             raise TransportError("BOPTEST advance payload is invalid")
         return state
 
+    def get_kpis(self) -> dict[str, Any]:
+        """Read native BOPTEST KPIs before stopping the active test."""
+        if self.test_id is None:
+            raise TransportError("BOPTEST KPI requested before initialize")
+        response = _request_json("GET", f"{self.endpoint}/kpi/{self.test_id}")
+        payload = response.get("payload")
+        if not isinstance(payload, dict):
+            raise TransportError("BOPTEST KPI payload is invalid")
+        return dict(payload)
+
     def stop(self) -> None:
         if self.test_id is None:
             raise TransportError("BOPTEST stop requested without a live test id")
