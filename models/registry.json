@@ -81,10 +81,10 @@
       "controller": "c-drl",
       "algorithm": "ppo",
       "path": "models/mz_air/c_drl/best_model_ppo.zip",
-      "sha256": "368a19d8852203534aac2e416ba368853c9f47d4a6d40c527c0d0140a3ede477",
-      "bytes": 2139968,
-      "epoch": null,
-      "training_steps": 295680,
+      "sha256": "7385e6d9e05593f7aff529f4559ad7f5527b4a25f3d82fddae4646c08b29e11a",
+      "bytes": 2139969,
+      "epoch": 281,
+      "training_steps": 755328,
       "observation_dimension": 81,
       "action_dimension": 5,
       "policy_zone_order": ["cor", "nor", "sou", "eas", "wes"],
@@ -98,7 +98,7 @@
       "power_past_offset": 0,
       "temperature_missing": "fixed_25",
       "residual_base": "fixed_25",
-      "selection_basis": "currently readable checkpoint used by the saved FinalMZAIR tensor contract; the historical Visualization CSV is not checkpoint-bound and evaluation results were not used to reselect it"
+      "selection_basis": "maximum training-log mean reward in the retained final training archive; evaluation results were not used"
     },
     "mz_air_h_drl": {
       "case": "MZ_Air",

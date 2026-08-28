@@ -5,7 +5,7 @@
         "hvac_oveAhu_TSupSet_activate": 1.0,
         "hvac_oveAhu_TSupSet_u": 290.15,
         "hvac_oveZonSupCor_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupCor_TZonCooSet_u": 300.4199473798275,
+        "hvac_oveZonSupCor_TZonCooSet_u": 303.15,
         "hvac_oveZonSupCor_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupCor_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupEas_TZonCooSet_activate": 1.0,
@@ -13,15 +13,15 @@
         "hvac_oveZonSupEas_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupEas_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupNor_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupNor_TZonCooSet_u": 300.7986575603485,
+        "hvac_oveZonSupNor_TZonCooSet_u": 303.15,
         "hvac_oveZonSupNor_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupNor_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupSou_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupSou_TZonCooSet_u": 299.87690510749815,
+        "hvac_oveZonSupSou_TZonCooSet_u": 303.15,
         "hvac_oveZonSupSou_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupSou_TZonHeaSet_u": 288.15,
         "hvac_oveZonSupWes_TZonCooSet_activate": 1.0,
-        "hvac_oveZonSupWes_TZonCooSet_u": 302.5837636232376,
+        "hvac_oveZonSupWes_TZonCooSet_u": 302.1000993490219,
         "hvac_oveZonSupWes_TZonHeaSet_activate": 1.0,
         "hvac_oveZonSupWes_TZonHeaSet_u": 288.15
       },
@@ -29,11 +29,11 @@
       "columns_sha256": "4e9acc2ca88461dc8d0962d37c5e36f3591087f52a7c34d1977edddfddc13efc",
       "controller": "c-drl",
       "local_normalized_sha256": {},
-      "model_sha256": "368a19d8852203534aac2e416ba368853c9f47d4a6d40c527c0d0140a3ede477",
+      "model_sha256": "7385e6d9e05593f7aff529f4559ad7f5527b4a25f3d82fddae4646c08b29e11a",
       "normalized_sha256": "e0a4a210e468a33a732d83dfae8006cd04587b9089055fba09903ed3da4cfe86",
-      "raw_action": [0.4539894759654999, 0.5297315120697021, 0.3453810214996338, 1.0, 0.886752724647522],
+      "raw_action": [1.0, 1.0, 1.0, 1.0, 0.7900198698043823],
       "raw_sha256": "4efb3afa7cbd5d75f4fbefac5b66223c4f824507034d654fdfde9fe5cb7adb1c",
-      "setpoints_c": {"cor": 27.2699473798275, "eas": 30.0, "nor": 27.64865756034851, "sou": 26.72690510749817, "wes": 29.43376362323761}
+      "setpoints_c": {"cor": 30.0, "eas": 30.0, "nor": 30.0, "sou": 30.0, "wes": 28.95009934902191}
     },
     "MZ_Air_h-drl": {
       "boptest_payload": {
@@ -143,12 +143,12 @@
   },
   "schema": "h3c_frozen_policy_inference_golden",
   "schema_version": 2,
-  "source_basis": "saved evaluator tensor contracts plus explicit three-step history-window tests; both MZ_Air policies freeze currently readable checkpoints and do not prove identity with their unbound historical CSV trajectories",
+  "source_basis": "saved evaluator tensor contracts plus explicit three-step history-window tests; MZ_Air C-DRL freezes the retained final training-log-best checkpoint while both MZ_Air historical CSV trajectories remain cryptographically unbound",
   "source_oracles": {
     "mz_air_c_drl": {
       "path": "MZ_OFFICE_AIR/FinalMZAIR.ipynb",
       "sha256": "ecb0044bb63f373d018c991b43baa443afc8fa579f1fa0fe3f5380e4ea145f4c",
-      "provenance_scope": "saved tensor contract and current readable checkpoint only; historical CSV checkpoint and pre-action observation identities unresolved",
+      "provenance_scope": "saved tensor contract plus retained epoch-281 training-log-best checkpoint; historical CSV lacks checkpoint hash and pre-action observation",
       "history_offsets": {"temperature": 0, "action": 0, "power": 0},
       "occupancy": "binary_raw"
     },

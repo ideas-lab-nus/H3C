@@ -119,7 +119,7 @@ the new formal evaluation.
 | SZ_Air C-DRL | PPO epoch 297 | 798,336 | `abd5d1adb751` |
 | MZ_Hydro C-DRL | PPO epoch 650 | 1,248,000 | `beba50eb178a` |
 | MZ_Hydro H-DRL | MAPPO epoch 700 | 1,344,000 | `3644b477c4e0` |
-| MZ_Air C-DRL | archived evaluation PPO | 295,680 | `368a19d88522` |
+| MZ_Air C-DRL | PPO epoch 281 | 755,328 | `7385e6d9e055` |
 | MZ_Air H-DRL | MAPPO epoch 298 | 801,024 | `2b6b1c2c83f4` |
 
 Each load verifies the full SHA-256 and byte count from `models/registry.json`, then performs

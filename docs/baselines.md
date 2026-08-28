@@ -61,11 +61,10 @@ not by the case-profile display order.
 
 - SZ_Air PPO was selected from the archived `SZ_AIR/models_drl4` records by best training-log
   mean reward.
-- MZ_Air PPO uses the currently readable 295,680-step checkpoint and the tensor contract saved in
-  `FinalMZAIR.ipynb`. This pair is internally reproducible, but the historical CSV was written by
-  a different `Visualization.ipynb` runtime and records neither the checkpoint hash nor the
-  pre-action observation. The current PPO is therefore also a surviving-checkpoint reconstruction,
-  not a strict replay of the historical C-DRL trajectory.
+- MZ_Air PPO uses the retained epoch-281, 755,328-step `best_model_ppo.zip`, selected by the maximum
+  archived training-log mean reward, together with the tensor contract saved in `FinalMZAIR.ipynb`.
+  The historical CSV records neither its checkpoint hash nor pre-action observation, so this is the
+  best-supported paper-era checkpoint reconstruction rather than a cryptographically exact replay.
 - MZ_Air MAPPO uses the currently readable epoch-298 checkpoint. The saved evaluator contract and
   this checkpoint are internally reproducible, but the historical CSV is not cryptographically
   bound to it and no surviving checkpoint reproduces the CSV's first action. It is therefore a
