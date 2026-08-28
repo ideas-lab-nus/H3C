@@ -195,6 +195,19 @@ def _execute_one(
 ) -> dict[str, Any]:
     resolved = plan.resolved()
     profile = resolved["case_profile"]
+
+    # Load every frozen-policy dependency and checkpoint before creating artifacts or
+    # touching BOPTEST. A missing optional baseline dependency is an environment
+    # preflight failure, not a reason to spend a fresh physical conditioning prefix.
+    drl: FrozenDrlController | None = None
+    observation_builder: PolicyObservationBuilder | None = None
+    drl_identity: dict[str, Any] | None = None
+    if plan.controller in {"c-drl", "h-drl"}:
+        entry = model_entry(plan.case, plan.controller)
+        drl_identity = verify_checkpoint(entry)
+        drl = FrozenDrlController(plan.case, plan.controller)
+        observation_builder = PolicyObservationBuilder(profile, entry)
+
     source_commit = _source_commit()
     execution_identity = {
         "plan_identity": resolved["plan_identity"],
@@ -233,6 +246,8 @@ def _execute_one(
     }
     resolved["execution_identity"] = execution_identity
     artifacts.create(resolved, manifest)
+    if drl_identity is not None:
+        artifacts.write_new_json("model_identity.json", drl_identity)
     physical = physical_factory(endpoint)
     initialized = False
     stop_attempted = False
@@ -269,14 +284,7 @@ def _execute_one(
         last_pmv = dict(conditioning.last_pmv)
         last_occupancy = dict(conditioning.last_occupancy)
         enhanced = EnhancedRbcController(zones, repository_root() / profile["program"])
-        drl: FrozenDrlController | None = None
-        observation_builder: PolicyObservationBuilder | None = None
-        if plan.controller in {"c-drl", "h-drl"}:
-            entry = model_entry(plan.case, plan.controller)
-            identity = verify_checkpoint(entry)
-            artifacts.write_new_json("model_identity.json", identity)
-            drl = FrozenDrlController(plan.case, plan.controller)
-            observation_builder = PolicyObservationBuilder(profile, entry)
+        if observation_builder is not None:
             observation_builder.reset(state)
         mpc: LinearMpcController | None = None
         output_history: NDArray[np.float64] | None = None

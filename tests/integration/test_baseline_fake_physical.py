@@ -5,6 +5,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from h3c.experiments.profiles import load_profile
 from h3c_baselines.configuration import BaselineRunPlan
 from h3c_baselines.mpc.identification import execute_identification, verify_identification_run
@@ -107,6 +109,35 @@ def test_basic_rbc_fake_lifecycle_and_artifact_contract(tmp_path: Path, monkeypa
     assert (report_dir / "report.md").is_file()
     assert (report_dir / "results.csv").is_file()
     assert (report_dir / "SZ_Air_basic-rbc_timeseries.png").is_file()
+
+
+def test_drl_dependency_preflight_fails_before_artifacts_or_physical_initialize(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    physical_factory_calls = 0
+
+    def fail_controller(case: str, controller: str) -> None:
+        assert (case, controller) == ("SZ_Air", "c-drl")
+        raise RuntimeError("optional baseline dependency is unavailable")
+
+    def physical_factory(endpoint: str) -> FakeBaselinePhysical:
+        nonlocal physical_factory_calls
+        physical_factory_calls += 1
+        return FakeBaselinePhysical(endpoint)
+
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    monkeypatch.setattr("h3c_baselines.runtime.runner.FrozenDrlController", fail_controller)
+    with pytest.raises(RuntimeError, match="optional baseline dependency is unavailable"):
+        execute_baseline_plans(
+            [BaselineRunPlan("SZ_Air", "c-drl", evaluation_hours=1)],
+            suite="test",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "lock",
+            physical_factory=physical_factory,
+        )
+    assert physical_factory_calls == 0
+    assert not (tmp_path / "runs").exists()
+    assert not (tmp_path / "lock" / ".execution.lock").exists()
 
 
 def test_mpc_identification_is_reproducible_and_evaluation_disjoint(tmp_path: Path) -> None:
