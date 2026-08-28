@@ -124,7 +124,9 @@ the new formal evaluation.
 
 Each load verifies the full SHA-256 and byte count from `models/registry.json`, then performs
 deterministic CPU inference under the model's original observation order, normalization,
-history/cold-start, residual base and action mapping. The extended Hydro checkpoints are the
+history/cold-start, model-specific sin/cos bounds, residual base and action mapping. DRL policy
+PMV preserves the original 96-sample daily clothing input while public benchmark KPIs retain the
+shared H3C comfort owner. The extended Hydro checkpoints are the
 user-designated final models, but their original convergence criteria were not fully satisfied;
 that limitation is preserved in their model cards.
 
