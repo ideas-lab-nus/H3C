@@ -7,7 +7,7 @@ from pathlib import Path
 PROJECT_DESCRIPTION = (
     "Hierarchical Causal-Constrained Control (H3C) for cooling-only building control"
 )
-MANAGED_CONTENT_ROOTS = ("src", "configs", "tests", "tools", "docs", "outputs")
+MANAGED_CONTENT_ROOTS = ("src", "configs", "tests", "tools", "docs")
 
 
 def _nested_git_metadata(repository_root: Path) -> list[str]:

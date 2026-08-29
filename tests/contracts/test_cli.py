@@ -74,20 +74,15 @@ def test_physical_commands_default_to_dry_plan(capsys: pytest.CaptureFixture[str
     assert output["run_count"] == 1
 
 
-def test_release_smoke_plan_freezes_expected_call_count(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    main(["smoke", "release-6h"])
-    output = json.loads(capsys.readouterr().out)
-    assert output["run_count"] == 13
-    assert output["expected_agent_calls"] == 372
+def test_retired_smoke_command_is_not_public() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["smoke", "release-6h"])
 
 
 @pytest.mark.parametrize(
     ("arguments", "expected_runs", "expected_calls"),
     [
         (["run", "--profile", "MZ_Hydro"], 1, 4 * 120),
-        (["smoke", "release-6h"], 13, 372),
         (["suite", "all"], 27, 16824),
     ],
 )
@@ -162,23 +157,13 @@ def test_offline_discovery_defaults_to_secret_free_dry_plan_without_optional_imp
     assert after == before
 
 
-def test_release_smoke_arm_can_be_selected_for_independent_supervision(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    main(["smoke", "release-6h", "--arm-index", "12"])
-    output = json.loads(capsys.readouterr().out)
-    assert output["run_count"] == 1
-    assert output["runs"][0]["profile"] == "MZ_Air"
-    assert output["runs"][0]["method"]["thinking_policy"] == "all_roles_disabled"
-
-
 def test_hydronic_single_run_defaults_to_profile_formal_duration(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     main(["run", "--profile", "MZ_Hydro"])
     output = json.loads(capsys.readouterr().out)
     assert output["runs"][0]["method"]["evaluation_hours"] == 120
-    with pytest.raises(ValueError, match="profile formal duration"):
+    with pytest.raises(SystemExit):
         main(["run", "--profile", "MZ_Hydro", "--evaluation-hours", "168"])
 
 

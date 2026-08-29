@@ -7,7 +7,6 @@ import json
 import math
 import os
 import shutil
-import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -25,25 +24,24 @@ from h3c.runtime.execution_lock import physical_execution_lock
 from h3c.runtime.occupancy import effective_count
 from h3c.runtime.protocol import (
     PhysicalClient,
+    build_forecast_evidence,
     control_input,
     forecast_points,
+    initialize_evaluation_boundary,
     require_time,
     resolve_forecast_missing_occupancy,
-    run_conditioning,
     site_power,
     zone_temperature_c,
 )
+from h3c.runtime.source_identity import committed_source_identity
 from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
-    formal_identification_cases,
-    legacy_replay_plans,
 )
 from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
 from h3c_baselines.controllers.drl import FrozenDrlController
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.models import model_entry, verify_checkpoint
-from h3c_baselines.mpc.identification import execute_identification
 from h3c_baselines.mpc.optimizer import LinearMpcController
 from h3c_baselines.mpc.vector_arx import FittedArxModel
 from h3c_baselines.outputs.artifacts import BaselineArtifacts
@@ -51,15 +49,12 @@ from h3c_baselines.outputs.integrity import secret_occurrences
 from h3c_baselines.outputs.metrics import compute_baseline_metrics
 from h3c_baselines.outputs.verification import verify_baseline_run
 from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
-from h3c_baselines.runtime.legacy_protocol import run_legacy_internal_warmup
 
 PhysicalFactory = Callable[[str], PhysicalClient]
 
 
 def _source_commit() -> str:
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=repository_root(), text=True
-    ).strip()
+    return committed_source_identity()
 
 
 def _canonical(value: Any) -> str:
@@ -268,6 +263,7 @@ def _execute_one(
         "mpc_model_identity": execution_identity["mpc_identification_identity"],
         "secret_scan_status": "pending",
         "secret_exposure_count": None,
+        "occupancy_forecast_missing_value_resolution_count": 0,
         "lifecycle": {
             "initialize_count": 0,
             "conditioning_advance_count": 0,
@@ -283,28 +279,34 @@ def _execute_one(
     physical = physical_factory(endpoint)
     initialized = False
     stop_attempted = False
+    frozen_test_id: str | None = None
+    evaluation_start = int(profile["evaluation_start_day"]) * 86400
+    evaluation_end = evaluation_start + plan.evaluation_hours * 3600
+    last_physical_time = evaluation_start
     started = time.perf_counter()
     try:
-        conditioning_runner = (
-            run_legacy_internal_warmup
-            if plan.conditioning_mode == "legacy_internal_warmup"
-            else run_conditioning
-        )
-        conditioning = conditioning_runner(
+        boundary = initialize_evaluation_boundary(
             physical,
             profile,
             artifacts,
             on_initialized=lambda _test_id: manifest["lifecycle"].update({"initialize_count": 1}),
         )
         initialized = True
-        manifest["conditioning_prefix_identity"] = conditioning.conditioning_prefix_identity
-        manifest["evaluation_boundary_identity"] = conditioning.evaluation_boundary_identity
-        manifest["lifecycle"]["conditioning_advance_count"] = (
-            0 if plan.conditioning_mode == "legacy_internal_warmup" else 672
-        )
+        frozen_test_id = boundary.test_id
+        manifest["conditioning_prefix_identity"] = boundary.conditioning_prefix_identity
+        manifest["evaluation_boundary_identity"] = boundary.evaluation_boundary_identity
+        manifest["lifecycle"]["conditioning_advance_count"] = 0
         zones = tuple(profile["zones"])
         steps = plan.evaluation_hours * 4
-        evaluation_start = int(profile["evaluation_start_day"]) * 86400
+        artifacts.append_jsonl(
+            "timing.jsonl",
+            {
+                "phase": "physical_lifecycle",
+                "event": "evaluation_started",
+                "time_seconds": evaluation_start,
+                "test_id": boundary.test_id,
+            },
+        )
         points = forecast_points(profile)
         source_forecast = physical.forecast(points, (steps + 96) * 900, 900)
         forecast, resolution_events = resolve_forecast_missing_occupancy(
@@ -312,17 +314,32 @@ def _execute_one(
             source_forecast,
             points,
             steps + 97,
-            forecast_phase="baseline_evaluation",
+            forecast_phase="evaluation",
             start_time_seconds=evaluation_start,
             step_seconds=900,
         )
+        artifacts.write_new_json(
+            "forecast_inputs.json",
+            build_forecast_evidence(
+                points,
+                source_forecast,
+                forecast,
+                start_time_seconds=evaluation_start,
+                step_seconds=900,
+            ),
+        )
         for event in resolution_events:
             artifacts.append_jsonl("timing.jsonl", event)
-        state = conditioning.state
-        last_setpoints = dict(conditioning.last_setpoint_c)
-        last_pmv = dict(conditioning.last_pmv)
-        last_occupancy = dict(conditioning.last_occupancy)
-        enhanced = EnhancedRbcController(zones, repository_root() / profile["program"])
+        manifest["occupancy_forecast_missing_value_resolution_count"] = len(resolution_events)
+        state = boundary.state
+        last_setpoints = dict(boundary.last_setpoint_c)
+        last_pmv = dict(boundary.last_pmv)
+        last_occupancy = dict(boundary.last_occupancy)
+        enhanced = (
+            EnhancedRbcController(zones, repository_root() / profile["program"])
+            if plan.controller in {"enhanced-rbc", "linear-mpc"}
+            else None
+        )
         policy_comfort = ComfortModel(profile["comfort"]) if drl is not None else None
         if observation_builder is not None:
             observation_builder.reset(state)
@@ -352,18 +369,22 @@ def _execute_one(
                 for zone in zones
             }
             future = _future_occupancy(profile, forecast, zones, step=step, action_time=action_time)
-            enhanced_setpoints, enhanced_diagnostics = enhanced.decide(
-                occupancy=current_occupancy,
-                future_occupancy=future,
-                last_setpoints_c=last_setpoints,
-                last_pmv=last_pmv,
-                last_occupancy=last_occupancy,
-            )
+            enhanced_setpoints: dict[str, float] | None = None
+            enhanced_diagnostics: dict[str, Any] | None = None
+            if enhanced is not None:
+                enhanced_setpoints, enhanced_diagnostics = enhanced.decide(
+                    occupancy=current_occupancy,
+                    future_occupancy=future,
+                    last_setpoints_c=last_setpoints,
+                    last_pmv=last_pmv,
+                    last_occupancy=last_occupancy,
+                )
             diagnostics: dict[str, Any]
             if plan.controller == "basic-rbc":
                 setpoints = basic_rbc_setpoints(zones, current_occupancy)
                 diagnostics = {"status": "scheduled", "method_degraded": False}
             elif plan.controller == "enhanced-rbc":
+                assert enhanced_setpoints is not None and enhanced_diagnostics is not None
                 setpoints = enhanced_setpoints
                 diagnostics = {
                     "status": "canonical_program",
@@ -401,6 +422,7 @@ def _execute_one(
                 assert (
                     mpc is not None and output_history is not None and control_history is not None
                 )
+                assert enhanced_setpoints is not None
                 disturbances, prices, occupancy_horizon, times, daily_means = _mpc_disturbances(
                     profile, forecast, zones, step=step, action_time=action_time
                 )
@@ -412,7 +434,7 @@ def _execute_one(
                     occupancy=occupancy_horizon,
                     action_times=times,
                     daily_outdoor_means_c=daily_means,
-                    comfort=conditioning.comfort,
+                    comfort=boundary.comfort,
                     previous_setpoints_c=last_setpoints,
                     enhanced_rbc_warm_start=enhanced_setpoints,
                 )
@@ -432,17 +454,18 @@ def _execute_one(
             next_state = physical.advance(control_input(profile, setpoints))
             manifest["lifecycle"]["evaluation_advance_count"] += 1
             require_time(next_state, action_time + 900)
-            if physical.test_id != conditioning.test_id:
+            last_physical_time = action_time + 900
+            if physical.test_id != boundary.test_id:
                 manifest["lifecycle"]["test_id_changes"] += 1
                 raise ValueError("test id changed during baseline evaluation")
             outdoor = forecast[profile["global_inputs"]["outdoor_temperature"]][
                 step : step + 97 : 4
             ]
-            conditioning.comfort.update_clothing(
+            boundary.comfort.update_clothing(
                 action_time, sum(float(value) - 273.15 for value in outdoor) / len(outdoor)
             )
             temperatures = {zone: zone_temperature_c(profile, next_state, zone) for zone in zones}
-            pmv = {zone: conditioning.comfort.pmv(temperatures[zone]) for zone in zones}
+            pmv = {zone: boundary.comfort.pmv(temperatures[zone]) for zone in zones}
             policy_pmv = pmv
             if policy_comfort is not None:
                 policy_pmv = _legacy_policy_pmv(
@@ -472,6 +495,7 @@ def _execute_one(
                     {
                         "step": step,
                         "zone": zone,
+                        "test_id": boundary.test_id,
                         "action_time_seconds": action_time,
                         "outcome_time_seconds": action_time + 900,
                         "final_setpoint_c": setpoints[zone],
@@ -480,6 +504,7 @@ def _execute_one(
                             "pmv": pmv[zone],
                             "effective_occupancy": current_occupancy[zone],
                             "power_w": power,
+                            "electricity_price": price,
                             "cost": cost,
                         },
                     },
@@ -511,6 +536,15 @@ def _execute_one(
             last_setpoints = setpoints
             last_pmv = pmv
             last_occupancy = current_occupancy
+        artifacts.append_jsonl(
+            "timing.jsonl",
+            {
+                "phase": "physical_lifecycle",
+                "event": "evaluation_completed",
+                "time_seconds": evaluation_end,
+                "test_id": boundary.test_id,
+            },
+        )
         artifacts.write_new_json("native_boptest_kpis.json", _native_kpis(physical))
     finally:
         if initialized or physical.test_id is not None:
@@ -518,7 +552,13 @@ def _execute_one(
             physical.stop()
             manifest["lifecycle"]["stop_count"] += 1
             artifacts.append_jsonl(
-                "timing.jsonl", {"phase": "physical_lifecycle", "event": "stopped"}
+                "timing.jsonl",
+                {
+                    "phase": "physical_lifecycle",
+                    "event": "stopped",
+                    "time_seconds": last_physical_time,
+                    "test_id": frozen_test_id or physical.test_id,
+                },
             )
         if artifacts.run_dir.is_dir() and not (artifacts.run_dir / "completion.json").exists():
             manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
@@ -586,36 +626,4 @@ def execute_baseline_plans(
 
 
 def execute_formal_suite() -> dict[str, Any]:
-    runtime = load_runtime_contract()
-    endpoint_name = runtime["physical_service"]["endpoint_environment_variable"]
-    endpoint = os.environ.get(endpoint_name, "").rstrip("/")
-    if not endpoint:
-        raise ValueError(f"{endpoint_name} is required for baseline execution")
-    identification_root = repository_root() / "outputs" / "baselines" / "identification"
-    lock_root = repository_root() / "outputs" / "runs"
-    identification_dirs: dict[str, Path] = {}
-    identification_results: list[dict[str, Any]] = []
-    for case, days in formal_identification_cases():
-        result = execute_identification(
-            case,
-            days,
-            endpoint=endpoint,
-            output_root=identification_root,
-            lock_root=lock_root,
-        )
-        identification_results.append(result)
-        identification_dirs[case] = Path(result["run_dir"])
-    evaluation = execute_baseline_plans(
-        formal_evaluation_plans(),
-        suite="formal-drl",
-        mpc_identification_dirs=identification_dirs,
-    )
-    return {
-        "execution": "strictly_serial",
-        "identification_runs": identification_results,
-        "evaluation_runs": evaluation["completed_runs"],
-    }
-
-
-def execute_legacy_replay_suite() -> dict[str, Any]:
-    return execute_baseline_plans(legacy_replay_plans(), suite="legacy-replay")
+    return execute_baseline_plans(formal_evaluation_plans(), suite="formal")

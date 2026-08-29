@@ -1,30 +1,39 @@
 # Hierarchical Causal-Constrained Control (H3C)
 
 H3C is a reproducible, cooling-only framework for hierarchical building control. It combines
-LLM-based coordination, zone-level executable programs, human-confirmed causal constraints,
-and a deterministic action-assurance chain. The repository also contains two independent
-research surfaces: human-in-the-loop case onboarding and conventional RBC/DRL/MPC baselines.
+LLM-based coordination, zone-level executable programs, human-confirmed causal constraints, and
+a deterministic action-assurance chain. The repository also provides human-in-the-loop case
+onboarding and independent RBC/DRL benchmarks for three BOPTEST cases.
 
-> **Project status.** The online H3C implementation and the offline onboarding workflow are
-> established. Frozen DRL policies and a common short-data linear MPC baseline are included for
-> the three BOPTEST cases. Physical commands are dry plans unless `--execute` is explicit.
+All physical commands are dry plans unless `--execute` is explicit.
 
-![Paper-level H3C concept](docs/assets/Figure1_Overview_Framework.jpg)
+```mermaid
+flowchart LR
+    D[Building documents and point inventory] --> M[Semantic Mapping Agent]
+    M --> H[Human review]
+    H --> C[Causal Discovery Agent]
+    C --> G[Confirmed graph]
+    G --> O[Orchestrator]
+    S[Building state and forecasts] --> O
+    O --> E[Zone Executors]
+    E --> V[Program and causal validation]
+    V --> A[Action assurance]
+    A --> B[BOPTEST / building]
+    B --> R[Reflector]
+    R --> O
+```
 
-*This is the paper's conceptual overview. It is not a literal software component diagram and may
-contain research concepts that are outside the current release implementation.*
+## Workflows
 
-## Three reproducible workflows
-
-| Workflow | Purpose | Entry point |
+| Workflow | Purpose | Command |
 |---|---|---|
-| Online H3C | Orchestrator, zone Executors, Reflector, confirmed graph, budget and action assurance | `h3c run`, `h3c suite` |
-| Offline onboarding | Mapping Agent, causal-discovery Agent and real human approval/checkpointing | `h3c offline` |
-| Independent baselines | basic RBC, enhanced RBC, frozen PPO/MAPPO and short-data linear MPC | `h3c-baseline` |
+| Online H3C | Coordinated program updates with causal and action assurance | `h3c` |
+| Offline onboarding | Mapping, causal discovery, human approval, and graph export | `h3c offline` |
+| Independent baselines | Basic RBC, canonical P0/eRBC, and frozen PPO/MAPPO policies | `h3c-baseline` |
 
-Online control uses H3C's deterministic runtime. Microsoft Agent Framework is optional and used
-only by offline onboarding. Baselines do not fabricate Agent, causal, program, budget, or
-action-assurance logs.
+Online control uses H3C's deterministic runtime. Microsoft Agent Framework is an optional
+dependency used only by offline onboarding. Baseline evaluation does not create Agent, causal,
+program, budget, or action-assurance evidence unless the controller actually uses that surface.
 
 ## Installation
 
@@ -37,47 +46,50 @@ uv sync --extra dev
 # Mapping and human-in-the-loop causal discovery
 uv sync --extra offline
 
-# Frozen DRL policies, ARX identification, MPC and figures
+# Frozen DRL inference and benchmark figures
 uv sync --extra baselines
 
-# Everything needed by contributors
+# Complete contributor environment
 uv sync --extra dev --extra offline --extra baselines
 ```
 
-Pip users can install from the generated compatibility exports:
+Pip-compatible dependency exports are also provided:
 
 ```console
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m pip install -r requirements-offline.txt
 .venv\Scripts\python -m pip install -r requirements-baselines.txt
+.venv\Scripts\python -m pip install --no-deps -e .
 ```
 
-Never place API keys in repository files. Copy `.env.example` only as a local template and keep
-the real `.env` ignored.
+Run the pip workflow from a cloned repository. The editable install intentionally resolves
+`configs/`, `models/`, and `outputs/` from that repository root.
+
+Copy `.env.example` as a local template. Never store credentials in repository files.
 
 ## Quick start
 
-All planning commands below are read-only until `--execute` is added.
-
 ```console
-# Resolve one H3C run and the registered H3C suites
+# Resolve online runs
 h3c run --profile MZ_Air
 h3c suite main
 
-# Verify the five frozen inference checkpoints on CPU
+# Verify frozen policy assets
 h3c-baseline models verify
 
-# Resolve one independent baseline and the registered RBC/DRL benchmark
+# Resolve one baseline or the complete formal matrix
 h3c-baseline run --case MZ_Hydro --controller h-drl
-h3c-baseline suite formal-drl
+h3c-baseline suite formal
 
-# Verify or report completed baseline artifacts
+# Verify and report completed evidence
 h3c-baseline verify outputs/baselines/runs/<suite>/<case>/<run_id>
-h3c-baseline report outputs/baselines/runs/formal-drl
+h3c-baseline report outputs/baselines/runs/formal
 ```
 
-Offline onboarding has two genuine human review pauses and can resume from a checkpoint:
+Add `--execute` only after reviewing the resolved plan.
+
+Offline onboarding has explicit human review pauses and checkpointed recovery:
 
 ```console
 h3c offline discover --spec configs/onboarding/example_spec.json
@@ -86,112 +98,75 @@ h3c offline resume outputs/offline/<case>/<workflow_id> --reviewer <name> --exec
 h3c offline verify outputs/offline/<case>/<workflow_id>
 ```
 
-See [offline onboarding](docs/offline_onboarding.md) and the
-[operator guide](docs/operator_guide.md) for the full interaction and export contracts.
+See the [offline onboarding guide](docs/offline_onboarding.md) and
+[operator guide](docs/operator_guide.md) for the full interaction contracts.
 
-## Baseline benchmark
+## Evaluation protocol
 
-Every formal evaluation uses a fresh BOPTEST test identity:
+Every arm uses a fresh BOPTEST test identity, a 15-minute control step, dynamic electricity
+price, one initialization with a seven-day BOPTEST internal warm-up, no explicit control prefix,
+and one stop.
 
-```text
-7-day server warm-up
-→ same-test-id 7-day vanilla RBC prefix (occupied 25 °C, otherwise 30 °C)
-→ case-declared formal evaluation (Air: 7 days; MZ_Hydro: 5 occupied weekdays)
-```
-
-| Case | Evaluation | basic RBC | enhanced RBC | C-DRL | H-DRL |
-|---|---:|:---:|:---:|:---:|:---:|
-| SZ_Air | 7 days | ✓ | ✓ | 1-policy PPO | — |
-| MZ_Hydro | 5 weekdays | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO |
-| MZ_Air | 7 days | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO |
-
-This gives 11 fresh evaluation arms. Linear MPC remains an optional experimental controller in
-the package but is intentionally excluded from the current registered benchmark.
-
-### Frozen DRL identity
-
-Only inference assets are distributed; training loops, notebooks, optimizers and experiment
-trackers are intentionally excluded. Checkpoints were selected from training records, never from
-the new formal evaluation.
-
-| Case / method | Checkpoint | Training steps | SHA-256 prefix |
+| Case | Evaluation start | Evaluation window | Public occupancy |
 |---|---:|---:|---|
-| SZ_Air C-DRL | PPO epoch 297 | 798,336 | `abd5d1adb751` |
-| MZ_Hydro C-DRL | PPO epoch 650 | 1,248,000 | `beba50eb178a` |
-| MZ_Hydro H-DRL | MAPPO epoch 700 | 1,344,000 | `3644b477c4e0` |
-| MZ_Air C-DRL | PPO epoch 281 | 755,328 | `7385e6d9e055` |
-| MZ_Air H-DRL | MAPPO epoch 298 | 801,024 | `2b6b1c2c83f4` |
+| SZ_Air | day 203 | 7 days | raw occupancy |
+| MZ_Hydro | day 220 | 5 days | raw occupancy |
+| MZ_Air | day 199 | 7 days | `[06:00,19:00) AND raw > 0` |
 
-Each load verifies the full SHA-256 and byte count from `models/registry.json`, then performs
-deterministic CPU inference under the model's original observation order, normalization,
-history/cold-start, model-specific sin/cos bounds, residual base and action mapping. DRL policy
-PMV preserves the original 96-sample daily clothing input while public benchmark KPIs retain the
-shared H3C comfort owner. The extended Hydro checkpoints are the
-user-designated final models, but their original convergence criteria were not fully satisfied;
-that limitation is preserved in their model cards.
+The frozen MZ_Air DRL policies retain their training-time raw-binary occupancy input while public
+control routing and KPI calculation use official occupancy. All controllers share the same
+physical initialization, reward, comfort, and KPI owners.
 
-### Short-data linear MPC
+## Formal benchmark
 
-All three cases use the same four-lag, four-step vector ARX structure:
+| Case | Basic RBC | P0 / enhanced RBC | C-DRL | H-DRL |
+|---|:---:|:---:|:---:|:---:|
+| SZ_Air | ✓ | ✓ | 1-policy PPO | — |
+| MZ_Hydro | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO |
+| MZ_Air | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO |
 
-```text
-y(k+1) = c + Σ A_j y(k-j) + Σ B_j u(k-j) + E d(k)
-```
-
-`y` contains zone temperatures and total power, `u` contains zone cooling setpoints, and `d`
-contains outdoor temperature, solar irradiance, occupancy and time encoding. A frozen ridge grid
-and chronological validation select one model; SLSQP optimizes a one-hour horizon and applies only
-the first action. The objective reuses H3C's cost/energy, occupied-PMV and setpoint-smoothness
-terms. Solver failure uses enhanced RBC and marks the arm `METHOD-DEGRADED`.
-
-The identification data are deliberately short and generated by an unexcited eRBC trajectory.
-This is a transparent, reproducible reviewer baseline—not a claim of well-tuned MPC. See
-[baseline methods and frozen contracts](docs/baselines.md). The first complete registered result
-is preserved in the [seven-day baseline result](docs/baseline_formal_7d_result_20260828.md).
+The formal suite contains 11 fresh, strictly serial arms. P0/eRBC executes the same canonical
+cooling program and action-assurance owner used by H3C. DRL checkpoints are loaded on CPU in
+deterministic mode after byte-count and SHA-256 verification; each policy retains its registered
+observation order, normalization, history, cold start, and actuator mapping.
 
 ## Outputs and metrics
 
-Generated data are ignored under:
+Generated evidence is ignored under:
 
 ```text
-outputs/runs/                         # online H3C
-outputs/offline/                      # onboarding workspaces
-outputs/baselines/identification/     # ARX training/validation and coefficients
-outputs/baselines/runs/               # RBC, DRL and MPC trajectories
-outputs/baselines/reports/            # tables and time-series figures
+outputs/runs/                    online H3C runs
+outputs/reports/                 online comparisons
+outputs/offline/                 onboarding workspaces
+outputs/baselines/runs/          RBC and DRL trajectories
+outputs/baselines/reports/       benchmark tables and figures
 ```
 
-Baseline runs report cost, energy, reward, discomfort zone-hours, PMV·h, occupied peak PMV,
-setpoint total variation, reversals, comfort-band crossings, per-zone trajectories and native
-BOPTEST KPIs. These physical metrics use the same calculation owner as H3C. See
+Baseline reports include cost, energy, common reward, discomfort zone-hours, PMV·h, occupied
+peak PMV, setpoint total variation, reversals, comfort-band crossings, native BOPTEST KPIs, and
+per-zone power/temperature/PMV/occupancy/setpoint time series. See
 [run artifacts](docs/run_artifacts.md) and [`outputs/README.md`](outputs/README.md).
 
 ## Repository map
 
 ```text
-src/h3c/                 online control, assurance, causal graph, runtime and offline onboarding
-src/h3c_baselines/       independent RBC, frozen-policy and linear-MPC evaluation
-configs/                 cases, experiments, graphs, programs, onboarding and baselines
-models/                  frozen DRL checkpoints, registry and model cards
-tests/                   unit, integration, contract and golden inference fixtures
-docs/                    methods, protocols, migration and operator documentation
+src/h3c/                 online control, assurance, causal graph, runtime, and onboarding
+src/h3c_baselines/       independent RBC and frozen-policy evaluation
+configs/                 cases, experiments, graphs, programs, onboarding, and benchmarks
+models/                  frozen policy checkpoints, registry, and model cards
+tests/                   unit, integration, contract, and golden inference fixtures
+docs/                    architecture, protocol, methods, and operator documentation
 outputs/                 ignored generated runs and reports
 ```
 
-The parser accepts only named, unambiguous, control-neutral wrappers observed in real model
-outputs. Every normalized control object still passes the same strict validators; conflicting or
-unknown fields fail closed. Rationale text is audit-only, retained in full, and never changes a
-control decision solely because it is long.
+## Reproducibility
 
-## Reproducibility, citation and license
+- Compare only runs with matching source commit, protocol, case, evaluation boundary, and model
+  identity.
+- Do not overwrite or resume run directories; retain unfavorable results and validation failures.
+- Verify the resolved configuration and completion evidence before using a result.
+- Cite *Causal-augmented Hierarchical LLM Agents for Building Control* when using this research
+  code. Formal bibliographic metadata will be added after publication.
 
-- Verify a resolved configuration, source commit, case, controller and model identity before
-  comparing runs.
-- Do not mix trajectories from different implementation commits or physical prefixes.
-- Preserve poor KPI, rejected model output and degraded MPC results; new evidence supersedes
-  historical paper tables when protocols differ.
-- Cite the accompanying paper, *Causal-augmented Hierarchical LLM Agents for Building Control*,
-  when using this research code. Formal bibliographic metadata will be added after publication.
-
-Released code is under the [MIT License](LICENSE). BOPTEST test cases, pretrained checkpoints and
+Released code is under the [MIT License](LICENSE). BOPTEST cases, pretrained checkpoints, and
 third-party packages remain subject to their respective upstream terms.

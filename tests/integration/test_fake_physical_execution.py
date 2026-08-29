@@ -443,7 +443,7 @@ class HydronicMissingOccupancyPhysical(FakePhysicalClient):
         self, testcase: str, start_time_seconds: int, warmup_period_seconds: int
     ) -> dict[str, Any]:
         assert testcase == "multizone_office_simple_hydronic"
-        assert start_time_seconds == 18403200
+        assert start_time_seconds == 19008000
         assert warmup_period_seconds == 7 * 86400
         self.initialize_count += 1
         self.test_id = "fake-test-id"
@@ -506,8 +506,8 @@ def test_fake_physical_baseline_has_one_continuous_lifecycle(
     )
     completion = Path(result["completed_runs"][0]["completion"])
     assert physical.initialize_count == 1
-    assert physical.forecast_count == 2
-    assert physical.advance_count == 672 + 24
+    assert physical.forecast_count == 1
+    assert physical.advance_count == 24
     assert physical.stop_count == 1
     assert verify_run(completion.parent)["passed"]
     metrics = json.loads((completion.parent / "metrics.json").read_text(encoding="utf-8"))
@@ -536,27 +536,32 @@ def test_hydronic_missing_occupancy_resolution_is_audited_and_verified(
     events = [
         row for row in timing if row["phase"] == "occupancy_forecast_missing_value_resolution"
     ]
-    conditioning = [
-        json.loads(line)
-        for line in (run_dir / "physical_conditioning.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
+    conditioning = (run_dir / "physical_conditioning.jsonl").read_text(encoding="utf-8")
     assert physical.initialize_count == physical.stop_count == 1
-    assert physical.forecast_count == 2
-    assert physical.advance_count == 672 + 24
-    assert manifest["occupancy_forecast_missing_value_resolution_count"] == 6
-    assert len(events) == 6
-    assert sum(event["forecast_phase"] == "conditioning" for event in events) == 4
+    assert physical.forecast_count == 1
+    assert physical.advance_count == 24
+    assert manifest["occupancy_forecast_missing_value_resolution_count"] == 2
+    assert len(events) == 2
+    assert conditioning == ""
     assert sum(event["forecast_phase"] == "evaluation" for event in events) == 2
-    missing_row = conditioning[29]
-    assert missing_row["raw_occupancy"] == {"NZ": None, "SZ": None}
-    assert missing_row["resolved_occupancy"] == {"NZ": 50.0, "SZ": 50.0}
-    assert missing_row["effective_occupancy"] == {"NZ": 50.0, "SZ": 50.0}
-    nonoccupancy_events = [event for event in events if event["time_seconds"] == 19031400]
-    assert len(nonoccupancy_events) == 4
-    assert all(event["resolved_value"] == 0.0 for event in nonoccupancy_events)
     assert verify_run(run_dir)["passed"]
+
+    deleted = tmp_path / "hydronic-missing-resolution-deleted"
+    shutil.copytree(run_dir, deleted)
+    deleted_timing = [
+        row for row in timing if row.get("phase") != "occupancy_forecast_missing_value_resolution"
+    ]
+    (deleted / "timing.jsonl").write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in deleted_timing) + "\n",
+        encoding="utf-8",
+    )
+    deleted_manifest = json.loads((deleted / "manifest.json").read_text(encoding="utf-8"))
+    deleted_manifest["occupancy_forecast_missing_value_resolution_count"] = 0
+    (deleted / "manifest.json").write_text(
+        json.dumps(deleted_manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    deleted_verification = verify_run(deleted)
+    assert deleted_verification["checks"]["occupancy_forecast_missing_value_resolution"] is False
 
     events[0]["documented_occupied"] = not events[0]["documented_occupied"]
     (run_dir / "timing.jsonl").write_text(
@@ -585,7 +590,7 @@ def test_hydronic_formal_profile_evaluates_five_days(tmp_path: Path, monkeypatch
     run_dir = Path(result["completed_runs"][0]["completion"]).parent
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert physical.initialize_count == physical.stop_count == 1
-    assert physical.advance_count == 672 + 480
+    assert physical.advance_count == 480
     assert metrics["physical"]["evaluation_steps"] == 480
     assert verify_run(run_dir)["passed"]
 
@@ -854,7 +859,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
     )
     run_dir = Path(result["completed_runs"][0]["completion"]).parent
 
-    assert observed_advance_counts[:2] == [672, 672]
+    assert observed_advance_counts[:2] == [0, 0]
     assert _read_json(run_dir / "manifest.json")["retry_count"] == 1
     assert verify_run(run_dir)["passed"] is True
 
@@ -925,7 +930,7 @@ def test_production_client_retry_exhaustion_records_verifiable_terminal_evidence
     assert waits == [1.0, 2.0]
     assert len(physical_clients) == 1
     assert physical_clients[0].initialize_count == physical_clients[0].stop_count == 1
-    assert physical_clients[0].advance_count == 672
+    assert physical_clients[0].advance_count == 0
     assert not (tmp_path / ".execution.lock").exists()
     assert not (run_dir / "completion.json").exists()
     assert _read_jsonl(run_dir / "agent_calls.jsonl") == []
@@ -1043,17 +1048,24 @@ def test_verifier_recomputes_single_field_tampering(tmp_path: Path, monkeypatch:
         value["expected_agent_calls"] = 17
         _write_json(path, value)
 
-    def prefix_action(directory: Path) -> None:
-        path = directory / "physical_conditioning.jsonl"
-        rows = _read_jsonl(path)
-        rows[0]["setpoint_c"]["zone1"] = 24.0
-        _write_jsonl(path, rows)
+    def prefix_identity(directory: Path) -> None:
+        path = directory / "manifest.json"
+        value = _read_json(path)
+        value["conditioning_prefix_identity"] = "0" * 64
+        _write_json(path, value)
 
     def boundary_state(directory: Path) -> None:
         path = directory / "timing.jsonl"
         rows = _read_jsonl(path)
         event = next(row for row in rows if row.get("phase") == "evaluation_boundary")
         event["boundary"]["physical_state"]["time"] += 900
+        _write_jsonl(path, rows)
+
+    def initialization_warmup(directory: Path) -> None:
+        path = directory / "timing.jsonl"
+        rows = _read_jsonl(path)
+        event = next(row for row in rows if row.get("event") == "initialized")
+        event["warmup_period_seconds"] = 6 * 86400
         _write_jsonl(path, rows)
 
     def reported_metric(directory: Path) -> None:
@@ -1120,8 +1132,9 @@ def test_verifier_recomputes_single_field_tampering(tmp_path: Path, monkeypatch:
         ("request-contract", request_contract, "usage_contract"),
         ("usage-accounting", usage_accounting, "usage_contract"),
         ("expected-calls", expected_call_count, "agent_call_counts"),
-        ("prefix-action", prefix_action, "conditioning_prefix_identity"),
+        ("prefix-identity", prefix_identity, "conditioning_prefix_identity"),
         ("boundary-state", boundary_state, "evaluation_boundary_identity"),
+        ("initialization-warmup", initialization_warmup, "test_id_continuity"),
         ("reported-metric", reported_metric, "metrics_recomputed"),
         ("method-identity", method_identity, "manifest_identity"),
         ("evaluation-test-id", evaluation_test_id, "test_id_continuity"),

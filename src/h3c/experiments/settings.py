@@ -80,7 +80,6 @@ def load_suite_contract(path: Path | None = None) -> dict[str, Any]:
         "suite_schema",
         "schema_version",
         "profile_order",
-        "release_smoke_focus_profile",
         "graph_timing_mutation_by_profile",
     }:
         raise ValueError("suite contract fields are invalid")
@@ -92,7 +91,6 @@ def load_suite_contract(path: Path | None = None) -> dict[str, Any]:
         or not order
         or len(order) != len(set(order))
         or any(not isinstance(name, str) or not name for name in order)
-        or value["release_smoke_focus_profile"] not in order
     ):
         raise ValueError("suite profile declarations are invalid")
     timing_mutations = value["graph_timing_mutation_by_profile"]

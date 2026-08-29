@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from h3c.assurance.action import action_assurance
-from h3c.control.program import load_program, run_program
+from h3c.control.program import load_program
+from h3c.control.program_execution import build_program_observations, execute_zone_programs
 
 
 class EnhancedRbcController:
@@ -24,18 +24,17 @@ class EnhancedRbcController:
         last_pmv: Mapping[str, float],
         last_occupancy: Mapping[str, float],
     ) -> tuple[dict[str, float], dict[str, Any]]:
-        setpoints: dict[str, float] = {}
-        diagnostics: dict[str, Any] = {}
-        for zone in self.zones:
-            observation = {
-                "current_occupancy": float(occupancy[zone]),
-                "occ_ahead": [float(value) for value in future_occupancy[zone]],
-                "last_setpoint": float(last_setpoints_c[zone]),
-                "last_pmv": float(last_pmv[zone]),
-                "last_occupancy": float(last_occupancy[zone]),
-            }
-            proposal = run_program(self.programs[zone], observation)
-            setpoint, assurance = action_assurance(proposal, observation)
-            setpoints[zone] = setpoint
-            diagnostics[zone] = {"interpreter": proposal, "action_assurance": assurance}
+        observations = build_program_observations(
+            self.zones,
+            current_occupancy=occupancy,
+            future_occupancy=future_occupancy,
+            last_setpoints_c=last_setpoints_c,
+            last_pmv=last_pmv,
+            last_occupancy=last_occupancy,
+        )
+        proposals, setpoints, audits = execute_zone_programs(self.programs, observations)
+        diagnostics = {
+            zone: {"interpreter": proposals[zone], "action_assurance": audits[zone]}
+            for zone in self.zones
+        }
         return setpoints, diagnostics

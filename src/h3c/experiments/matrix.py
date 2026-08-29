@@ -56,7 +56,7 @@ class RunPlan:
             or not isinstance(self.evaluation_hours, int)
             or self.evaluation_hours not in {6, formal_hours}
         ):
-            raise ValueError("evaluation hours must be registered smoke or profile formal duration")
+            raise ValueError("evaluation hours must be a registered validation or formal duration")
         if not self.causal_enabled and self.graph_mutation is not None:
             raise ValueError("causal-off runs cannot carry graph mutations")
         if self.controller == "deterministic_baseline" and (
@@ -212,31 +212,3 @@ def plan_suite(name: str) -> list[RunPlan]:
                 unique.setdefault(plan.identity(resolved_profiles[plan.profile]), plan)
         return list(unique.values())
     raise ValueError(f"unknown suite: {name}")
-
-
-def plan_release_smoke() -> list[RunPlan]:
-    suite_contract = load_suite_contract()
-    case_names = tuple(suite_contract["profile_order"])
-    multizone_air = str(suite_contract["release_smoke_focus_profile"])
-    timing_mutation = str(suite_contract["graph_timing_mutation_by_profile"][multizone_air])
-    if set(case_names) != set(profiles()):
-        raise ValueError("release smoke profiles do not match the configured profiles")
-    return [
-        *(_baseline(case, 6) for case in case_names),
-        *(_agent(case, evaluation_hours=6) for case in case_names),
-        _agent(multizone_air, memory=2, evaluation_hours=6),
-        _agent(multizone_air, memory=3, evaluation_hours=6),
-        _agent(multizone_air, causal=False, evaluation_hours=6),
-        _agent(
-            multizone_air,
-            mutation=graph_mutation("missing_solar_zone_edge"),
-            evaluation_hours=6,
-        ),
-        _agent(
-            multizone_air,
-            mutation=graph_mutation(timing_mutation),
-            evaluation_hours=6,
-        ),
-        _agent(multizone_air, coordination=False, evaluation_hours=6),
-        _agent(multizone_air, thinking="all_roles_disabled", evaluation_hours=6),
-    ]

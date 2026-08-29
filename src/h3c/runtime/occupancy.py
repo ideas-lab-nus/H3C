@@ -83,6 +83,91 @@ def resolve_missing_occupancy_values(
     return resolved, events
 
 
+def verify_missing_occupancy_resolution_evidence(
+    profile: Mapping[str, Any],
+    evaluation_hours: int,
+    recorded_count: Any,
+    events: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Recompute every permitted missing-occupancy resolution event."""
+
+    if (
+        isinstance(recorded_count, bool)
+        or not isinstance(recorded_count, int)
+        or recorded_count != len(events)
+    ):
+        return False
+    zones = profile["zones"]
+    policy = profile["occupancy"]
+    resolution = policy.get("missing_value_resolution")
+    if resolution is None and events:
+        return False
+    event_keys = {
+        "phase",
+        "forecast_phase",
+        "point",
+        "forecast_index",
+        "time_seconds",
+        "source_value",
+        "documented_occupied",
+        "resolution_rule",
+        "preceding_value",
+        "resolved_value",
+        "documentation_source",
+    }
+    points = {mapping["occupancy_forecast"] for mapping in zones.values()}
+    seen: set[tuple[str, str, int]] = set()
+    maximum_index = int(evaluation_hours) * 4 + 96
+    evaluation_start = int(profile["evaluation_start_day"]) * DAY_SECONDS
+    for raw_event in events:
+        event = dict(raw_event)
+        if set(event) != event_keys or event["point"] not in points:
+            return False
+        phase = event["forecast_phase"]
+        index = event["forecast_index"]
+        if (
+            phase != "evaluation"
+            or isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index > maximum_index
+        ):
+            return False
+        identity = (phase, event["point"], index)
+        if identity in seen:
+            return False
+        seen.add(identity)
+        time_seconds = evaluation_start + index * STEP_SECONDS
+        if (
+            event["time_seconds"] != time_seconds
+            or event["source_value"] is not None
+            or not isinstance(event["documented_occupied"], bool)
+            or not isinstance(resolution, Mapping)
+            or event["documentation_source"] != resolution["source"]
+        ):
+            return False
+        occupied = documented_occupancy_active(policy, time_seconds)
+        if event["documented_occupied"] != occupied:
+            return False
+        if occupied:
+            preceding = event["preceding_value"]
+            if (
+                event["resolution_rule"] != "documented_occupancy_previous_step"
+                or isinstance(preceding, bool)
+                or not isinstance(preceding, (int, float))
+                or not math.isfinite(float(preceding))
+                or event["resolved_value"] != preceding
+            ):
+                return False
+        elif (
+            event["resolution_rule"] != "documented_nonoccupancy_zero"
+            or event["preceding_value"] is not None
+            or event["resolved_value"] != 0.0
+        ):
+            return False
+    return True
+
+
 def effective_count(policy: Mapping[str, Any], time_seconds: float, raw_count: float) -> float:
     if isinstance(raw_count, bool) or not math.isfinite(float(raw_count)):
         raise ValueError("raw occupancy must be finite")

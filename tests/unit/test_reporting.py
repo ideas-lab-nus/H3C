@@ -69,9 +69,10 @@ def _completed_run(
             "case_profile": {
                 "profile": case,
                 "protocol": {
-                    "server_warmup_days": 7,
-                    "vanilla_conditioning_days": 7,
+                    "initialization_mode": "evaluation_start_internal_warmup",
+                    "internal_warmup_days": 7,
                     "formal_evaluation_days": protocol_days,
+                    "initial_setpoint_c": 25.0,
                 },
             },
             "method": {"evaluation_hours": 6},

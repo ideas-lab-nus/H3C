@@ -14,6 +14,16 @@ def repository_root() -> Path:
     return ROOT
 
 
+@pytest.fixture(autouse=True)
+def stable_fake_source_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep fake physical tests independent of the developer worktree state."""
+
+    identity = lambda: "a" * 40  # noqa: E731
+    monkeypatch.setattr("h3c.runtime.engine._source_commit", identity)
+    monkeypatch.setattr("h3c_baselines.runtime.runner._source_commit", identity)
+    monkeypatch.setattr("h3c_baselines.mpc.identification._source_commit", identity)
+
+
 @pytest.fixture(scope="session")
 def oracle_fixture(repository_root: Path) -> dict[str, Any]:
     value = json.loads(

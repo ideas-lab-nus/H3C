@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from h3c.offline.contracts import OnboardingSpec, file_identity, object_identity
+from h3c.runtime.source_identity import committed_source_identity
 
 
 class OfflineArtifactError(RuntimeError):
@@ -19,26 +19,12 @@ class OfflineArtifactError(RuntimeError):
 
 
 def source_commit(repository_root: Path) -> str:
-    completed = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={repository_root.parent.as_posix()}",
-            "-c",
-            f"safe.directory={repository_root.as_posix()}",
-            "rev-parse",
-            "HEAD",
-        ],
-        cwd=repository_root,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    commit = completed.stdout.strip()
-    if completed.returncode != 0 or len(commit) != 40:
-        raise OfflineArtifactError("offline execution requires a committed Git source identity")
-    return commit
+    try:
+        return committed_source_identity(repository_root)
+    except RuntimeError as error:
+        raise OfflineArtifactError(
+            "offline execution requires a clean committed repository root"
+        ) from error
 
 
 def _json_bytes(value: Any) -> bytes:

@@ -42,11 +42,10 @@ GLOBAL_FIELDS = {
     "power_meters",
 }
 PROTOCOL_FIELDS = {
-    "server_warmup_days",
-    "vanilla_conditioning_days",
+    "initialization_mode",
+    "internal_warmup_days",
     "formal_evaluation_days",
-    "occupied_vanilla_setpoint_c",
-    "unoccupied_vanilla_setpoint_c",
+    "initial_setpoint_c",
 }
 MISSING_OCCUPANCY_RESOLUTION_FIELDS = {
     "calendar_origin_utc",
@@ -244,15 +243,15 @@ def validate_profile(
     if not isinstance(protocol, Mapping) or set(protocol) != PROTOCOL_FIELDS:
         raise ProfileError("physical protocol fields are invalid")
     if (
-        protocol["server_warmup_days"] != 7
-        or protocol["vanilla_conditioning_days"] != 7
+        protocol["initialization_mode"] != "evaluation_start_internal_warmup"
+        or protocol["internal_warmup_days"] != 7
         or protocol["formal_evaluation_days"] not in (5, 7)
-        or _finite(protocol["occupied_vanilla_setpoint_c"], "occupied setpoint") != 25.0
-        or _finite(protocol["unoccupied_vanilla_setpoint_c"], "unoccupied setpoint") != 30.0
+        or _finite(protocol["initial_setpoint_c"], "initial setpoint") != 25.0
     ):
         raise ProfileError(
-            "physical protocol must use seven-day warm-up and conditioning, "
-            "a supported five- or seven-day formal evaluation, and fixed vanilla setpoints"
+            "physical protocol must initialize at the evaluation start with a seven-day "
+            "internal warm-up, a supported five- or seven-day evaluation, and a 25 C "
+            "initial controller state"
         )
 
     comfort = raw["comfort"]

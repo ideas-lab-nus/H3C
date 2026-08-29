@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from h3c.experiments.matrix import plan_release_smoke, plan_suite
+from h3c.experiments.matrix import plan_suite
 from h3c.experiments.profiles import profiles
 
 
@@ -15,11 +15,10 @@ def test_three_profiles_are_complete_and_configuration_owned() -> None:
     expected_formal_days = {"SZ_Air": 7, "MZ_Hydro": 5, "MZ_Air": 7}
     for name, profile in loaded.items():
         assert profile["protocol"] == {
-            "server_warmup_days": 7,
-            "vanilla_conditioning_days": 7,
+            "initialization_mode": "evaluation_start_internal_warmup",
+            "internal_warmup_days": 7,
             "formal_evaluation_days": expected_formal_days[name],
-            "occupied_vanilla_setpoint_c": 25.0,
-            "unoccupied_vanilla_setpoint_c": 30.0,
+            "initial_setpoint_c": 25.0,
         }
 
 
@@ -57,14 +56,3 @@ def test_all_matrix_deduplicates_main_and_one_hour_memory_identity() -> None:
         "MZ_Hydro": "change_delayed_to_immediate",
         "MZ_Air": "change_immediate_to_delayed",
     }
-
-
-def test_release_smoke_has_registered_runs_and_call_budget() -> None:
-    loaded = profiles()
-    matrix = plan_release_smoke()
-    assert len(matrix) == 13
-    assert sum(plan.controller == "deterministic_baseline" for plan in matrix) == 3
-    assert sum(plan.controller == "h3c_agent" for plan in matrix) == 10
-    assert (
-        sum(plan.expected_agent_calls(len(loaded[plan.profile]["zones"])) for plan in matrix) == 372
-    )

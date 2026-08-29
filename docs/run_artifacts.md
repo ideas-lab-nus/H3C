@@ -35,6 +35,10 @@ the timing stream records exact initialized/evaluation-start/evaluation-complete
 stopped lifecycle events with that same id. It also records the point, phase,
 index, absolute time, documented occupancy class, rule, preceding value,
 resolved value, and source for every permitted occupancy resolution.
+`forecast_inputs.json` preserves the exact source and resolved forecast bundle used by the
+evaluation. The online and baseline verifiers replay the shared missing-occupancy resolution
+owner from that source bundle and require both the resolved values and emitted audit events to
+match.
 `performance.csv` and `metrics.json` contain only the evaluation window.
 
 Artifact schema version 3 ties each valid Orchestrator/Executor raw output to the

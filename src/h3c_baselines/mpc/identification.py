@@ -7,7 +7,6 @@ import hashlib
 import json
 import math
 import os
-import subprocess
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -31,7 +30,7 @@ from h3c.runtime.protocol import (
     site_power,
     zone_temperature_c,
 )
-from h3c_baselines.configuration import load_mpc_suite
+from h3c.runtime.source_identity import committed_source_identity
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.mpc.vector_arx import (
     ArxLayout,
@@ -43,6 +42,10 @@ from h3c_baselines.outputs.integrity import secret_occurrences
 
 PhysicalFactory = Callable[[str], PhysicalClient]
 IDENTIFICATION_COLUMNS = ("time_seconds", "sample_role", "outputs", "controls", "disturbance")
+
+_EXPERIMENTAL_IDENTIFICATION_DAYS = {"SZ_Air": 7, "MZ_Hydro": 5, "MZ_Air": 7}
+_EXPERIMENTAL_RIDGE_ALPHA_CANDIDATES = (0.000001, 0.0001, 0.01, 1.0, 100.0)
+_EXPERIMENTAL_VALIDATION_DAYS = 1
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -64,9 +67,7 @@ def _replace_json(path: Path, value: Any) -> None:
 
 
 def _source_commit() -> str:
-    return subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=repository_root(), text=True
-    ).strip()
+    return committed_source_identity()
 
 
 def _file_sha256(path: Path) -> str:
@@ -148,7 +149,6 @@ def verify_identification_run(run_dir: Path, *, require_completion: bool = True)
     profile = load_profile(case)
     zones = tuple(profile["zones"])
     evaluation_start = int(profile["evaluation_start_day"]) * 86400
-    suite = load_mpc_suite()
     layout = ArxLayout(
         zones,
         (
@@ -164,14 +164,14 @@ def verify_identification_run(run_dir: Path, *, require_completion: bool = True)
         layout,
         features,
         targets,
-        validation_rows=int(suite["mpc"]["validation_days"]) * 96,
-        alpha_candidates=tuple(float(value) for value in suite["mpc"]["ridge_alpha_candidates"]),
+        validation_rows=_EXPERIMENTAL_VALIDATION_DAYS * 96,
+        alpha_candidates=_EXPERIMENTAL_RIDGE_ALPHA_CANDIDATES,
     )
     expected_steps = days * 96
     checks: dict[str, bool] = {
         "resolved_identity": resolved.get("case") == case
         and resolved.get("identification_days") == days,
-        "registered_duration": int(suite["mpc_identification_days"][case]) == days,
+        "registered_duration": _EXPERIMENTAL_IDENTIFICATION_DAYS[case] == days,
         "source_commit_present": isinstance(manifest.get("source_commit"), str)
         and len(manifest["source_commit"]) == 40,
         "initialize_once": manifest["lifecycle"]["initialize_count"] == 1,
@@ -226,7 +226,7 @@ def execute_identification(
     physical_factory: PhysicalFactory | None = None,
 ) -> dict[str, Any]:
     profile = load_profile(case)
-    expected_days = int(load_mpc_suite()["mpc_identification_days"][case])
+    expected_days = _EXPERIMENTAL_IDENTIFICATION_DAYS[case]
     if days != expected_days:
         raise ValueError("identification duration differs from the frozen suite")
     zones = tuple(profile["zones"])
@@ -275,7 +275,9 @@ def execute_identification(
     with physical_execution_lock(lock_root):
         try:
             state = client.initialize(
-                profile["testcase"], start, int(profile["protocol"]["server_warmup_days"]) * 86400
+                profile["testcase"],
+                start,
+                int(profile["protocol"]["internal_warmup_days"]) * 86400,
             )
             manifest["lifecycle"]["initialize_count"] = 1
             require_time(state, start)
@@ -385,15 +387,12 @@ def execute_identification(
             features, targets, _ = build_dataset(
                 layout, time_array, output_array, control_array, disturbance_array
             )
-            suite = load_mpc_suite()
             model, fit_report = fit_vector_arx(
                 layout,
                 features,
                 targets,
-                validation_rows=int(suite["mpc"]["validation_days"]) * 96,
-                alpha_candidates=tuple(
-                    float(value) for value in suite["mpc"]["ridge_alpha_candidates"]
-                ),
+                validation_rows=_EXPERIMENTAL_VALIDATION_DAYS * 96,
+                alpha_candidates=_EXPERIMENTAL_RIDGE_ALPHA_CANDIDATES,
             )
             with (run_dir / "identification_data.csv").open(
                 "x", encoding="utf-8", newline=""

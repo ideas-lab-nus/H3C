@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
+import math
+import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from h3c.runtime.comfort import step_reward
+from h3c.runtime.occupancy import effective_count, verify_missing_occupancy_resolution_evidence
+from h3c.runtime.protocol import (
+    physical_evidence_identity,
+    reconstruct_forecast_evidence,
+)
+from h3c_baselines.configuration import BaselineRunPlan
 from h3c_baselines.models import model_entry, verify_checkpoint
+from h3c_baselines.outputs.artifacts import PERFORMANCE_COLUMNS
 from h3c_baselines.outputs.metrics import compute_baseline_metrics
+from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
 
 FORBIDDEN_AGENT_FILES = {
     "agent_calls.jsonl",
@@ -27,82 +40,688 @@ def _load(path: Path) -> dict[str, Any]:
     return candidate
 
 
-def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, Any]:
-    manifest = _load(run_dir / "manifest.json")
-    resolved = _load(run_dir / "resolved_config.json")
-    metrics = compute_baseline_metrics(run_dir)
-    case = str(manifest["case"])
-    controller = str(manifest["controller"])
-    expected_steps = int(resolved["evaluation_hours"]) * 4
-    conditioning_mode = str(resolved.get("conditioning_mode", "explicit_vanilla_prefix"))
-    expected_conditioning_count = 0 if conditioning_mode == "legacy_internal_warmup" else 672
-    zone_count = len(resolved["case_profile"]["zones"])
-    action_rows = sum(
-        1 for line in (run_dir / "actions.jsonl").read_text(encoding="utf-8").splitlines() if line
+def _rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        candidate = json.loads(line)
+        if not isinstance(candidate, dict):
+            raise ValueError(f"{path.name} contains a non-object row")
+        rows.append(candidate)
+    return rows
+
+
+def _performance(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        if tuple(reader.fieldnames or ()) != PERFORMANCE_COLUMNS:
+            raise ValueError("baseline performance header is invalid")
+        rows = [dict(row) for row in reader]
+    if any(any(value is None for value in row.values()) for row in rows):
+        raise ValueError("baseline performance row is incomplete")
+    return rows
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
     )
-    performance_rows = (
-        sum(1 for _ in (run_dir / "performance.csv").read_text(encoding="utf-8").splitlines()) - 1
+
+
+def _identity(value: Any) -> str:
+    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _finite(value: Any) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
     )
-    checks: dict[str, bool] = {
-        "source_commit_present": isinstance(manifest.get("source_commit"), str)
-        and len(manifest["source_commit"]) == 40,
-        "controller_identity": controller == resolved["controller"],
-        "evaluation_steps": performance_rows == expected_steps,
-        "zone_action_rows": action_rows == expected_steps * zone_count,
-        "initialize_once": manifest["lifecycle"]["initialize_count"] == 1,
-        "conditioning_count": manifest["lifecycle"]["conditioning_advance_count"]
-        == expected_conditioning_count,
-        "evaluation_count": manifest["lifecycle"]["evaluation_advance_count"] == expected_steps,
-        "stop_once": manifest["lifecycle"]["stop_count"] == 1,
-        "test_id_unchanged": manifest["lifecycle"]["test_id_changes"] == 0,
-        "prefix_identity_present": isinstance(manifest.get("conditioning_prefix_identity"), str),
-        "boundary_identity_present": isinstance(manifest.get("evaluation_boundary_identity"), str),
-        "native_kpis_present": (run_dir / "native_boptest_kpis.json").is_file(),
-        "secret_scan_complete": manifest.get("secret_scan_status") == "completed",
-        "secret_absent": manifest.get("secret_exposure_count") == 0,
-        "no_agent_evidence": not any((run_dir / name).exists() for name in FORBIDDEN_AGENT_FILES),
-        "metrics_recomputed": _load(run_dir / "metrics.json") == metrics,
-    }
-    if controller in {"c-drl", "h-drl"}:
-        entry = model_entry(case, controller)
-        expected = verify_checkpoint(entry)
-        recorded = _load(run_dir / "model_identity.json")
-        checks["model_identity"] = all(
-            recorded.get(name) == expected[name] for name in ("bytes", "sha256")
-        )
-        checks["policy_rows"] = all(
-            (run_dir / name).is_file() for name in ("observations.jsonl", "policy_inference.jsonl")
-        )
-    if controller == "linear-mpc":
-        checks["mpc_identity_present"] = isinstance(manifest.get("mpc_model_identity"), str)
-        checks["mpc_streams_present"] = all(
-            (run_dir / name).is_file() for name in ("predictions.jsonl", "solver_trace.jsonl")
-        )
-    errors = sorted(name for name, passed in checks.items() if not passed)
-    execution_integrity = not errors
-    classification = (
-        "RUN-INVALID"
-        if not execution_integrity
-        else "METHOD-DEGRADED"
-        if metrics["controller"]["method_degraded"]
-        else "BASELINE-PASS"
+
+
+def _same(left: Any, right: Any) -> bool:
+    return (
+        _finite(left)
+        and _finite(right)
+        and math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-9)
     )
-    if require_completion:
-        completion = _load(run_dir / "completion.json")
-        checks["completion_classification"] = completion.get("classification") == classification
-        if not checks["completion_classification"]:
-            errors.append("completion_classification")
-            execution_integrity = False
-            classification = "RUN-INVALID"
+
+
+def _exact_numeric_map(value: Any, keys: set[str]) -> bool:
+    return (
+        isinstance(value, Mapping)
+        and set(value) == keys
+        and all(_finite(item) for item in value.values())
+    )
+
+
+def _numeric_sequence(value: Any, length: int) -> bool:
+    return (
+        isinstance(value, Sequence)
+        and not isinstance(value, (str, bytes))
+        and len(value) == length
+        and all(_finite(item) for item in value)
+    )
+
+
+def _invalid_result(error: str) -> dict[str, Any]:
     return {
         "verification_schema": "h3c_baseline_verification",
         "schema_version": 1,
-        "checks": checks,
-        "errors": sorted(set(errors)),
-        "execution_integrity": execution_integrity,
-        "completion_eligible": execution_integrity,
-        "classification": classification,
-        "metrics_identity": hashlib.sha256(
-            json.dumps(metrics, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
+        "checks": {"evidence_parse": False},
+        "errors": [f"evidence_parse:{error}"],
+        "execution_integrity": False,
+        "completion_eligible": False,
+        "classification": "RUN-INVALID",
+        "metrics_identity": None,
     }
+
+
+def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, Any]:
+    try:
+        directory = run_dir.resolve()
+        manifest = _load(directory / "manifest.json")
+        resolved = _load(directory / "resolved_config.json")
+        recorded_metrics = _load(directory / "metrics.json")
+        metrics = compute_baseline_metrics(directory)
+        performance = _performance(directory / "performance.csv")
+        actions = _rows(directory / "actions.jsonl")
+        diagnostics = _rows(directory / "controller_diagnostics.jsonl")
+        conditioning = _rows(directory / "physical_conditioning.jsonl")
+        timing = _rows(directory / "timing.jsonl")
+        forecast_evidence = _load(directory / "forecast_inputs.json")
+
+        case = manifest["case"]
+        controller = manifest["controller"]
+        evaluation_hours = resolved["evaluation_hours"]
+        if (
+            not isinstance(case, str)
+            or not isinstance(controller, str)
+            or isinstance(evaluation_hours, bool)
+            or not isinstance(evaluation_hours, int)
+        ):
+            raise ValueError("baseline plan identity fields are invalid")
+        overrides = resolved.get("profile_overrides")
+        if not isinstance(overrides, dict):
+            raise ValueError("profile overrides are invalid")
+        plan = BaselineRunPlan(case, controller, evaluation_hours, overrides)
+        expected_plan = plan.resolved()
+        execution_identity = resolved.get("execution_identity")
+        if not isinstance(execution_identity, dict):
+            raise ValueError("execution identity is missing")
+
+        profile = expected_plan["case_profile"]
+        protocol = profile["protocol"]
+        zones = tuple(profile["zones"])
+        zone_set = set(zones)
+        expected_steps = evaluation_hours * 4
+        evaluation_start = int(profile["evaluation_start_day"]) * 86400
+        evaluation_end = evaluation_start + expected_steps * 900
+        source_commit = execution_identity.get("source_commit")
+
+        expected_execution_fields = {
+            "plan_identity",
+            "source_commit",
+            "physical_endpoint_identity",
+            "mpc_identification_identity",
+        }
+        expected_manifest_fields = {
+            "manifest_schema",
+            "schema_version",
+            "run_identity",
+            "source_commit",
+            "case",
+            "controller",
+            "conditioning_prefix_identity",
+            "evaluation_boundary_identity",
+            "mpc_model_identity",
+            "secret_scan_status",
+            "secret_exposure_count",
+            "occupancy_forecast_missing_value_resolution_count",
+            "lifecycle",
+        }
+        expected_lifecycle = {
+            "initialize_count": 1,
+            "conditioning_advance_count": 0,
+            "evaluation_advance_count": expected_steps,
+            "stop_count": 1,
+            "test_id_changes": 0,
+        }
+        resolution_events = [
+            row
+            for row in timing
+            if row.get("phase") == "occupancy_forecast_missing_value_resolution"
+        ]
+        expected_forecast: dict[str, list[float]] = {}
+        expected_resolution_events: list[dict[str, Any]] = []
+        forecast_contract = True
+        try:
+            expected_forecast, expected_resolution_events = reconstruct_forecast_evidence(
+                profile,
+                forecast_evidence,
+                expected_steps + 97,
+                forecast_phase="evaluation",
+                start_time_seconds=evaluation_start,
+                step_seconds=900,
+            )
+        except (KeyError, TypeError, ValueError):
+            forecast_contract = False
+        checks: dict[str, bool] = {
+            "evidence_parse": True,
+            "resolved_plan_identity": set(resolved) == set(expected_plan) | {"execution_identity"}
+            and all(resolved.get(key) == value for key, value in expected_plan.items()),
+            "execution_identity": set(execution_identity) == expected_execution_fields
+            and execution_identity.get("plan_identity") == expected_plan["plan_identity"]
+            and isinstance(source_commit, str)
+            and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None
+            and isinstance(execution_identity.get("physical_endpoint_identity"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", execution_identity["physical_endpoint_identity"])
+            is not None
+            and (
+                execution_identity.get("mpc_identification_identity") is None
+                if controller != "linear-mpc"
+                else isinstance(execution_identity.get("mpc_identification_identity"), str)
+            ),
+            "manifest_identity": set(manifest) == expected_manifest_fields
+            and manifest.get("manifest_schema") == "h3c_baseline_manifest"
+            and manifest.get("schema_version") == 1
+            and manifest.get("source_commit") == source_commit
+            and manifest.get("run_identity") == _identity(execution_identity)
+            and manifest.get("case") == case
+            and manifest.get("controller") == controller
+            and manifest.get("mpc_model_identity")
+            == execution_identity.get("mpc_identification_identity"),
+            "physical_lifecycle_counts": manifest.get("lifecycle") == expected_lifecycle,
+            "no_explicit_conditioning": conditioning == []
+            and manifest.get("conditioning_prefix_identity") == hashlib.sha256(b"").hexdigest(),
+            "metrics_recomputed": recorded_metrics == metrics,
+            "native_kpis_present": (directory / "native_boptest_kpis.json").is_file(),
+            "secret_scan_complete": manifest.get("secret_scan_status") == "completed",
+            "secret_absent": manifest.get("secret_exposure_count") == 0,
+            "no_agent_evidence": not any(
+                (directory / name).exists() for name in FORBIDDEN_AGENT_FILES
+            ),
+            "forecast_input_evidence": forecast_contract,
+            "occupancy_resolution_evidence": forecast_contract
+            and expected_resolution_events == resolution_events
+            and verify_missing_occupancy_resolution_evidence(
+                profile,
+                evaluation_hours,
+                manifest.get("occupancy_forecast_missing_value_resolution_count"),
+                resolution_events,
+            ),
+        }
+
+        lifecycle = [row for row in timing if row.get("phase") == "physical_lifecycle"]
+        lifecycle_contract = [
+            {
+                "phase": "physical_lifecycle",
+                "event": "initialized",
+                "time_seconds": evaluation_start,
+                "warmup_period_seconds": int(protocol["internal_warmup_days"]) * 86400,
+            },
+            {
+                "phase": "physical_lifecycle",
+                "event": "evaluation_started",
+                "time_seconds": evaluation_start,
+            },
+            {
+                "phase": "physical_lifecycle",
+                "event": "evaluation_completed",
+                "time_seconds": evaluation_end,
+            },
+            {
+                "phase": "physical_lifecycle",
+                "event": "stopped",
+                "time_seconds": evaluation_end,
+            },
+        ]
+        lifecycle_test_ids = {row.get("test_id") for row in lifecycle}
+        checks["lifecycle_timeline"] = (
+            protocol.get("initialization_mode") == "evaluation_start_internal_warmup"
+            and protocol.get("internal_warmup_days") == 7
+            and len(lifecycle) == len(lifecycle_contract)
+            and all(
+                {key: value for key, value in row.items() if key != "test_id"} == expected
+                and isinstance(row.get("test_id"), str)
+                and bool(row["test_id"])
+                for row, expected in zip(lifecycle, lifecycle_contract, strict=True)
+            )
+            and len(lifecycle_test_ids) == 1
+        )
+
+        boundary_rows = [row for row in timing if row.get("phase") == "evaluation_boundary"]
+        boundary_ok = False
+        boundary_test_id: Any = None
+        boundary_physical_state: dict[str, Any] | None = None
+        if len(boundary_rows) == 1:
+            event = boundary_rows[0]
+            boundary = event.get("boundary")
+            boundary_test_id = event.get("test_id")
+            if isinstance(boundary, dict):
+                state = boundary.get("physical_state")
+                if isinstance(state, dict):
+                    boundary_physical_state = state
+                temperature_points = {
+                    mapping["temperature_sensor"] for mapping in profile["zones"].values()
+                }
+                power_points = set(profile["global_inputs"]["power_meters"])
+                event_identity = physical_evidence_identity(boundary)
+                boundary_ok = (
+                    set(event)
+                    == {
+                        "phase",
+                        "boundary",
+                        "evaluation_boundary_identity",
+                        "test_id",
+                    }
+                    and set(boundary)
+                    == {
+                        "physical_state",
+                        "last_setpoint_c",
+                        "last_pmv",
+                        "last_occupancy",
+                        "clothing_insulation",
+                    }
+                    and isinstance(state, dict)
+                    and _same(state.get("time"), evaluation_start)
+                    and all(
+                        _finite(state.get(point)) for point in temperature_points | power_points
+                    )
+                    and _exact_numeric_map(boundary.get("last_setpoint_c"), zone_set)
+                    and _exact_numeric_map(boundary.get("last_pmv"), zone_set)
+                    and _exact_numeric_map(boundary.get("last_occupancy"), zone_set)
+                    and all(
+                        _same(value, protocol["initial_setpoint_c"])
+                        for value in boundary["last_setpoint_c"].values()
+                    )
+                    and all(_same(value, 0.0) for value in boundary["last_pmv"].values())
+                    and all(_same(value, 0.0) for value in boundary["last_occupancy"].values())
+                    and _finite(boundary.get("clothing_insulation"))
+                    and event.get("evaluation_boundary_identity") == event_identity
+                    and manifest.get("evaluation_boundary_identity") == event_identity
+                )
+        checks["evaluation_boundary_identity"] = boundary_ok
+
+        action_fields = {
+            "step",
+            "zone",
+            "test_id",
+            "action_time_seconds",
+            "outcome_time_seconds",
+            "final_setpoint_c",
+            "outcome",
+        }
+        outcome_fields = {
+            "zone_temperature_c",
+            "pmv",
+            "effective_occupancy",
+            "power_w",
+            "electricity_price",
+            "cost",
+        }
+        by_step: dict[int, list[dict[str, Any]]] = {}
+        for row in actions:
+            step = row.get("step")
+            if isinstance(step, int) and not isinstance(step, bool):
+                by_step.setdefault(step, []).append(row)
+        trajectory_ok = (
+            len(performance) == expected_steps
+            and len(actions) == expected_steps * len(zones)
+            and len(diagnostics) == expected_steps
+            and [row.get("step") for row in diagnostics] == list(range(expected_steps))
+        )
+        previous_setpoints = [float(protocol["initial_setpoint_c"])] * len(zones)
+        action_test_ids: set[Any] = set()
+        for step in range(expected_steps):
+            step_actions = by_step.get(step, [])
+            if (
+                len(step_actions) != len(zones)
+                or {row.get("zone") for row in step_actions} != zone_set
+            ):
+                trajectory_ok = False
+                continue
+            by_zone = {row["zone"]: row for row in step_actions}
+            row = performance[step]
+            try:
+                temperatures = json.loads(row["zone_temperatures_c"])
+                setpoints = json.loads(row["zone_setpoints_c"])
+                pmv = json.loads(row["zone_pmv"])
+                occupancy = json.loads(row["zone_occupancy"])
+                power = float(row["total_power_w"])
+                cost = float(row["step_cost"])
+                reward = float(row["step_reward"])
+                ordered = [by_zone[zone] for zone in zones]
+                prices = [item["outcome"]["electricity_price"] for item in ordered]
+                expected_occupancy = [
+                    effective_count(
+                        profile["occupancy"],
+                        evaluation_start + step * 900,
+                        float(
+                            expected_forecast[profile["zones"][zone]["occupancy_forecast"]][step]
+                        ),
+                    )
+                    for zone in zones
+                ]
+                expected_reward = step_reward(
+                    cost=cost,
+                    pmv=[float(value) for value in pmv],
+                    occupancy=[float(value) for value in occupancy],
+                    setpoints_c=[float(value) for value in setpoints],
+                    previous_setpoints_c=previous_setpoints,
+                    objective=profile["objective"],
+                )
+                trajectory_ok = trajectory_ok and (
+                    int(row["step"]) == step
+                    and row["time_seconds"] == str(evaluation_start + step * 900)
+                    and len(temperatures) == len(zones)
+                    and len(setpoints) == len(zones)
+                    and len(pmv) == len(zones)
+                    and len(occupancy) == len(zones)
+                    and all(
+                        set(item) == action_fields
+                        and set(item.get("outcome", {})) == outcome_fields
+                        and item["action_time_seconds"] == evaluation_start + step * 900
+                        and item["outcome_time_seconds"] == evaluation_start + (step + 1) * 900
+                        and all(_finite(value) for value in item["outcome"].values())
+                        and _finite(item["final_setpoint_c"])
+                        for item in ordered
+                    )
+                    and all(
+                        _same(ordered[index]["outcome"]["zone_temperature_c"], temperatures[index])
+                        and _same(ordered[index]["final_setpoint_c"], setpoints[index])
+                        and _same(ordered[index]["outcome"]["pmv"], pmv[index])
+                        and _same(
+                            ordered[index]["outcome"]["effective_occupancy"], occupancy[index]
+                        )
+                        and _same(occupancy[index], expected_occupancy[index])
+                        and _same(ordered[index]["outcome"]["power_w"], power)
+                        and _same(ordered[index]["outcome"]["cost"], cost)
+                        for index in range(len(zones))
+                    )
+                    and all(_same(price, prices[0]) for price in prices)
+                    and _same(cost, power * 0.25 / 1000.0 * float(prices[0]))
+                    and _same(reward, expected_reward)
+                )
+                previous_setpoints = [float(value) for value in setpoints]
+                action_test_ids.update(item.get("test_id") for item in ordered)
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                trajectory_ok = False
+        checks["trajectory_recomputed"] = trajectory_ok
+        checks["test_id_continuity"] = (
+            len(lifecycle_test_ids) == 1
+            and action_test_ids == lifecycle_test_ids
+            and boundary_test_id in lifecycle_test_ids
+        )
+
+        if controller == "basic-rbc":
+            controller_contract = True
+            for step, diagnostic in enumerate(diagnostics):
+                action_by_zone = {row["zone"]: row for row in by_step.get(step, [])}
+                controller_contract = controller_contract and (
+                    diagnostic == {"step": step, "status": "scheduled", "method_degraded": False}
+                    and set(action_by_zone) == zone_set
+                    and all(
+                        _same(
+                            action_by_zone[zone]["final_setpoint_c"],
+                            25.0
+                            if float(action_by_zone[zone]["outcome"]["effective_occupancy"]) > 0
+                            else 30.0,
+                        )
+                        for zone in zones
+                    )
+                )
+            checks["controller_contract"] = controller_contract
+        elif controller == "enhanced-rbc":
+            controller_contract = True
+            for step, diagnostic in enumerate(diagnostics):
+                zone_diagnostics = diagnostic.get("zones")
+                action_by_zone = {row["zone"]: row for row in by_step.get(step, [])}
+                controller_contract = controller_contract and (
+                    set(diagnostic) == {"step", "status", "method_degraded", "zones"}
+                    and diagnostic.get("step") == step
+                    and diagnostic.get("status") == "canonical_program"
+                    and diagnostic.get("method_degraded") is False
+                    and isinstance(zone_diagnostics, Mapping)
+                    and set(zone_diagnostics) == zone_set
+                    and set(action_by_zone) == zone_set
+                )
+                if not controller_contract:
+                    continue
+                assert isinstance(zone_diagnostics, Mapping)
+                controller_contract = all(
+                    isinstance(zone_diagnostics[zone], Mapping)
+                    and set(zone_diagnostics[zone]) == {"interpreter", "action_assurance"}
+                    and isinstance(zone_diagnostics[zone]["interpreter"], Mapping)
+                    and isinstance(zone_diagnostics[zone]["action_assurance"], Mapping)
+                    and _same(
+                        zone_diagnostics[zone]["action_assurance"].get("final_setpoint"),
+                        action_by_zone[zone]["final_setpoint_c"],
+                    )
+                    for zone in zones
+                )
+            checks["controller_contract"] = controller_contract
+        elif controller in {"c-drl", "h-drl"}:
+            entry = model_entry(case, controller)
+            expected_model = verify_checkpoint(entry)
+            recorded_model = _load(directory / "model_identity.json")
+            observations = _rows(directory / "observations.jsonl")
+            inferences = _rows(directory / "policy_inference.jsonl")
+            checks["model_identity"] = all(
+                recorded_model.get(name) == expected_model[name] for name in ("bytes", "sha256")
+            )
+            policy_contract = (
+                len(observations) == expected_steps
+                and len(inferences) == expected_steps
+                and [row.get("step") for row in observations] == list(range(expected_steps))
+                and [row.get("step") for row in inferences] == list(range(expected_steps))
+            )
+            observation_dimension = int(entry["observation_dimension"])
+            local_dimension = int(entry.get("local_observation_dimension", 0))
+            policy_zones = tuple(str(zone) for zone in entry["policy_zone_order"])
+            base_mode = str(entry["residual_base"])
+            observation_builder: PolicyObservationBuilder | None = None
+            try:
+                if boundary_physical_state is None or not boundary_ok or not forecast_contract:
+                    raise ValueError("policy reconstruction inputs are unavailable")
+                observation_builder = PolicyObservationBuilder(profile, entry)
+                observation_builder.reset(boundary_physical_state)
+            except (KeyError, TypeError, ValueError):
+                policy_contract = False
+            for step in range(expected_steps):
+                if not policy_contract:
+                    break
+                observation = observations[step]
+                inference = inferences[step]
+                diagnostic = diagnostics[step]
+                local = observation.get("local_normalized")
+                columns = observation.get("columns")
+                raw_action = inference.get("raw_action")
+                inferred_setpoints = inference.get("setpoints_c")
+                action_by_zone = {row["zone"]: row for row in by_step.get(step, [])}
+                policy_contract = (
+                    set(observation)
+                    == {
+                        "step",
+                        "time_seconds",
+                        "columns",
+                        "raw",
+                        "normalized",
+                        "local_normalized",
+                    }
+                    and observation.get("time_seconds") == evaluation_start + step * 900
+                    and isinstance(columns, list)
+                    and len(columns) == observation_dimension
+                    and len(set(columns)) == observation_dimension
+                    and all(isinstance(column, str) and column for column in columns)
+                    and _numeric_sequence(observation.get("raw"), observation_dimension)
+                    and _numeric_sequence(observation.get("normalized"), observation_dimension)
+                    and isinstance(local, Mapping)
+                    and (
+                        set(local) == zone_set
+                        and all(_numeric_sequence(local[zone], local_dimension) for zone in zones)
+                        if controller == "h-drl"
+                        else local == {}
+                    )
+                    and set(inference)
+                    == {
+                        "step",
+                        "policy_zone_order",
+                        "raw_action",
+                        "setpoints_c",
+                        "observation_dimension",
+                    }
+                    and inference.get("step") == step
+                    and inference.get("policy_zone_order") == list(policy_zones)
+                    and inference.get("observation_dimension") == observation_dimension
+                    and _numeric_sequence(raw_action, len(policy_zones))
+                    and isinstance(raw_action, Sequence)
+                    and all(-1.0 <= float(value) <= 1.0 for value in raw_action)
+                    and _exact_numeric_map(inferred_setpoints, zone_set)
+                    and isinstance(inferred_setpoints, Mapping)
+                    and set(action_by_zone) == zone_set
+                    and set(diagnostic)
+                    == {
+                        "step",
+                        "status",
+                        "method_degraded",
+                        "policy_zone_order",
+                        "raw_action",
+                        "setpoints_c",
+                        "observation_dimension",
+                        "policy_input_clothing_insulation",
+                        "policy_input_pmv",
+                    }
+                    and diagnostic.get("status") == "policy_inference"
+                    and diagnostic.get("method_degraded") is False
+                    and all(diagnostic.get(key) == inference.get(key) for key in inference)
+                    and _finite(diagnostic.get("policy_input_clothing_insulation"))
+                    and _exact_numeric_map(diagnostic.get("policy_input_pmv"), zone_set)
+                )
+                if not policy_contract:
+                    continue
+                assert observation_builder is not None
+                assert isinstance(raw_action, Sequence)
+                assert isinstance(inferred_setpoints, Mapping)
+                assert isinstance(local, Mapping)
+                try:
+                    packet = observation_builder.build(
+                        expected_forecast,
+                        step=step,
+                        action_time_seconds=evaluation_start + step * 900,
+                        step_seconds=900,
+                    )
+                    expected_local = {
+                        zone: values.tolist() for zone, values in packet.local_normalized.items()
+                    }
+                    policy_contract = (
+                        observation.get("columns") == list(packet.columns)
+                        and all(
+                            _same(actual, expected)
+                            for actual, expected in zip(
+                                observation["raw"], packet.raw.tolist(), strict=True
+                            )
+                        )
+                        and all(
+                            _same(actual, expected)
+                            for actual, expected in zip(
+                                observation["normalized"],
+                                packet.normalized.tolist(),
+                                strict=True,
+                            )
+                        )
+                        and set(local) == set(expected_local)
+                        and all(
+                            all(
+                                _same(actual, expected)
+                                for actual, expected in zip(
+                                    local[zone], expected_local[zone], strict=True
+                                )
+                            )
+                            for zone in expected_local
+                        )
+                    )
+                except (KeyError, TypeError, ValueError):
+                    policy_contract = False
+                if not policy_contract:
+                    continue
+                for index, zone in enumerate(policy_zones):
+                    occupancy = float(action_by_zone[zone]["outcome"]["effective_occupancy"])
+                    base = 25.0 if base_mode == "fixed_25" or occupancy > 0 else 30.0
+                    expected_setpoint = max(20.0, min(30.0, base + 5.0 * float(raw_action[index])))
+                    policy_contract = (
+                        policy_contract
+                        and _same(inferred_setpoints[zone], expected_setpoint)
+                        and _same(action_by_zone[zone]["final_setpoint_c"], expected_setpoint)
+                    )
+                if not policy_contract:
+                    continue
+                policy_pmv = diagnostic["policy_input_pmv"]
+                assert isinstance(policy_pmv, Mapping)
+                next_state = {
+                    profile["zones"][zone]["temperature_sensor"]: float(
+                        action_by_zone[zone]["outcome"]["zone_temperature_c"]
+                    )
+                    + 273.15
+                    for zone in policy_zones
+                }
+                observation_builder.update(
+                    next_state,
+                    {zone: float(inferred_setpoints[zone]) for zone in policy_zones},
+                    {zone: float(policy_pmv[zone]) for zone in policy_zones},
+                    float(action_by_zone[policy_zones[0]]["outcome"]["power_w"]),
+                )
+            checks["policy_contract"] = policy_contract
+        elif controller == "linear-mpc":
+            checks["mpc_identity_present"] = isinstance(manifest.get("mpc_model_identity"), str)
+            checks["mpc_streams_present"] = all(
+                (directory / name).is_file() for name in ("predictions.jsonl", "solver_trace.jsonl")
+            )
+
+        errors = sorted(name for name, passed in checks.items() if not passed)
+        execution_integrity = not errors
+        classification = (
+            "RUN-INVALID"
+            if not execution_integrity
+            else "METHOD-DEGRADED"
+            if metrics["controller"]["method_degraded"]
+            else "BASELINE-PASS"
+        )
+        if require_completion:
+            completion = _load(directory / "completion.json")
+            checks["completion_identity"] = (
+                set(completion)
+                == {
+                    "completion_schema",
+                    "schema_version",
+                    "classification",
+                    "run_identity",
+                    "elapsed_seconds",
+                }
+                and completion.get("completion_schema") == "h3c_baseline_completion"
+                and completion.get("schema_version") == 1
+                and completion.get("classification") == classification
+                and completion.get("run_identity") == manifest.get("run_identity")
+                and _finite(completion.get("elapsed_seconds"))
+                and float(completion["elapsed_seconds"]) >= 0
+            )
+            if not checks["completion_identity"]:
+                errors.append("completion_identity")
+                execution_integrity = False
+                classification = "RUN-INVALID"
+        return {
+            "verification_schema": "h3c_baseline_verification",
+            "schema_version": 1,
+            "checks": checks,
+            "errors": sorted(set(errors)),
+            "execution_integrity": execution_integrity,
+            "completion_eligible": execution_integrity,
+            "classification": classification,
+            "metrics_identity": _identity(metrics),
+        }
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        return _invalid_result(type(error).__name__)

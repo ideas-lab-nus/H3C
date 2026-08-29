@@ -115,6 +115,9 @@ class RunArtifacts:
     def write_metrics(self, metrics: Mapping[str, Any]) -> None:
         self._write_new_json("metrics.json", metrics)
 
+    def write_forecast_inputs(self, value: Mapping[str, Any]) -> None:
+        self._write_new_json("forecast_inputs.json", value)
+
     def write_verification(self, verification: Mapping[str, Any]) -> None:
         self._write_new_json("verification.json", verification)
 

@@ -43,10 +43,10 @@ from h3c.runtime.clients import (
 )
 from h3c.runtime.comfort import step_reward
 from h3c.runtime.occupancy import (
-    documented_occupancy_active,
-    effective_count,
     hourly_route,
+    verify_missing_occupancy_resolution_evidence,
 )
+from h3c.runtime.protocol import reconstruct_forecast_evidence
 
 
 def _object(path: Path) -> dict[str, Any]:
@@ -95,108 +95,32 @@ def _occupancy_resolution_evidence(
     method: dict[str, Any],
     manifest: dict[str, Any],
     streams: dict[str, list[dict[str, Any]]],
+    forecast_evidence: dict[str, Any],
 ) -> bool:
     events = [
         row
         for row in streams["timing.jsonl"]
         if row.get("phase") == "occupancy_forecast_missing_value_resolution"
     ]
-    count = manifest.get("occupancy_forecast_missing_value_resolution_count")
-    if isinstance(count, bool) or not isinstance(count, int) or count != len(events):
+    hours = int(method["evaluation_hours"])
+    evaluation_start = int(profile["evaluation_start_day"]) * 86400
+    try:
+        _, expected_events = reconstruct_forecast_evidence(
+            profile,
+            forecast_evidence,
+            hours * 4 + 97,
+            forecast_phase="evaluation",
+            start_time_seconds=evaluation_start,
+            step_seconds=int(profile["control_step_seconds"]),
+        )
+    except (KeyError, TypeError, ValueError):
         return False
-    zones = profile["zones"]
-    policy = profile["occupancy"]
-    resolution = policy.get("missing_value_resolution")
-    if resolution is None and events:
-        return False
-
-    event_keys = {
-        "phase",
-        "forecast_phase",
-        "point",
-        "forecast_index",
-        "time_seconds",
-        "source_value",
-        "documented_occupied",
-        "resolution_rule",
-        "preceding_value",
-        "resolved_value",
-        "documentation_source",
-    }
-    points = {mapping["occupancy_forecast"] for mapping in zones.values()}
-    seen: set[tuple[str, str, int]] = set()
-    for event in events:
-        if set(event) != event_keys or event["point"] not in points:
-            return False
-        phase = event["forecast_phase"]
-        index = event["forecast_index"]
-        if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-            return False
-        if phase == "conditioning":
-            conditioning_steps = int(profile["protocol"]["vanilla_conditioning_days"]) * 24 * 4
-            start = int(profile["evaluation_start_day"]) * 86400 - conditioning_steps * 900
-            maximum_index = conditioning_steps + 96
-        elif phase == "evaluation":
-            start = int(profile["evaluation_start_day"]) * 86400
-            maximum_index = int(method["evaluation_hours"]) * 4 + 96
-        else:
-            return False
-        identity = (phase, event["point"], index)
-        if identity in seen or index > maximum_index:
-            return False
-        seen.add(identity)
-        time_seconds = start + index * 900
-        if (
-            event["time_seconds"] != time_seconds
-            or event["source_value"] is not None
-            or not isinstance(event["documented_occupied"], bool)
-            or resolution is None
-            or event["documentation_source"] != resolution["source"]
-        ):
-            return False
-        occupied = documented_occupancy_active(policy, time_seconds)
-        if event["documented_occupied"] != occupied:
-            return False
-        if occupied:
-            if (
-                event["resolution_rule"] != "documented_occupancy_previous_step"
-                or not _finite_number(event["preceding_value"])
-                or event["resolved_value"] != event["preceding_value"]
-            ):
-                return False
-        elif (
-            event["resolution_rule"] != "documented_nonoccupancy_zero"
-            or event["preceding_value"] is not None
-            or event["resolved_value"] != 0.0
-        ):
-            return False
-
-    conditioning_events = {
-        (event["point"], event["time_seconds"]): event
-        for event in events
-        if event["forecast_phase"] == "conditioning"
-    }
-    for row in streams["physical_conditioning.jsonl"]:
-        raw = row.get("raw_occupancy")
-        resolved = row.get("resolved_occupancy")
-        if not isinstance(raw, dict) or not isinstance(resolved, dict):
-            return False
-        if set(raw) != set(zones) or set(resolved) != set(zones):
-            return False
-        for zone, mapping in zones.items():
-            raw_value = raw[zone]
-            resolved_value = resolved[zone]
-            if not _finite_number(resolved_value):
-                return False
-            if raw_value is None:
-                matching_event = conditioning_events.get(
-                    (mapping["occupancy_forecast"], row["action_time_seconds"])
-                )
-                if matching_event is None or resolved_value != matching_event["resolved_value"]:
-                    return False
-            elif not _finite_number(raw_value) or float(raw_value) != float(resolved_value):
-                return False
-    return True
+    return expected_events == events and verify_missing_occupancy_resolution_evidence(
+        profile,
+        hours,
+        manifest.get("occupancy_forecast_missing_value_resolution_count"),
+        events,
+    )
 
 
 def _canonical(value: Any) -> str:
@@ -579,6 +503,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         "resolved_config.yaml",
         "manifest.json",
         "metrics.json",
+        "forecast_inputs.json",
         *STREAM_FILES,
         "performance.csv",
     }
@@ -593,6 +518,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         resolved = _object(directory / "resolved_config.yaml")
         manifest = _object(directory / "manifest.json")
         recorded_metrics = _object(directory / "metrics.json")
+        forecast_evidence = _object(directory / "forecast_inputs.json")
         profile = resolved["case_profile"]
         method = resolved["method"]
         zones = list(profile["zones"])
@@ -610,7 +536,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         model_attempts = streams["model_request_attempts.jsonl"]
 
         protocol = profile["protocol"]
-        conditioning_count = int(protocol["vanilla_conditioning_days"]) * 24 * 4
+        conditioning_count = 0
         lifecycle = manifest["lifecycle"]
         conditioning_test_ids = {row.get("test_id") for row in conditioning}
         checks["physical_protocol"] = (
@@ -622,8 +548,9 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "conditioning_advance_count": conditioning_count,
             }
             and len(conditioning) == conditioning_count
-            and len(conditioning_test_ids) == 1
-            and all(isinstance(value, str) and value for value in conditioning_test_ids)
+            and not conditioning_test_ids
+            and protocol["initialization_mode"] == "evaluation_start_internal_warmup"
+            and protocol["internal_warmup_days"] == 7
         )
 
         evaluation_start = int(profile["evaluation_start_day"]) * 86400
@@ -633,10 +560,27 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             row for row in streams["timing.jsonl"] if row.get("phase") == "physical_lifecycle"
         ]
         lifecycle_contract = [
-            {"event": "initialized", "time_seconds": conditioning_start},
-            {"event": "evaluation_started", "time_seconds": evaluation_start},
-            {"event": "evaluation_completed", "time_seconds": evaluation_end},
-            {"event": "stopped", "time_seconds": evaluation_end},
+            {
+                "phase": "physical_lifecycle",
+                "event": "initialized",
+                "time_seconds": conditioning_start,
+                "warmup_period_seconds": int(protocol["internal_warmup_days"]) * 86400,
+            },
+            {
+                "phase": "physical_lifecycle",
+                "event": "evaluation_started",
+                "time_seconds": evaluation_start,
+            },
+            {
+                "phase": "physical_lifecycle",
+                "event": "evaluation_completed",
+                "time_seconds": evaluation_end,
+            },
+            {
+                "phase": "physical_lifecycle",
+                "event": "stopped",
+                "time_seconds": evaluation_end,
+            },
         ]
         boundary_events = [
             row for row in streams["timing.jsonl"] if row.get("phase") == "evaluation_boundary"
@@ -644,82 +588,20 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         evaluation_test_ids = {row.get("test_id") for row in zone_steps}
         lifecycle_test_ids = {row.get("test_id") for row in lifecycle_events}
         boundary_test_ids = {row.get("test_id") for row in boundary_events}
-        all_test_id_sets = (
-            conditioning_test_ids,
-            evaluation_test_ids,
-            lifecycle_test_ids,
-            boundary_test_ids,
-        )
+        all_test_id_sets = (evaluation_test_ids, lifecycle_test_ids, boundary_test_ids)
         checks["test_id_continuity"] = (
             all(len(values) == 1 for values in all_test_id_sets)
             and len(set().union(*all_test_id_sets)) == 1
             and all(
-                set(row) == {"phase", "event", "time_seconds", "test_id"}
-                and row.get("event") == expected["event"]
-                and row.get("time_seconds") == expected["time_seconds"]
+                {key: value for key, value in row.items() if key != "test_id"} == expected
+                and isinstance(row.get("test_id"), str)
+                and bool(row["test_id"])
                 for row, expected in zip(lifecycle_events, lifecycle_contract, strict=True)
             )
             and len(lifecycle_events) == len(lifecycle_contract)
         )
-        conditioning_timeline = all(
-            row.get("step") == step
-            and row.get("action_time_seconds") == conditioning_start + step * 900
-            and row.get("outcome_time_seconds") == conditioning_start + (step + 1) * 900
-            for step, row in enumerate(conditioning)
-        )
-        conditioning_fields = {
-            "step",
-            "action_time_seconds",
-            "outcome_time_seconds",
-            "test_id",
-            "raw_occupancy",
-            "resolved_occupancy",
-            "effective_occupancy",
-            "setpoint_c",
-            "zone_temperature_c",
-            "zone_pmv",
-            "power_w",
-            "electricity_price",
-        }
-        conditioning_contract = True
-        for row in conditioning:
-            try:
-                raw = row["raw_occupancy"]
-                resolved_occupancy = row["resolved_occupancy"]
-                observed_occupancy = row["effective_occupancy"]
-                setpoints = row["setpoint_c"]
-                conditioning_contract = conditioning_contract and (
-                    set(row) == conditioning_fields
-                    and isinstance(raw, dict)
-                    and set(raw) == zone_set
-                    and all(value is None or _finite_number(value) for value in raw.values())
-                    and _finite_exact_map(resolved_occupancy, zone_set)
-                    and _finite_exact_map(observed_occupancy, zone_set)
-                    and _finite_exact_map(setpoints, zone_set)
-                    and _finite_exact_map(row["zone_temperature_c"], zone_set)
-                    and _finite_exact_map(row["zone_pmv"], zone_set)
-                    and _finite_number(row["power_w"])
-                    and _finite_number(row["electricity_price"])
-                )
-                for zone in zones:
-                    expected_occupancy = effective_count(
-                        profile["occupancy"],
-                        float(row["action_time_seconds"]),
-                        float(resolved_occupancy[zone]),
-                    )
-                    expected_setpoint = float(
-                        protocol[
-                            "occupied_vanilla_setpoint_c"
-                            if expected_occupancy > 0
-                            else "unoccupied_vanilla_setpoint_c"
-                        ]
-                    )
-                    conditioning_contract = conditioning_contract and (
-                        _same_number(observed_occupancy[zone], expected_occupancy)
-                        and _same_number(setpoints[zone], expected_setpoint)
-                    )
-            except (KeyError, TypeError, ValueError):
-                conditioning_contract = False
+        conditioning_timeline = conditioning == []
+        conditioning_contract = conditioning == []
         step_groups: dict[int, list[dict[str, Any]]] = {}
         for row in zone_steps:
             step_groups.setdefault(int(row.get("step", -1)), []).append(row)
@@ -776,7 +658,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     objective=profile["objective"],
                 )
                 timeline_ok = timeline_ok and (
-                    int(float(performance_row["time_seconds"])) == evaluation_start + step * 900
+                    performance_row["time_seconds"] == str(evaluation_start + step * 900)
                     and int(performance_row["step"]) == step
                     and int(performance_row["hour"]) == step // 4
                     and all(
@@ -821,7 +703,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             conditioning_timeline and conditioning_contract and timeline_ok
         )
         checks["occupancy_forecast_missing_value_resolution"] = _occupancy_resolution_evidence(
-            profile, method, manifest, streams
+            profile, method, manifest, streams, forecast_evidence
         )
 
         causal_enabled = bool(method["causal_enabled"])
@@ -1076,11 +958,10 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             manifest.get("conditioning_prefix_identity") == prefix_hash.hexdigest()
         )
         boundary_contract = False
-        if len(boundary_events) == 1 and conditioning:
+        if len(boundary_events) == 1 and not conditioning:
             try:
                 event = boundary_events[0]
                 boundary = event["boundary"]
-                last_conditioning = conditioning[-1]
                 physical_state = boundary["physical_state"]
                 sensor_points = {
                     str(mapping["temperature_sensor"]) for mapping in profile["zones"].values()
@@ -1107,20 +988,13 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     and _finite_exact_map(boundary["last_pmv"], zone_set)
                     and _finite_exact_map(boundary["last_occupancy"], zone_set)
                     and _finite_number(boundary["clothing_insulation"])
-                    and boundary["last_setpoint_c"] == last_conditioning["setpoint_c"]
-                    and boundary["last_pmv"] == last_conditioning["zone_pmv"]
-                    and boundary["last_occupancy"] == last_conditioning["effective_occupancy"]
                     and all(
-                        _same_number(
-                            float(physical_state[profile["zones"][zone]["temperature_sensor"]])
-                            - 273.15,
-                            last_conditioning["zone_temperature_c"][zone],
-                        )
-                        for zone in zones
+                        _same_number(value, protocol["initial_setpoint_c"])
+                        for value in boundary["last_setpoint_c"].values()
                     )
-                    and _same_number(
-                        sum(float(physical_state[point]) for point in power_points),
-                        last_conditioning["power_w"],
+                    and all(_same_number(value, 0.0) for value in boundary["last_pmv"].values())
+                    and all(
+                        _same_number(value, 0.0) for value in boundary["last_occupancy"].values()
                     )
                 )
             except (KeyError, TypeError, ValueError):

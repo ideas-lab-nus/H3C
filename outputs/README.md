@@ -8,7 +8,6 @@ outputs/
 ├── reports/<suite_id>/
 ├── offline/<case>/<workflow_id>/
 └── baselines/
-    ├── identification/<case>/<run_id>/
     ├── runs/<suite>/<case>/<run_id>/
     └── reports/<report_id>/
 ```
@@ -37,21 +36,14 @@ and may resume only under the same workflow identity. They are never physical-ru
 
 ## Independent baselines
 
-MPC identification directories contain:
+RBC and frozen-DRL evaluation directories contain:
 
-- `resolved_config.json`, `manifest.json` and `identification_data.csv`;
-- `model_coefficients.npz` and `fit_report.json`;
-- native BOPTEST KPIs, verification and atomic final completion.
-
-RBC, frozen-DRL and MPC evaluation directories contain:
-
-- `resolved_config.json`, `manifest.json` and the conditioning trajectory;
+- `resolved_config.json`, `manifest.json`, `forecast_inputs.json` and an empty conditioning stream;
 - `performance.csv`, per-zone `actions.jsonl` and controller diagnostics;
 - native BOPTEST KPIs, shared physical metrics, verification and atomic final completion.
 
-DRL adds checkpoint identity, observations and policy-inference streams. MPC adds copied
-identification identity, predictions and solver traces. Baselines never create fake Agent,
-causal, program, budget or action-assurance evidence.
+DRL adds checkpoint identity, observations and policy-inference streams. Baselines never create
+fake Agent, causal, program, budget or action-assurance evidence.
 
 Reports contain Markdown, JSON and CSV comparisons plus per-run temperature, setpoint, PMV,
 occupancy and power figures. A failed or degraded run is retained in place; it is not silently

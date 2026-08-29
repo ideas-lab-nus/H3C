@@ -18,7 +18,7 @@ from h3c.causal.workflow import (
     validate_proposal,
     write_new,
 )
-from h3c.experiments.matrix import RunPlan, graph_mutation, plan_release_smoke, plan_suite
+from h3c.experiments.matrix import RunPlan, graph_mutation, plan_suite
 from h3c.experiments.profiles import load_profile, profiles, repository_root
 
 
@@ -72,8 +72,7 @@ def _run_plan(args: argparse.Namespace) -> RunPlan:
     ):
         raise SystemExit("--baseline cannot be combined with Agent-only flags")
     profile = load_profile(args.profile)
-    formal_hours = int(profile["protocol"]["formal_evaluation_days"]) * 24
-    evaluation_hours = formal_hours if args.evaluation_hours is None else args.evaluation_hours
+    evaluation_hours = int(profile["protocol"]["formal_evaluation_days"]) * 24
     return RunPlan(
         profile=args.profile,
         controller="deterministic_baseline" if baseline else "h3c_agent",
@@ -187,11 +186,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         default="none",
     )
-    run.add_argument(
-        "--evaluation-hours",
-        type=int,
-        help="registered 6 h smoke or the selected profile's formal duration",
-    )
     run.add_argument("--execute", action="store_true")
 
     suite = commands.add_parser("suite", help="plan or execute a registered suite serially")
@@ -213,16 +207,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="select one registered suite arm for independently supervised execution",
     )
-
-    smoke = commands.add_parser("smoke", help="plan or execute the release smoke serially")
-    smoke.add_argument("name", choices=("release-6h",))
-    smoke.add_argument(
-        "--arm-index",
-        type=int,
-        choices=range(13),
-        help="select one registered arm for independently supervised serial execution",
-    )
-    smoke.add_argument("--execute", action="store_true")
 
     verify = commands.add_parser("verify", help="verify one completed run")
     verify.add_argument("run_dir", type=Path)
@@ -289,11 +273,6 @@ def main(argv: list[str] | None = None) -> None:
         if args.arm_index is not None:
             if not 0 <= args.arm_index < len(plans):
                 raise SystemExit(f"suite arm index must be within 0..{len(plans) - 1}")
-            plans = [plans[args.arm_index]]
-        _execute(plans, args.name) if args.execute else _print(_plan_view(plans))
-    elif args.command == "smoke":
-        plans = plan_release_smoke()
-        if args.arm_index is not None:
             plans = [plans[args.arm_index]]
         _execute(plans, args.name) if args.execute else _print(_plan_view(plans))
     elif args.command == "verify":

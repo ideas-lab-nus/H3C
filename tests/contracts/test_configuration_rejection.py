@@ -26,7 +26,7 @@ def test_case_profile_missing_point_fails_closed() -> None:
 
 def test_physical_protocol_drift_fails_closed() -> None:
     profile = load_profile("SZ_Air")
-    profile["protocol"]["server_warmup_days"] = 6
+    profile["protocol"]["internal_warmup_days"] = 6
     with pytest.raises(ProfileError, match="physical protocol"):
         validate_profile(profile)
 

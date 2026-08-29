@@ -7,7 +7,6 @@ import copy
 import hashlib
 import json
 import os
-import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -21,7 +20,6 @@ from h3c.agents.roles import (
     Orchestrator,
     Reflector,
 )
-from h3c.assurance.action import action_assurance
 from h3c.causal.graph import ConfirmedGraph, derive_variant, load_graph
 from h3c.control.budget import (
     BudgetLedger,
@@ -29,7 +27,8 @@ from h3c.control.budget import (
     site_cap_max,
     validated_fallback_allocation,
 )
-from h3c.control.program import load_program, program_hash, run_program
+from h3c.control.program import load_program, program_hash
+from h3c.control.program_execution import build_program_observations, execute_zone_programs
 from h3c.control.validation import validate_candidate
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import load_profile, repository_root
@@ -55,15 +54,18 @@ from h3c.runtime.comfort import MetricsAccumulator, comfort_headroom, step_rewar
 from h3c.runtime.execution_lock import physical_execution_lock
 from h3c.runtime.occupancy import effective_count, hourly_route
 from h3c.runtime.protocol import (
+    EvaluationBoundaryState,
     PhysicalClient,
+    build_forecast_evidence,
     control_input,
     forecast_points,
+    initialize_evaluation_boundary,
     require_time,
     resolve_forecast_missing_occupancy,
-    run_conditioning,
     site_power,
     zone_temperature_c,
 )
+from h3c.runtime.source_identity import committed_source_identity
 from h3c.runtime.weather import weather_condition_inputs, weather_view
 
 PhysicalFactory = Callable[[str], PhysicalClient]
@@ -92,26 +94,7 @@ def _identity(value: Any) -> str:
 
 
 def _source_commit() -> str:
-    root = repository_root()
-    workspace = root.parent
-    result = subprocess.run(
-        [
-            "git",
-            "-c",
-            f"safe.directory={workspace.as_posix()}",
-            "-C",
-            str(root),
-            "rev-parse",
-            "HEAD",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    commit = result.stdout.strip()
-    if len(commit) != 40:
-        raise ValueError("source commit identity is invalid")
-    return commit
+    return committed_source_identity()
 
 
 def _resolved_plan(plan: RunPlan) -> tuple[dict[str, Any], ConfirmedGraph | None]:
@@ -201,9 +184,10 @@ def _hour_observations(
         _forecast_slice(forecast, global_inputs["solar_irradiance"], step),
     )
     weather_conditions = weather_condition_inputs(weather)
-    observations: dict[str, dict[str, Any]] = {}
     current_occupancy: dict[str, float] = {}
     next_hour_occupancy: dict[str, float] = {}
+    future_occupancy: dict[str, list[float]] = {}
+    temperatures: dict[str, float] = {}
     for zone, mapping in profile["zones"].items():
         raw = _forecast_slice(forecast, mapping["occupancy_forecast"], step)
         effective = [
@@ -212,15 +196,23 @@ def _hour_observations(
         ]
         current_occupancy[zone] = effective[0]
         next_hour_occupancy[zone] = effective[4]
-        temperature = zone_temperature_c(profile, state, zone)
+        future_occupancy[zone] = effective[1:5]
+        temperatures[zone] = zone_temperature_c(profile, state, zone)
+    program_observations = build_program_observations(
+        tuple(profile["zones"]),
+        current_occupancy=current_occupancy,
+        future_occupancy=future_occupancy,
+        last_setpoints_c=last_setpoint,
+        last_pmv=last_pmv,
+        last_occupancy=last_occupancy,
+    )
+    observations: dict[str, dict[str, Any]] = {}
+    for zone in profile["zones"]:
+        temperature = temperatures[zone]
         observations[zone] = {
             "zone_temperature_c": temperature,
-            "current_occupancy": effective[0],
-            "last_occupancy": last_occupancy[zone],
-            "next_hour_occupancy": effective[4],
-            "occ_ahead": effective[1:5],
-            "last_pmv": last_pmv[zone],
-            "last_setpoint": last_setpoint[zone],
+            **program_observations[zone],
+            "next_hour_occupancy": next_hour_occupancy[zone],
             "electricity_price": float(forecast[global_inputs["electricity_price"]][step]),
             "outdoor_temp_c": round(
                 float(forecast[global_inputs["outdoor_temperature"]][step]) - 273.15, 2
@@ -580,7 +572,7 @@ async def _evaluate(
     physical: PhysicalClient,
     model: ModelClient | None,
     artifacts: RunArtifacts,
-    conditioning: Any,
+    boundary: EvaluationBoundaryState,
 ) -> tuple[dict[str, Any], bool, int, int]:
     step_seconds = int(profile["control_step_seconds"])
     evaluation_steps = plan.evaluation_hours * 4
@@ -598,6 +590,15 @@ async def _evaluate(
         start_time_seconds=evaluation_start,
         step_seconds=step_seconds,
     )
+    artifacts.write_forecast_inputs(
+        build_forecast_evidence(
+            points,
+            source_forecast,
+            forecast,
+            start_time_seconds=evaluation_start,
+            step_seconds=step_seconds,
+        )
+    )
     for event in resolution_events:
         artifacts.append_jsonl("timing.jsonl", event)
     zones = tuple(profile["zones"])
@@ -608,10 +609,10 @@ async def _evaluate(
         )
         for zone in zones
     }
-    state = conditioning.state
-    last_setpoint = dict(conditioning.last_setpoint_c)
-    last_pmv = dict(conditioning.last_pmv)
-    last_occupancy = dict(conditioning.last_occupancy)
+    state = boundary.state
+    last_setpoint = dict(boundary.last_setpoint_c)
+    last_pmv = dict(boundary.last_pmv)
+    last_occupancy = dict(boundary.last_occupancy)
     metrics = MetricsAccumulator()
     frames: list[dict[str, Any]] = []
     executor_records: list[dict[str, Any]] = []
@@ -637,7 +638,7 @@ async def _evaluate(
             last_setpoint=last_setpoint,
             last_pmv=last_pmv,
             last_occupancy=last_occupancy,
-            pmv_of_temperature=conditioning.comfort.pmv,
+            pmv_of_temperature=boundary.comfort.pmv,
         )
         hour = step // 4
         if step % 4 == 0:
@@ -673,27 +674,21 @@ async def _evaluate(
                 )
                 fallback_count += int(fallback_used)
 
-        proposed: dict[str, dict[str, Any]] = {}
-        assured: dict[str, float] = {}
-        assurance_audit: dict[str, dict[str, Any]] = {}
-        for zone in zones:
-            proposal = run_program(programs[zone].current_program, observations[zone])
-            setpoint, audit = action_assurance(proposal, observations[zone])
-            proposed[zone] = proposal
-            assured[zone] = setpoint
-            assurance_audit[zone] = audit
+        proposed, assured, assurance_audit = execute_zone_programs(
+            {zone: programs[zone].current_program for zone in zones}, observations
+        )
         next_state = physical.advance(control_input(profile, assured))
         require_time(next_state, action_time + step_seconds)
-        if physical.test_id != conditioning.test_id:
+        if physical.test_id != boundary.test_id:
             raise ValueError("test id changed during formal evaluation")
 
         outdoor_point = profile["global_inputs"]["outdoor_temperature"]
         daily = forecast[outdoor_point][step : step + 97 : 4]
-        conditioning.comfort.update_clothing(
+        boundary.comfort.update_clothing(
             action_time, sum(float(value) - 273.15 for value in daily) / len(daily)
         )
         temperatures = {zone: zone_temperature_c(profile, next_state, zone) for zone in zones}
-        pmv = {zone: conditioning.comfort.pmv(temperatures[zone]) for zone in zones}
+        pmv = {zone: boundary.comfort.pmv(temperatures[zone]) for zone in zones}
         power = site_power(profile, next_state)
         price = float(forecast[profile["global_inputs"]["electricity_price"]][step])
         cost = power * step_seconds / 3.6e6 * price
@@ -717,7 +712,7 @@ async def _evaluate(
                 "hour": hour,
                 "step": step,
                 "zone": zone,
-                "test_id": conditioning.test_id,
+                "test_id": boundary.test_id,
                 "action_time_seconds": action_time,
                 "outcome_time_seconds": action_time + step_seconds,
                 "observation": observations[zone],
@@ -918,21 +913,21 @@ async def _execute_one(
         artifacts.replace_manifest(manifest)
 
     try:
-        conditioning = run_conditioning(
+        boundary = initialize_evaluation_boundary(
             physical,
             profile,
             artifacts,
             on_initialized=record_initialization,
         )
         manifest["occupancy_forecast_missing_value_resolution_count"] = (
-            conditioning.occupancy_missing_value_resolution_count
+            boundary.occupancy_missing_value_resolution_count
         )
-        manifest["conditioning_prefix_identity"] = conditioning.conditioning_prefix_identity
-        manifest["evaluation_boundary_identity"] = conditioning.evaluation_boundary_identity
-        manifest["lifecycle"]["conditioning_advance_count"] = 7 * 24 * 4
+        manifest["conditioning_prefix_identity"] = boundary.conditioning_prefix_identity
+        manifest["evaluation_boundary_identity"] = boundary.evaluation_boundary_identity
+        manifest["lifecycle"]["conditioning_advance_count"] = 0
         artifacts.append_jsonl(
             "timing.jsonl",
-            {"phase": "conditioning", "elapsed_seconds": time.perf_counter() - started},
+            {"phase": "initialization", "elapsed_seconds": time.perf_counter() - started},
         )
         evaluation_start_seconds = int(profile["evaluation_start_day"]) * 86400
         artifacts.append_jsonl(
@@ -941,7 +936,7 @@ async def _execute_one(
                 "phase": "physical_lifecycle",
                 "event": "evaluation_started",
                 "time_seconds": evaluation_start_seconds,
-                "test_id": conditioning.test_id,
+                "test_id": boundary.test_id,
             },
         )
         evaluation_started = time.perf_counter()
@@ -952,7 +947,7 @@ async def _execute_one(
             physical=physical,
             model=model,
             artifacts=artifacts,
-            conditioning=conditioning,
+            boundary=boundary,
         )
         manifest["occupancy_forecast_missing_value_resolution_count"] += evaluation_resolution_count
         artifacts.append_jsonl(
@@ -966,7 +961,7 @@ async def _execute_one(
                 "phase": "physical_lifecycle",
                 "event": "evaluation_completed",
                 "time_seconds": evaluation_end_seconds,
-                "test_id": conditioning.test_id,
+                "test_id": boundary.test_id,
             },
         )
         stop_attempted = True
@@ -977,7 +972,7 @@ async def _execute_one(
                 "phase": "physical_lifecycle",
                 "event": "stopped",
                 "time_seconds": evaluation_end_seconds,
-                "test_id": conditioning.test_id,
+                "test_id": boundary.test_id,
             },
         )
         initialized = False
