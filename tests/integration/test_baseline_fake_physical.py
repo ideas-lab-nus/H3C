@@ -14,7 +14,6 @@ from h3c.runtime.comfort import step_reward
 from h3c.runtime.occupancy import documented_occupancy_active
 from h3c.runtime.protocol import physical_evidence_identity
 from h3c_baselines.configuration import BaselineRunPlan
-from h3c_baselines.mpc.identification import execute_identification, verify_identification_run
 from h3c_baselines.outputs.reporting import generate_report
 from h3c_baselines.outputs.verification import verify_baseline_run
 from h3c_baselines.runtime.runner import execute_baseline_plans
@@ -520,50 +519,3 @@ def test_drl_dependency_preflight_fails_before_artifacts_or_physical_initialize(
     assert physical_factory_calls == 0
     assert not (tmp_path / "runs").exists()
     assert not (tmp_path / "lock" / ".execution.lock").exists()
-
-
-def test_mpc_identification_is_reproducible_and_evaluation_disjoint(tmp_path: Path) -> None:
-    FakeBaselinePhysical.instances.clear()
-    result = execute_identification(
-        "SZ_Air",
-        7,
-        endpoint="http://fake-boptest",
-        output_root=tmp_path / "identification",
-        lock_root=tmp_path / "lock",
-        physical_factory=FakeBaselinePhysical,
-    )
-    run_dir = Path(result["run_dir"])
-    verification = verify_identification_run(run_dir)
-    assert verification["execution_integrity"] is True
-    assert verification["checks"]["model_reproducible"] is True
-    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["lifecycle"] == {
-        "initialize_count": 1,
-        "advance_count": 672,
-        "stop_count": 1,
-    }
-    rows = (run_dir / "identification_data.csv").read_text(encoding="utf-8").splitlines()
-    assert len(rows) == 674  # header + 672 controlled samples + terminal target state
-    assert not (tmp_path / "lock" / ".execution.lock").exists()
-
-
-def test_mpc_identification_data_tampering_fails_closed(tmp_path: Path) -> None:
-    FakeBaselinePhysical.instances.clear()
-    result = execute_identification(
-        "SZ_Air",
-        7,
-        endpoint="http://fake-boptest",
-        output_root=tmp_path / "identification",
-        lock_root=tmp_path / "lock",
-        physical_factory=FakeBaselinePhysical,
-    )
-    run_dir = Path(result["run_dir"])
-    source = run_dir / "identification_data.csv"
-    original = source.read_text(encoding="utf-8")
-    tampered = original.replace("100.0", "101.0", 1)
-    assert tampered != original
-    source.write_text(tampered, encoding="utf-8")
-    verification = verify_identification_run(run_dir)
-    assert verification["execution_integrity"] is False
-    assert verification["classification"] == "RUN-INVALID"
-    assert "identification_data_identity" in verification["errors"]

@@ -51,7 +51,7 @@ class BaselineArtifacts:
             DRL_STREAMS
             if controller in {"c-drl", "h-drl"}
             else MPC_STREAMS
-            if controller == "linear-mpc"
+            if controller == "hierarchical-mpc"
             else ()
         )
 

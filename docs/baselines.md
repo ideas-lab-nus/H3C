@@ -1,4 +1,4 @@
-# Independent RBC and DRL baselines
+# Independent RBC, DRL, and hierarchical MPC baselines
 
 The baseline package shares H3C's case profiles, physical initialization, BOPTEST client,
 occupancy, comfort, reward, execution lock, and metric owners. It does not import the online Agent
@@ -29,6 +29,20 @@ raw-binary occupancy feature.
 - **C-DRL** loads one deterministic PPO policy.
 - **H-DRL** loads two MAPPO actors for MZ_Hydro or five for MZ_Air. The single-zone case has no
   H-DRL arm.
+- **Hierarchical MPC** fits one shared four-lag, four-step vector-ARX structure per case from
+  repeated, fully warmed episodes in the seven days before evaluation. An hourly building
+  coordinator and 15-minute zone QPs use the common cost, comfort, and smoothness objective.
+  Any deterministic P0 fallback is exposed as method degradation.
+
+The two-rate coordinator/zone decomposition follows established building-control practice: an
+upper layer uses global state to generate references while faster local controllers optimize
+zone energy and comfort. The single permitted feedback reconciliation mirrors the one-iteration
+inter-layer communication used to address information mismatch in recent hierarchical MPC. See
+[Long et al., ACC 2016](https://people.kth.se/~kallej/papers/building_acc16long.pdf) and
+[Hierarchical MPC for building energy management, Applied Energy 372 (2024),
+123780](https://doi.org/10.1016/j.apenergy.2024.123780). H3C uses a deliberately transparent
+data-driven vector-ARX/QP realization so the same equations and tuning contract apply to all
+three cases.
 
 ## Frozen policy contract
 
@@ -51,6 +65,9 @@ vector → normalized vector → actor input → raw action → setpoint → BOP
 h3c-baseline models verify
 h3c-baseline run --case MZ_Air --controller c-drl
 h3c-baseline suite formal
+h3c-baseline mpc train --case all --workers 4 --max-fit-episodes 64
+h3c-baseline mpc verify-model --case MZ_Air
+h3c-baseline suite mpc-formal
 h3c-baseline verify outputs/baselines/runs/<suite>/<case>/<run_id>
 h3c-baseline report outputs/baselines/runs/formal
 ```

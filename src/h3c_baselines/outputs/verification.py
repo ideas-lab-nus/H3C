@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from h3c.experiments.profiles import repository_root
 from h3c.runtime.comfort import step_reward
 from h3c.runtime.occupancy import effective_count, verify_missing_occupancy_resolution_evidence
 from h3c.runtime.protocol import (
@@ -18,7 +19,9 @@ from h3c.runtime.protocol import (
     reconstruct_forecast_evidence,
 )
 from h3c_baselines.configuration import BaselineRunPlan
+from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.models import model_entry, verify_checkpoint
+from h3c_baselines.mpc.training import verify_frozen_mpc_model
 from h3c_baselines.outputs.artifacts import PERFORMANCE_COLUMNS
 from h3c_baselines.outputs.metrics import compute_baseline_metrics
 from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
@@ -167,7 +170,7 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             "plan_identity",
             "source_commit",
             "physical_endpoint_identity",
-            "mpc_identification_identity",
+            "mpc_model_identity",
         }
         expected_manifest_fields = {
             "manifest_schema",
@@ -222,9 +225,9 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             and re.fullmatch(r"[0-9a-f]{64}", execution_identity["physical_endpoint_identity"])
             is not None
             and (
-                execution_identity.get("mpc_identification_identity") is None
-                if controller != "linear-mpc"
-                else isinstance(execution_identity.get("mpc_identification_identity"), str)
+                execution_identity.get("mpc_model_identity") is None
+                if controller != "hierarchical-mpc"
+                else isinstance(execution_identity.get("mpc_model_identity"), str)
             ),
             "manifest_identity": set(manifest) == expected_manifest_fields
             and manifest.get("manifest_schema") == "h3c_baseline_manifest"
@@ -233,8 +236,7 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             and manifest.get("run_identity") == _identity(execution_identity)
             and manifest.get("case") == case
             and manifest.get("controller") == controller
-            and manifest.get("mpc_model_identity")
-            == execution_identity.get("mpc_identification_identity"),
+            and manifest.get("mpc_model_identity") == execution_identity.get("mpc_model_identity"),
             "physical_lifecycle_counts": manifest.get("lifecycle") == expected_lifecycle,
             "no_explicit_conditioning": conditioning == []
             and manifest.get("conditioning_prefix_identity") == hashlib.sha256(b"").hexdigest(),
@@ -676,11 +678,131 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
                     float(action_by_zone[policy_zones[0]]["outcome"]["power_w"]),
                 )
             checks["policy_contract"] = policy_contract
-        elif controller == "linear-mpc":
-            checks["mpc_identity_present"] = isinstance(manifest.get("mpc_model_identity"), str)
-            checks["mpc_streams_present"] = all(
-                (directory / name).is_file() for name in ("predictions.jsonl", "solver_trace.jsonl")
+        elif controller == "hierarchical-mpc":
+            recorded_model = _load(directory / "mpc_model_identity.json")
+            current_model = verify_frozen_mpc_model(case)
+            predictions = _rows(directory / "predictions.jsonl")
+            solver_rows = _rows(directory / "solver_trace.jsonl")
+            checks["mpc_model_identity"] = (
+                current_model.get("valid") is True
+                and recorded_model == current_model
+                and manifest.get("mpc_model_identity") == current_model.get("model_identity")
             )
+            mpc_contract = (
+                len(predictions) == expected_steps
+                and len(solver_rows) == expected_steps
+                and [row.get("step") for row in predictions] == list(range(expected_steps))
+                and [row.get("step") for row in solver_rows] == list(range(expected_steps))
+            )
+            enhanced = EnhancedRbcController(
+                zones, repository_root() / expected_plan["case_profile"]["program"]
+            )
+            last_setpoints = {zone: float(protocol["initial_setpoint_c"]) for zone in zones}
+            last_pmv = {zone: 0.0 for zone in zones}
+            last_occupancy = {zone: 0.0 for zone in zones}
+            for step in range(expected_steps):
+                if not mpc_contract:
+                    break
+                diagnostic = diagnostics[step]
+                prediction = predictions[step]
+                solver = solver_rows[step]
+                action_by_zone = {row["zone"]: row for row in by_step.get(step, [])}
+                action_time = evaluation_start + step * 900
+                current_occupancy = {
+                    zone: effective_count(
+                        profile["occupancy"],
+                        action_time,
+                        float(
+                            expected_forecast[profile["zones"][zone]["occupancy_forecast"]][step]
+                        ),
+                    )
+                    for zone in zones
+                }
+                future_occupancy = {
+                    zone: [
+                        effective_count(
+                            profile["occupancy"],
+                            action_time + offset * 900,
+                            float(
+                                expected_forecast[profile["zones"][zone]["occupancy_forecast"]][
+                                    step + offset
+                                ]
+                            ),
+                        )
+                        for offset in range(1, 5)
+                    ]
+                    for zone in zones
+                }
+                fallback_setpoints, _ = enhanced.decide(
+                    occupancy=current_occupancy,
+                    future_occupancy=future_occupancy,
+                    last_setpoints_c=last_setpoints,
+                    last_pmv=last_pmv,
+                    last_occupancy=last_occupancy,
+                )
+                status = diagnostic.get("status")
+                if status == "optimized":
+                    planned_setpoints = diagnostic.get("planned_setpoints_c")
+                    predicted_outputs = diagnostic.get("predicted_outputs")
+                    mpc_contract = (
+                        diagnostic.get("method_degraded") is False
+                        and diagnostic.get("history_initialization") == "repeat_boundary_state"
+                        and diagnostic.get("coordinator_updated") is (step % 4 == 0)
+                        and diagnostic.get("feedback_iterations") in {0, 1}
+                        and isinstance(planned_setpoints, list)
+                        and len(planned_setpoints) == 4
+                        and all(
+                            isinstance(row, list)
+                            and len(row) == len(zones)
+                            and all(_finite(value) and 20 <= float(value) <= 30 for value in row)
+                            for row in planned_setpoints
+                        )
+                        and isinstance(predicted_outputs, list)
+                        and len(predicted_outputs) == 4
+                        and all(
+                            isinstance(row, list)
+                            and len(row) == len(zones) + 1
+                            and all(_finite(value) for value in row)
+                            for row in predicted_outputs
+                        )
+                        and all(
+                            _same(
+                                action_by_zone[zone]["final_setpoint_c"],
+                                planned_setpoints[0][index],
+                            )
+                            for index, zone in enumerate(zones)
+                        )
+                    )
+                elif status == "fallback":
+                    mpc_contract = (
+                        diagnostic.get("method_degraded") is True
+                        and diagnostic.get("history_initialization") == "repeat_boundary_state"
+                        and isinstance(diagnostic.get("reason"), str)
+                        and all(
+                            _same(
+                                action_by_zone[zone]["final_setpoint_c"],
+                                fallback_setpoints[zone],
+                            )
+                            for zone in zones
+                        )
+                    )
+                else:
+                    mpc_contract = False
+                mpc_contract = mpc_contract and solver == {"step": step, **diagnostic}
+                mpc_contract = mpc_contract and prediction == {
+                    "step": step,
+                    "predicted_outputs": diagnostic.get("predicted_outputs"),
+                    "negative_power_prediction_count": 0,
+                }
+                if action_by_zone:
+                    last_setpoints = {
+                        zone: float(action_by_zone[zone]["final_setpoint_c"]) for zone in zones
+                    }
+                    last_pmv = {
+                        zone: float(action_by_zone[zone]["outcome"]["pmv"]) for zone in zones
+                    }
+                    last_occupancy = current_occupancy
+            checks["mpc_controller_contract"] = mpc_contract
 
         errors = sorted(name for name, passed in checks.items() if not passed)
         execution_integrity = not errors

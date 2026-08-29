@@ -29,7 +29,7 @@ flowchart LR
 |---|---|---|
 | Online H3C | Coordinated program updates with causal and action assurance | `h3c` |
 | Offline onboarding | Mapping, causal discovery, human approval, and graph export | `h3c offline` |
-| Independent baselines | Basic RBC, canonical P0/eRBC, and frozen PPO/MAPPO policies | `h3c-baseline` |
+| Independent baselines | Basic RBC, canonical P0/eRBC, frozen PPO/MAPPO policies, and hierarchical MPC | `h3c-baseline` |
 
 Online control uses H3C's deterministic runtime. Microsoft Agent Framework is an optional
 dependency used only by offline onboarding. Baseline evaluation does not create Agent, causal,
@@ -46,7 +46,7 @@ uv sync --extra dev
 # Mapping and human-in-the-loop causal discovery
 uv sync --extra offline
 
-# Frozen DRL inference and benchmark figures
+# Frozen DRL inference, hierarchical MPC, and benchmark figures
 uv sync --extra baselines
 
 # Complete contributor environment
@@ -81,6 +81,11 @@ h3c-baseline models verify
 # Resolve one baseline or the complete formal matrix
 h3c-baseline run --case MZ_Hydro --controller h-drl
 h3c-baseline suite formal
+
+# Resolve hierarchical MPC identification and its three-arm formal suite
+h3c-baseline mpc train --case all --workers 4 --max-fit-episodes 64
+h3c-baseline mpc verify-model --case MZ_Hydro
+h3c-baseline suite mpc-formal
 
 # Verify and report completed evidence
 h3c-baseline verify outputs/baselines/runs/<suite>/<case>/<run_id>
@@ -119,16 +124,23 @@ physical initialization, reward, comfort, and KPI owners.
 
 ## Formal benchmark
 
-| Case | Basic RBC | P0 / enhanced RBC | C-DRL | H-DRL |
-|---|:---:|:---:|:---:|:---:|
-| SZ_Air | ✓ | ✓ | 1-policy PPO | — |
-| MZ_Hydro | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO |
-| MZ_Air | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO |
+| Case | Basic RBC | P0 / enhanced RBC | C-DRL | H-DRL | Hierarchical MPC |
+|---|:---:|:---:|:---:|:---:|:---:|
+| SZ_Air | ✓ | ✓ | 1-policy PPO | — | 1-zone hierarchy |
+| MZ_Hydro | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO | 2-zone hierarchy |
+| MZ_Air | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO | 5-zone hierarchy |
 
-The formal suite contains 11 fresh, strictly serial arms. P0/eRBC executes the same canonical
+The RBC/DRL formal suite contains 11 fresh, strictly serial arms. P0/eRBC executes the same canonical
 cooling program and action-assurance owner used by H3C. DRL checkpoints are loaded on CPU in
 deterministic mode after byte-count and SHA-256 verification; each policy retains its registered
 observation order, normalization, history, cold start, and actuator mapping.
+
+The separate MPC workflow reuses only the seven days immediately before each evaluation window.
+Up to four lanes repeatedly initialize that week with a complete seven-day internal warm-up and
+collect deterministic bounded excitation episodes. Whole episodes are separated into fit and
+holdout sets. Candidate vector-ARX models must beat persistence prediction, satisfy the registered
+closed-loop comfort and fallback gates, and are selected only by training-week reward. The frozen
+model then runs once on the case's standard formal window. Formal results never tune the model.
 
 ## Outputs and metrics
 
@@ -138,8 +150,9 @@ Generated evidence is ignored under:
 outputs/runs/                    online H3C runs
 outputs/reports/                 online comparisons
 outputs/offline/                 onboarding workspaces
-outputs/baselines/runs/          RBC and DRL trajectories
+outputs/baselines/runs/          RBC, DRL, and MPC formal trajectories
 outputs/baselines/reports/       benchmark tables and figures
+outputs/baselines/mpc/           MPC identification, validation, and model-selection evidence
 ```
 
 Baseline reports include cost, energy, common reward, discomfort zone-hours, PMV·h, occupied
@@ -152,9 +165,9 @@ setpoint. See
 
 ```text
 src/h3c/                 online control, assurance, causal graph, runtime, and onboarding
-src/h3c_baselines/       independent RBC and frozen-policy evaluation
+src/h3c_baselines/       independent RBC, frozen-policy, and hierarchical MPC evaluation
 configs/                 cases, experiments, graphs, programs, onboarding, and benchmarks
-models/                  frozen policy checkpoints, registry, and model cards
+models/                  frozen policy and MPC models, registries, and model cards
 tests/                   unit, integration, contract, and golden inference fixtures
 docs/                    architecture, protocol, methods, and operator documentation
 outputs/                 ignored generated runs and reports

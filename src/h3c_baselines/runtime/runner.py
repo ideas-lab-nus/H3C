@@ -6,7 +6,6 @@ import hashlib
 import json
 import math
 import os
-import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
@@ -37,12 +36,14 @@ from h3c.runtime.source_identity import committed_source_identity
 from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
+    mpc_formal_evaluation_plans,
 )
 from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
 from h3c_baselines.controllers.drl import FrozenDrlController
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.models import model_entry, verify_checkpoint
-from h3c_baselines.mpc.optimizer import LinearMpcController
+from h3c_baselines.mpc.optimizer import HierarchicalMpcController
+from h3c_baselines.mpc.training import verify_frozen_mpc_model
 from h3c_baselines.mpc.vector_arx import FittedArxModel
 from h3c_baselines.outputs.artifacts import BaselineArtifacts
 from h3c_baselines.outputs.integrity import secret_occurrences
@@ -174,33 +175,6 @@ def _mpc_disturbances(
     )
 
 
-def _conditioning_tail(
-    artifacts: BaselineArtifacts, zones: tuple[str, ...]
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    rows = [
-        json.loads(line)
-        for line in (artifacts.run_dir / "physical_conditioning.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line
-    ]
-    if len(rows) < 4:
-        raise ValueError("conditioning evidence lacks the four MPC lag rows")
-    tail = list(reversed(rows[-4:]))
-    outputs = np.asarray(
-        [
-            [*[float(row["zone_temperature_c"][zone]) for zone in zones], float(row["power_w"])]
-            for row in tail
-        ],
-        dtype=np.float64,
-    )
-    controls = np.asarray(
-        [[float(row["setpoint_c"][zone]) for zone in zones] for row in tail],
-        dtype=np.float64,
-    )
-    return outputs, controls
-
-
 def _native_kpis(physical: PhysicalClient) -> dict[str, Any]:
     method = getattr(physical, "get_kpis", None)
     if not callable(method):
@@ -218,7 +192,6 @@ def _execute_one(
     endpoint: str,
     output_root: Path,
     physical_factory: PhysicalFactory,
-    mpc_identification_dir: Path | None,
 ) -> dict[str, Any]:
     resolved = plan.resolved()
     profile = resolved["case_profile"]
@@ -235,18 +208,22 @@ def _execute_one(
         drl = FrozenDrlController(plan.case, plan.controller)
         observation_builder = PolicyObservationBuilder(profile, entry)
 
+    mpc_model: FittedArxModel | None = None
+    mpc_identity: dict[str, Any] | None = None
+    if plan.controller == "hierarchical-mpc":
+        mpc_identity = verify_frozen_mpc_model(plan.case)
+        if mpc_identity["valid"] is not True:
+            raise ValueError("frozen hierarchical MPC model verification failed")
+        mpc_model = FittedArxModel.load(
+            repository_root() / "models" / "mpc" / plan.case / "model_coefficients.npz"
+        )
+
     source_commit = _source_commit()
     execution_identity = {
         "plan_identity": resolved["plan_identity"],
         "source_commit": source_commit,
         "physical_endpoint_identity": _identity(endpoint.rstrip("/")),
-        "mpc_identification_identity": (
-            None
-            if mpc_identification_dir is None
-            else json.loads(
-                (mpc_identification_dir / "fit_report.json").read_text(encoding="utf-8")
-            )["model_identity"]
-        ),
+        "mpc_model_identity": None if mpc_model is None else mpc_model.identity,
     }
     run_identity = _identity(execution_identity)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + run_identity[:12]
@@ -260,7 +237,7 @@ def _execute_one(
         "controller": plan.controller,
         "conditioning_prefix_identity": None,
         "evaluation_boundary_identity": None,
-        "mpc_model_identity": execution_identity["mpc_identification_identity"],
+        "mpc_model_identity": execution_identity["mpc_model_identity"],
         "secret_scan_status": "pending",
         "secret_exposure_count": None,
         "occupancy_forecast_missing_value_resolution_count": 0,
@@ -276,6 +253,8 @@ def _execute_one(
     artifacts.create(resolved, manifest)
     if drl_identity is not None:
         artifacts.write_new_json("model_identity.json", drl_identity)
+    if mpc_identity is not None:
+        artifacts.write_new_json("mpc_model_identity.json", mpc_identity)
     physical = physical_factory(endpoint)
     initialized = False
     stop_attempted = False
@@ -337,25 +316,34 @@ def _execute_one(
         last_occupancy = dict(boundary.last_occupancy)
         enhanced = (
             EnhancedRbcController(zones, repository_root() / profile["program"])
-            if plan.controller in {"enhanced-rbc", "linear-mpc"}
+            if plan.controller in {"enhanced-rbc", "hierarchical-mpc"}
             else None
         )
         policy_comfort = ComfortModel(profile["comfort"]) if drl is not None else None
         if observation_builder is not None:
             observation_builder.reset(state)
-        mpc: LinearMpcController | None = None
+        mpc: HierarchicalMpcController | None = None
         output_history: NDArray[np.float64] | None = None
         control_history: NDArray[np.float64] | None = None
-        if plan.controller == "linear-mpc":
-            if mpc_identification_dir is None:
-                raise ValueError("linear MPC requires a completed identification run")
-            for name in ("identification_data.csv", "model_coefficients.npz", "fit_report.json"):
-                shutil.copy2(mpc_identification_dir / name, artifacts.run_dir / name)
-            model = FittedArxModel.load(artifacts.run_dir / "model_coefficients.npz")
-            if model.identity != manifest["mpc_model_identity"] or model.layout.zones != zones:
+        if plan.controller == "hierarchical-mpc":
+            assert mpc_model is not None
+            if (
+                mpc_model.identity != manifest["mpc_model_identity"]
+                or mpc_model.layout.zones != zones
+            ):
                 raise ValueError("MPC model identity or zone layout is invalid")
-            mpc = LinearMpcController(model, profile["objective"])
-            output_history, control_history = _conditioning_tail(artifacts, zones)
+            mpc = HierarchicalMpcController(mpc_model, profile["objective"])
+            boundary_output = np.asarray(
+                [
+                    *[zone_temperature_c(profile, state, zone) for zone in zones],
+                    site_power(profile, state),
+                ],
+                dtype=np.float64,
+            )
+            output_history = np.vstack([boundary_output] * 4)
+            control_history = np.vstack(
+                [[float(profile["protocol"]["initial_setpoint_c"])] * len(zones)] * 4
+            )
 
         for step in range(steps):
             action_time = evaluation_start + step * 900
@@ -427,6 +415,7 @@ def _execute_one(
                     profile, forecast, zones, step=step, action_time=action_time
                 )
                 decision = mpc.decide(
+                    step=step,
                     output_history=output_history,
                     control_history=control_history,
                     disturbances=disturbances,
@@ -597,7 +586,6 @@ def execute_baseline_plans(
     suite: str,
     output_root: Path | None = None,
     physical_factory: PhysicalFactory | None = None,
-    mpc_identification_dirs: Mapping[str, Path] | None = None,
     lock_root: Path | None = None,
 ) -> dict[str, Any]:
     if not plans:
@@ -619,7 +607,6 @@ def execute_baseline_plans(
                     endpoint=endpoint,
                     output_root=root,
                     physical_factory=physical_factory or BoptestHttpClient,
-                    mpc_identification_dir=(mpc_identification_dirs or {}).get(plan.case),
                 )
             )
     return {"execution": "strictly_serial", "completed_runs": results}
@@ -627,3 +614,7 @@ def execute_baseline_plans(
 
 def execute_formal_suite() -> dict[str, Any]:
     return execute_baseline_plans(formal_evaluation_plans(), suite="formal")
+
+
+def execute_mpc_formal_suite() -> dict[str, Any]:
+    return execute_baseline_plans(mpc_formal_evaluation_plans(), suite="mpc-formal")

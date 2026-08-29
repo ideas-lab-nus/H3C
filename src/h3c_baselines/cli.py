@@ -4,20 +4,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from h3c.experiments.profiles import load_profile
+from h3c.experiments.settings import load_runtime_contract
 from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
+    mpc_formal_evaluation_plans,
 )
 from h3c_baselines.models import verify_all_checkpoints
+from h3c_baselines.mpc.training import (
+    resolved_training_plan,
+    train_hierarchical_mpc,
+    verify_frozen_mpc_model,
+)
 from h3c_baselines.outputs.reporting import generate_report
 from h3c_baselines.outputs.verification import verify_baseline_run
 from h3c_baselines.runtime.runner import (
     execute_baseline_plans,
     execute_formal_suite,
+    execute_mpc_formal_suite,
 )
 
 
@@ -33,12 +42,21 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--controller",
         required=True,
-        choices=("basic-rbc", "enhanced-rbc", "c-drl", "h-drl"),
+        choices=("basic-rbc", "enhanced-rbc", "c-drl", "h-drl", "hierarchical-mpc"),
     )
     run.add_argument("--execute", action="store_true")
     suite = commands.add_parser("suite", help="resolve or execute a registered suite")
-    suite.add_argument("name", choices=("formal",))
+    suite.add_argument("name", choices=("formal", "mpc-formal"))
     suite.add_argument("--execute", action="store_true")
+    mpc = commands.add_parser("mpc", help="train or inspect hierarchical MPC models")
+    mpc_commands = mpc.add_subparsers(dest="mpc_command", required=True)
+    train = mpc_commands.add_parser("train")
+    train.add_argument("--case", choices=("all",), default="all")
+    train.add_argument("--workers", type=int, default=4)
+    train.add_argument("--max-fit-episodes", type=int, default=64)
+    train.add_argument("--execute", action="store_true")
+    verify_mpc = mpc_commands.add_parser("verify-model")
+    verify_mpc.add_argument("--case", required=True, choices=("SZ_Air", "MZ_Hydro", "MZ_Air"))
     verify = commands.add_parser("verify")
     verify.add_argument("run_directory", type=Path)
     report = commands.add_parser("report")
@@ -59,18 +77,47 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.command == "models":
         _print(verify_all_checkpoints(load_cpu=not arguments.identity_only))
         return 0
+    if arguments.command == "mpc":
+        if arguments.mpc_command == "verify-model":
+            result = verify_frozen_mpc_model(arguments.case)
+            _print(result)
+            return 0 if result["valid"] else 1
+        training_plan = resolved_training_plan(
+            workers=arguments.workers,
+            max_fit_episodes=arguments.max_fit_episodes,
+        )
+        if not arguments.execute:
+            _print(training_plan)
+            return 0
+        runtime = load_runtime_contract()
+        endpoint_name = runtime["physical_service"]["endpoint_environment_variable"]
+        endpoint = os.environ.get(endpoint_name, "").rstrip("/")
+        if not endpoint:
+            raise ValueError(f"{endpoint_name} is required for MPC training")
+        _print(
+            train_hierarchical_mpc(
+                endpoint=endpoint,
+                workers=arguments.workers,
+                maximum_fit_episodes=arguments.max_fit_episodes,
+            )
+        )
+        return 0
     if arguments.command == "run":
         evaluation_hours = (
             int(load_profile(arguments.case)["protocol"]["formal_evaluation_days"]) * 24
         )
-        plan = BaselineRunPlan(arguments.case, arguments.controller, evaluation_hours)
+        run_plan = BaselineRunPlan(arguments.case, arguments.controller, evaluation_hours)
         if not arguments.execute:
-            _print({"execution": False, "plan": plan.resolved()})
+            _print({"execution": False, "plan": run_plan.resolved()})
             return 0
-        _print(execute_baseline_plans([plan], suite="manual"))
+        _print(execute_baseline_plans([run_plan], suite="manual"))
         return 0
     if arguments.command == "suite":
-        plans = formal_evaluation_plans()
+        plans = (
+            formal_evaluation_plans()
+            if arguments.name == "formal"
+            else mpc_formal_evaluation_plans()
+        )
         dry = {
             "execution": False,
             "suite": arguments.name,
@@ -79,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         if not arguments.execute:
             _print(dry)
             return 0
-        _print(execute_formal_suite())
+        _print(execute_formal_suite() if arguments.name == "formal" else execute_mpc_formal_suite())
         return 0
     if arguments.command == "verify":
         result = _verify_output(arguments.run_directory.resolve())

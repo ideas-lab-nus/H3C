@@ -402,6 +402,35 @@ def test_forecast_preserves_explicit_missing_values_for_profile_resolution(
     }
 
 
+def test_selected_test_id_is_reinitialized_with_full_warmup_and_stopped_once(
+    monkeypatch: Any,
+) -> None:
+    requests: list[tuple[str, str, object]] = []
+
+    def response(method: str, url: str, **kwargs: object) -> dict[str, object]:
+        requests.append((method, url, kwargs.get("payload")))
+        if url.endswith("/select"):
+            return {"testid": "persistent-lane"}
+        if "/initialize/" in url:
+            return {"payload": {"time": kwargs["payload"]["start_time"]}}  # type: ignore[index]
+        return {}
+
+    monkeypatch.setattr("h3c.runtime.clients._request_json", response)
+    client = BoptestHttpClient("http://physical.invalid")
+    assert client.select_testcase("example") == "persistent-lane"
+    first = client.initialize_selected(100, 7 * 86400)
+    second = client.initialize_selected(100, 7 * 86400)
+    assert first == second == {"time": 100}
+    assert client.test_id == "persistent-lane"
+    client.stop()
+    assert client.test_id is None
+    assert sum(url.endswith("/select") for _, url, _ in requests) == 1
+    initializes = [row for row in requests if "/initialize/" in row[1]]
+    assert len(initializes) == 2
+    assert all(row[2] == {"start_time": 100, "warmup_period": 7 * 86400} for row in initializes)
+    assert sum("/stop/" in url for _, url, _ in requests) == 1
+
+
 @pytest.mark.parametrize("invalid", ["missing", float("nan"), float("inf"), True])
 def test_forecast_reports_the_exact_invalid_point_and_index(
     monkeypatch: Any, invalid: object

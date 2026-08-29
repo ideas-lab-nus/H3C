@@ -90,6 +90,56 @@ class FittedArxModel:
             controls = np.vstack((future_controls[horizon], controls[:-1]))
         return np.vstack(predictions), negative_power_count
 
+    def rollout_unclipped(
+        self,
+        output_history: NDArray[np.float64],
+        control_history: NDArray[np.float64],
+        future_controls: NDArray[np.float64],
+        disturbances: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        """Roll out the affine ARX dynamics without altering predicted power."""
+        if future_controls.shape != (self.layout.horizon_steps, self.layout.control_dimension):
+            raise ValueError("future control matrix has the wrong shape")
+        if disturbances.shape != (self.layout.horizon_steps, len(self.layout.disturbance_names)):
+            raise ValueError("future disturbance matrix has the wrong shape")
+        outputs = np.asarray(output_history, dtype=np.float64).copy()
+        controls = np.asarray(control_history, dtype=np.float64).copy()
+        predictions: list[NDArray[np.float64]] = []
+        for horizon in range(self.layout.horizon_steps):
+            candidate_controls = controls.copy()
+            candidate_controls[0] = future_controls[horizon]
+            predicted = self.predict_next(outputs, candidate_controls, disturbances[horizon])
+            predictions.append(predicted)
+            outputs = np.vstack((predicted, outputs[:-1]))
+            controls = np.vstack((future_controls[horizon], controls[:-1]))
+        return np.vstack(predictions)
+
+    def affine_rollout(
+        self,
+        output_history: NDArray[np.float64],
+        control_history: NDArray[np.float64],
+        disturbances: NDArray[np.float64],
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Return ``vec(y_future) = offset + response @ vec(u_future)``."""
+        horizon = self.layout.horizon_steps
+        controls = self.layout.control_dimension
+        baseline = np.zeros((horizon, controls), dtype=np.float64)
+        offset = self.rollout_unclipped(
+            output_history, control_history, baseline, disturbances
+        ).reshape(-1)
+        response = np.empty((offset.size, horizon * controls), dtype=np.float64)
+        for column in range(horizon * controls):
+            basis = baseline.copy().reshape(-1)
+            basis[column] = 1.0
+            prediction = self.rollout_unclipped(
+                output_history,
+                control_history,
+                basis.reshape(horizon, controls),
+                disturbances,
+            ).reshape(-1)
+            response[:, column] = prediction - offset
+        return offset, response
+
     def save(self, path: Path) -> None:
         np.savez_compressed(
             path,
@@ -203,32 +253,37 @@ def _fit(
 
 def fit_vector_arx(
     layout: ArxLayout,
-    features: NDArray[np.float64],
-    outputs: NDArray[np.float64],
+    fit_features: NDArray[np.float64],
+    fit_outputs: NDArray[np.float64],
     *,
-    validation_rows: int,
+    holdout_features: NDArray[np.float64],
+    holdout_outputs: NDArray[np.float64],
     alpha_candidates: tuple[float, ...],
 ) -> tuple[FittedArxModel, dict[str, Any]]:
-    if validation_rows <= 0 or len(features) <= validation_rows + 1:
-        raise ValueError("ARX chronological validation split is invalid")
-    train_x, valid_x = features[:-validation_rows], features[-validation_rows:]
-    train_y, valid_y = outputs[:-validation_rows], outputs[-validation_rows:]
-    training_scaling = _scaling(train_x, train_y)
+    if (
+        len(fit_features) < 2
+        or len(holdout_features) < 1
+        or fit_features.shape[1:] != holdout_features.shape[1:]
+        or fit_outputs.shape[1:] != holdout_outputs.shape[1:]
+        or len(fit_features) != len(fit_outputs)
+        or len(holdout_features) != len(holdout_outputs)
+    ):
+        raise ValueError("ARX fit and whole-episode holdout data are invalid")
+    training_scaling = _scaling(fit_features, fit_outputs)
     scores: dict[float, float] = {}
     for alpha in alpha_candidates:
         if not math_is_valid_positive(alpha):
             raise ValueError("ridge alpha candidates must be finite and positive")
-        intercept, coefficients = _fit(train_x, train_y, alpha, training_scaling)
+        intercept, coefficients = _fit(fit_features, fit_outputs, alpha, training_scaling)
         valid_standardized = (
-            valid_x - training_scaling.feature_mean
+            holdout_features - training_scaling.feature_mean
         ) / training_scaling.feature_scale
         prediction = intercept + valid_standardized @ coefficients
-        truth = (valid_y - training_scaling.output_mean) / training_scaling.output_scale
+        truth = (holdout_outputs - training_scaling.output_mean) / training_scaling.output_scale
         scores[alpha] = float(np.sqrt(np.mean((prediction - truth) ** 2)))
     best_score = min(scores.values())
     chosen = max(alpha for alpha, score in scores.items() if abs(score - best_score) <= 1e-12)
-    final_scaling = _scaling(features, outputs)
-    intercept, coefficients = _fit(features, outputs, chosen, final_scaling)
+    intercept, coefficients = _fit(fit_features, fit_outputs, chosen, training_scaling)
     identity_payload = {
         "zones": layout.zones,
         "disturbance_names": layout.disturbance_names,
@@ -238,23 +293,24 @@ def fit_vector_arx(
         "intercept": intercept.tolist(),
         "coefficients": coefficients.tolist(),
         "scaling": {
-            "feature_mean": final_scaling.feature_mean.tolist(),
-            "feature_scale": final_scaling.feature_scale.tolist(),
-            "output_mean": final_scaling.output_mean.tolist(),
-            "output_scale": final_scaling.output_scale.tolist(),
+            "feature_mean": training_scaling.feature_mean.tolist(),
+            "feature_scale": training_scaling.feature_scale.tolist(),
+            "output_mean": training_scaling.output_mean.tolist(),
+            "output_scale": training_scaling.output_scale.tolist(),
         },
     }
     identity = hashlib.sha256(
         json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    model = FittedArxModel(layout, intercept, coefficients, final_scaling, chosen, identity)
+    model = FittedArxModel(layout, intercept, coefficients, training_scaling, chosen, identity)
     report = {
         "schema": "h3c_vector_arx_fit",
         "schema_version": 1,
         "selection_metric": "mean_standardized_output_rmse",
-        "validation_rows": validation_rows,
-        "training_rows": len(train_x),
-        "total_rows": len(features),
+        "holdout_rows": len(holdout_features),
+        "training_rows": len(fit_features),
+        "total_rows": len(fit_features) + len(holdout_features),
+        "final_fit_includes_holdout": False,
         "scores": {str(alpha): scores[alpha] for alpha in sorted(scores)},
         "selected_alpha": chosen,
         "selected_score": best_score,

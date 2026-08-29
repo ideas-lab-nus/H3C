@@ -6,8 +6,10 @@ from h3c_baselines.cli import _parser
 from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
+    mpc_formal_evaluation_plans,
 )
 from h3c_baselines.models import load_registry, verify_all_checkpoints
+from h3c_baselines.mpc.training import resolved_training_plan
 
 
 def test_formal_matrix_has_no_mpc_identification_and_eleven_evaluation_arms() -> None:
@@ -24,6 +26,19 @@ def test_formal_matrix_has_no_mpc_identification_and_eleven_evaluation_arms() ->
         ("SZ_Air", "c-drl"),
     ]
     assert all(plan.controller != "linear-mpc" for plan in plans)
+
+
+def test_hierarchical_mpc_has_its_own_three_arm_formal_suite() -> None:
+    plans = mpc_formal_evaluation_plans()
+    assert [(plan.case, plan.controller, plan.evaluation_hours) for plan in plans] == [
+        ("SZ_Air", "hierarchical-mpc", 168),
+        ("MZ_Hydro", "hierarchical-mpc", 120),
+        ("MZ_Air", "hierarchical-mpc", 168),
+    ]
+    training = resolved_training_plan(workers=4, max_fit_episodes=64)
+    assert training["fit_checkpoints"] == [8, 16, 32, 64]
+    assert training["workers"] == 4
+    assert training["reserved_workers"] == 2
 
 
 def test_linear_mpc_is_not_a_public_baseline_command() -> None:

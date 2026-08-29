@@ -21,7 +21,6 @@ def stable_fake_source_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     identity = lambda: "a" * 40  # noqa: E731
     monkeypatch.setattr("h3c.runtime.engine._source_commit", identity)
     monkeypatch.setattr("h3c_baselines.runtime.runner._source_commit", identity)
-    monkeypatch.setattr("h3c_baselines.mpc.identification._source_commit", identity)
 
 
 @pytest.fixture(scope="session")

@@ -199,6 +199,13 @@ class BoptestHttpClient:
     def initialize(
         self, testcase: str, start_time_seconds: int, warmup_period_seconds: int
     ) -> dict[str, Any]:
+        self.select_testcase(testcase)
+        return self.initialize_selected(start_time_seconds, warmup_period_seconds)
+
+    def select_testcase(self, testcase: str) -> str:
+        """Select one worker and freeze its test id for this client."""
+        if self.test_id is not None:
+            raise TransportError("BOPTEST client already owns a live test id")
         selected = _request_json("POST", f"{self.endpoint}/testcases/{testcase}/select")
         test_id = selected.get("testid")
         if not isinstance(test_id, str) or not test_id:
@@ -211,9 +218,18 @@ class BoptestHttpClient:
             payload={"electricity_price": "dynamic"},
         )
         _request_json("PUT", f"{self.endpoint}/step/{test_id}", payload={"step": 900})
+        return test_id
+
+    def initialize_selected(
+        self, start_time_seconds: int, warmup_period_seconds: int
+    ) -> dict[str, Any]:
+        """FMU-reset one selected test and repeat its complete BOPTEST warm-up."""
+
+        if self.test_id is None:
+            raise TransportError("BOPTEST initialize requested without a selected test id")
         initialized = _request_json(
             "PUT",
-            f"{self.endpoint}/initialize/{test_id}",
+            f"{self.endpoint}/initialize/{self.test_id}",
             payload={
                 "start_time": start_time_seconds,
                 "warmup_period": warmup_period_seconds,
