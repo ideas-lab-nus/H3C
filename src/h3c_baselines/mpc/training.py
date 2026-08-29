@@ -722,8 +722,9 @@ def _freeze_model(
     source_commit: str,
     training_run: Path,
     lanes: Sequence[_Lane],
+    target: Path | None = None,
 ) -> Path:
-    target = repository_root() / "models" / "mpc" / case
+    target = target or repository_root() / "models" / "mpc" / case
     if target.exists():
         raise ValueError(f"frozen MPC model already exists for {case}")
     target.mkdir(parents=True)
@@ -774,14 +775,13 @@ def _freeze_model(
     return target
 
 
-def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
+def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
     profile = load_profile(case)
     configuration = load_hierarchical_mpc_config()
     expected_support = {
         key: configuration["excitation"][key]
         for key in ("occupied_bounds_c", "unoccupied_bounds_c")
     }
-    target = repository_root() / "models" / "mpc" / case
     card = json.loads((target / "model_card.json").read_text(encoding="utf-8"))
     manifest = json.loads((target / "training_manifest.json").read_text(encoding="utf-8"))
     model = FittedArxModel.load(target / "model_coefficients.npz")
@@ -815,6 +815,10 @@ def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
     }
 
 
+def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
+    return _verify_mpc_model_directory(case, repository_root() / "models" / "mpc" / case)
+
+
 def train_hierarchical_mpc(
     *,
     endpoint: str,
@@ -826,6 +830,10 @@ def train_hierarchical_mpc(
     config = load_hierarchical_mpc_config()
     source_commit = committed_source_identity()
     root = repository_root() / "outputs" / "baselines" / "mpc"
+    final_root = repository_root() / "models" / "mpc"
+    existing_targets = [case for case in config["case_order"] if (final_root / case).exists()]
+    if existing_targets:
+        raise ValueError(f"frozen MPC model targets already exist: {existing_targets}")
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + source_commit[:8]
     run_dir = root / "training" / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -835,53 +843,76 @@ def train_hierarchical_mpc(
     started = time.monotonic()
     deadline = started + float(config["wall_clock_limit_hours"]) * 3600
     summaries: list[dict[str, Any]] = []
-    with _training_lock(root / ".training.lock"):
-        for case in config["case_order"]:
-            case_dir = run_dir / case
-            case_dir.mkdir()
-            lanes: list[_Lane] = []
-            selected_model: FittedArxModel | None = None
-            summary: dict[str, Any] | None = None
-            try:
-                for index in range(workers):
-                    client = physical_factory(endpoint)
-                    test_id = client.select_testcase(load_profile(case)["testcase"])
-                    lanes.append(_Lane(index, client, test_id))
-                selected_model, summary = _fit_case(
+    staged_models: list[tuple[str, Path]] = []
+    try:
+        with _training_lock(root / ".training.lock"):
+            for case in config["case_order"]:
+                case_dir = run_dir / case
+                case_dir.mkdir()
+                lanes: list[_Lane] = []
+                selected_model: FittedArxModel | None = None
+                summary: dict[str, Any] | None = None
+                try:
+                    for index in range(workers):
+                        client = physical_factory(endpoint)
+                        test_id = client.select_testcase(load_profile(case)["testcase"])
+                        lanes.append(_Lane(index, client, test_id))
+                    selected_model, summary = _fit_case(
+                        case=case,
+                        lanes=lanes,
+                        config=config,
+                        output_dir=case_dir,
+                        maximum_fit_episodes=maximum_fit_episodes,
+                        deadline=deadline,
+                    )
+                finally:
+                    stop_errors: list[str] = []
+                    for lane in lanes:
+                        try:
+                            lane.client.stop()
+                            lane.stop_count += 1
+                        except Exception as error:
+                            stop_errors.append(f"lane{lane.index}:{type(error).__name__}")
+                    if stop_errors:
+                        raise ValueError(f"BOPTEST lane stop failed: {stop_errors}")
+                assert selected_model is not None and summary is not None
+                staged = _freeze_model(
                     case=case,
+                    model=selected_model,
+                    summary=summary,
+                    source_commit=source_commit,
+                    training_run=case_dir,
                     lanes=lanes,
-                    config=config,
-                    output_dir=case_dir,
-                    maximum_fit_episodes=maximum_fit_episodes,
-                    deadline=deadline,
+                    target=case_dir / "frozen_model",
                 )
-            finally:
-                stop_errors: list[str] = []
-                for lane in lanes:
-                    try:
-                        lane.client.stop()
-                        lane.stop_count += 1
-                    except Exception as error:
-                        stop_errors.append(f"lane{lane.index}:{type(error).__name__}")
-                if stop_errors:
-                    raise ValueError(f"BOPTEST lane stop failed: {stop_errors}")
-            assert selected_model is not None and summary is not None
-            _freeze_model(
-                case=case,
-                model=selected_model,
-                summary=summary,
-                source_commit=source_commit,
-                training_run=case_dir,
-                lanes=lanes,
-            )
-            verification = verify_frozen_mpc_model(case)
-            if not verification["valid"]:
-                raise ValueError(f"frozen MPC model verification failed for {case}")
-            _write_json(case_dir / "model_verification.json", verification)
-            summaries.append(summary)
-    secret_count = secret_occurrences(run_dir)
-    if secret_count:
-        raise ValueError("secret exposure detected in MPC training outputs")
+                verification = _verify_mpc_model_directory(case, staged)
+                if not verification["valid"]:
+                    raise ValueError(f"staged MPC model verification failed for {case}")
+                _write_json(case_dir / "model_verification.json", verification)
+                summaries.append(summary)
+                staged_models.append((case, staged))
+        secret_count = secret_occurrences(run_dir)
+        if secret_count:
+            raise ValueError("secret exposure detected in MPC training outputs")
+        final_root.mkdir(parents=True, exist_ok=True)
+        for case, staged in staged_models:
+            staged.replace(final_root / case)
+    except Exception as error:
+        secret_count = secret_occurrences(run_dir)
+        _write_json(
+            run_dir / "failure.json",
+            {
+                "schema": "h3c_hierarchical_mpc_training_failure",
+                "schema_version": 1,
+                "source_commit": source_commit,
+                "elapsed_seconds": time.monotonic() - started,
+                "error_type": type(error).__name__,
+                "error": str(error),
+                "secret_exposure_count": secret_count,
+                "completed_cases": summaries,
+            },
+        )
+        raise
     completion = {
         "schema": "h3c_hierarchical_mpc_training_completion",
         "schema_version": 1,

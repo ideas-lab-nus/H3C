@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Event
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
 
+import h3c_baselines.mpc.training as training
+from h3c.experiments.profiles import load_profile
+from h3c_baselines.configuration import load_hierarchical_mpc_config
 from h3c_baselines.mpc.training import (
     ActiveExcitationController,
     EpisodeData,
@@ -17,7 +20,7 @@ from h3c_baselines.mpc.training import (
     _write_completion,
     resolved_training_plan,
 )
-from h3c_baselines.mpc.vector_arx import ArxLayout
+from h3c_baselines.mpc.vector_arx import ArxLayout, FittedArxModel, Scaling
 
 
 def _episode(index: int, *, rows: int = 12) -> EpisodeData:
@@ -171,3 +174,71 @@ def test_training_plan_rejects_capacity_and_unregistered_checkpoints(
 ) -> None:
     with pytest.raises(ValueError):
         resolved_training_plan(workers=workers, max_fit_episodes=episodes)
+
+
+def test_failed_multicase_training_never_promotes_partial_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configuration = dict(load_hierarchical_mpc_config())
+    configuration["case_order"] = ["SZ_Air", "MZ_Hydro"]
+    monkeypatch.setattr(training, "repository_root", lambda: tmp_path)
+    monkeypatch.setattr(training, "load_hierarchical_mpc_config", lambda: configuration)
+    monkeypatch.setattr(training, "committed_source_identity", lambda: "source-commit")
+
+    class FakePhysical:
+        test_id: str | None = None
+
+        def select_testcase(self, testcase: str) -> str:
+            self.test_id = f"test-{testcase}"
+            return self.test_id
+
+        def stop(self) -> None:
+            self.test_id = None
+
+    def fake_fit_case(**kwargs: object) -> tuple[FittedArxModel, dict[str, object]]:
+        case = str(kwargs["case"])
+        lanes = cast(list[_Lane], kwargs["lanes"])
+        for lane in lanes:
+            lane.initialize_count = 1
+        if case == "MZ_Hydro":
+            raise ValueError("registered Hydro candidate failure")
+        zones = tuple(load_profile(case)["zones"])
+        layout = ArxLayout(
+            zones,
+            (
+                "outdoor_temperature_c",
+                "solar_irradiance_w_m2",
+                *[f"effective_occupancy_{zone}" for zone in zones],
+                "time_sine",
+                "time_cosine",
+            ),
+        )
+        model = FittedArxModel(
+            layout=layout,
+            intercept=np.zeros(layout.output_dimension),
+            coefficients=np.zeros((layout.feature_dimension, layout.output_dimension)),
+            scaling=Scaling(
+                feature_mean=np.zeros(layout.feature_dimension),
+                feature_scale=np.ones(layout.feature_dimension),
+                output_mean=np.zeros(layout.output_dimension),
+                output_scale=np.ones(layout.output_dimension),
+            ),
+            ridge_alpha=1.0,
+            identity="staged-sz-model",
+        )
+        return model, {"case": case, "eligible_checkpoint_count": 1}
+
+    monkeypatch.setattr(training, "_fit_case", fake_fit_case)
+    with pytest.raises(ValueError, match="registered Hydro candidate failure"):
+        training.train_hierarchical_mpc(
+            endpoint="http://unused",
+            workers=4,
+            maximum_fit_episodes=8,
+            physical_factory=cast(training.PhysicalFactory, lambda _endpoint: FakePhysical()),
+        )
+
+    runs = list((tmp_path / "outputs" / "baselines" / "mpc" / "training").iterdir())
+    assert len(runs) == 1
+    assert (runs[0] / "failure.json").is_file()
+    assert (runs[0] / "SZ_Air" / "frozen_model" / "model_card.json").is_file()
+    assert not (tmp_path / "models" / "mpc" / "SZ_Air").exists()

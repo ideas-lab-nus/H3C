@@ -63,3 +63,46 @@ Targeted tests must prove that negative-power clipping no longer makes the QP in
 unreachable predicted PMV remains auditable instead of causing a solver fallback, and that every
 occupied optimized setpoint stays inside the identification support.  A new training attempt must
 use a fresh output directory and a new committed source identity.
+
+## Preserved second failed run
+
+The fresh attempt from source `3201840044ab9f4355890f24963c31308b276963` is preserved under
+`outputs/baselines/mpc/training/20260829T120558607929Z-32018400`.  SZ Air completed and produced an
+eligible candidate.  MZ Hydro then completed 64 fit episodes, four whole-episode holdouts, four
+closed-loop validations, and its Basic-RBC reference.  All four Hydro checkpoints beat persistence
+and kept occupied peak absolute PMV at 0.63, but they recorded 103, 78, 119, and 72 controller
+fallbacks.  Consequently no Hydro checkpoint was eligible, the process exited without
+`completion.json`, MZ Air did not start, and no formal MPC arm started.  The staged SZ Air candidate
+is retained with this failed run rather than promoted as a partial suite result.
+
+Exact-source replay of the saved Hydro validation inputs reproduced the failures.  Every fallback
+was an OSQP maximum-iteration result; predictions were finite and the candidate still beat the
+persistence model.  The same replay also exposed a cross-case numerical issue: the QP mixed site
+power in watts (order `10^3` to `10^5`) with temperatures and setpoints (order `10^1`).  Increasing
+the iteration limit again would conceal this conditioning defect without fixing it.
+
+## Numerical-equivalence correction
+
+Before the next physical attempt, the QP is corrected without relaxing any physical or model
+selection criterion:
+
+- internal site-power auxiliary variables and power constraint rows use kilowatts;
+- public inputs, predictions, logs, metrics, and physical admissibility checks remain in watts;
+- the cost objective is algebraically rescaled so its physical value and reward weight are
+  unchanged;
+- OSQP uses deterministic adaptive rho with the same global interval of 100 iterations for all
+  cases, while keeping the registered `1e-5` solver tolerance and 50,000-iteration ceiling;
+- only exact `solved` status is accepted; `solved inaccurate`, maximum-iteration, infeasible, and
+  non-finite results still fail closed;
+- solver stage, iteration count, and residuals are recorded so another numerical failure is
+  attributable rather than reported as an opaque fallback.
+
+Offline replay using the exact SZ Air and MZ Hydro saved price and trajectory inputs produced zero
+fallbacks for both candidates under this single configuration.  The ARX structure, training data,
+reward weights, action support, PMV gate, zero-fallback eligibility rule, episode budget, and formal
+protocol remain unchanged.
+
+Model freezing is also made suite-transactional: each case is staged inside its run directory and
+verified there; final `models/mpc/<case>` directories are promoted only after all three cases and
+the secret scan pass.  A failed suite now writes `failure.json` and cannot leave a partial model in
+the formal model namespace.  This evidence-handling correction does not alter MPC decisions.

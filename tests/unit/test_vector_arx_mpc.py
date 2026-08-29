@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from typing import TypedDict
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+import h3c_baselines.mpc.optimizer as optimizer
 from h3c.runtime.comfort import ComfortModel
 from h3c_baselines.mpc.optimizer import HierarchicalMpcController
 from h3c_baselines.mpc.vector_arx import (
@@ -18,6 +22,114 @@ CONTROL_SUPPORT = {
     "occupied_bounds_c": [23.5, 26.5],
     "unoccupied_bounds_c": [20.0, 30.0],
 }
+
+
+class _DecisionArguments(TypedDict):
+    output_history: NDArray[np.float64]
+    control_history: NDArray[np.float64]
+    disturbances: NDArray[np.float64]
+    prices: NDArray[np.float64]
+    occupancy: NDArray[np.float64]
+    action_times: list[int]
+    daily_outdoor_means_c: list[float]
+    comfort: ComfortModel
+    previous_setpoints_c: dict[str, float]
+    enhanced_rbc_warm_start: dict[str, float]
+
+
+class _DecisionArgumentsWithoutOccupancy(TypedDict):
+    output_history: NDArray[np.float64]
+    control_history: NDArray[np.float64]
+    disturbances: NDArray[np.float64]
+    prices: NDArray[np.float64]
+    action_times: list[int]
+    daily_outdoor_means_c: list[float]
+    comfort: ComfortModel
+    previous_setpoints_c: dict[str, float]
+    enhanced_rbc_warm_start: dict[str, float]
+
+
+def test_osqp_uses_deterministic_adaptive_rho_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings: dict[str, object] = {}
+
+    class FakeSolver:
+        def __init__(self) -> None:
+            self.warm: NDArray[np.float64] = np.zeros(1, dtype=np.float64)
+
+        def setup(self, **kwargs: object) -> None:
+            settings.update(kwargs)
+
+        def warm_start(self, *, x: NDArray[np.float64]) -> None:
+            self.warm = x.copy()
+
+        def solve(self, *, raise_error: bool) -> SimpleNamespace:
+            assert raise_error is False
+            return SimpleNamespace(
+                x=self.warm.copy(),
+                info=SimpleNamespace(
+                    status="solved",
+                    obj_val=0.0,
+                    iter=1,
+                    prim_res=0.0,
+                    dual_res=0.0,
+                ),
+            )
+
+    monkeypatch.setattr("h3c_baselines.mpc.optimizer.osqp.OSQP", FakeSolver)
+    optimizer._solve_qp(
+        np.eye(1),
+        np.zeros(1),
+        [np.ones(1)],
+        [0.0],
+        [1.0],
+        np.asarray([0.5]),
+    )
+
+    assert settings["adaptive_rho"] is True
+    assert settings["adaptive_rho_interval"] == 100
+    assert settings["max_iter"] == 50_000
+
+
+def test_osqp_solved_inaccurate_remains_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InaccurateSolver:
+        def setup(self, **_kwargs: object) -> None:
+            pass
+
+        def warm_start(self, *, x: NDArray[np.float64]) -> None:
+            self.warm = x.copy()
+
+        def solve(self, *, raise_error: bool) -> SimpleNamespace:
+            assert raise_error is False
+            return SimpleNamespace(
+                x=self.warm.copy(),
+                info=SimpleNamespace(
+                    status="solved inaccurate",
+                    obj_val=0.0,
+                    iter=50_000,
+                    prim_res=2e-5,
+                    dual_res=3e-5,
+                ),
+            )
+
+    monkeypatch.setattr("h3c_baselines.mpc.optimizer.osqp.OSQP", InaccurateSolver)
+    with pytest.raises(optimizer.MpcSolverError) as captured:
+        optimizer._solve_qp(
+            np.eye(1),
+            np.zeros(1),
+            [np.ones(1)],
+            [0.0],
+            [1.0],
+            np.asarray([0.5]),
+        )
+
+    assert captured.value.status == "solved inaccurate"
+    assert captured.value.iterations == 50_000
+    assert captured.value.primal_residual == pytest.approx(2e-5)
+    assert captured.value.dual_residual == pytest.approx(3e-5)
 
 
 def _dataset() -> tuple[
@@ -153,6 +265,7 @@ def test_mpc_falls_back_deterministically_on_invalid_solver_result(
     assert decision.setpoints_c == {"z": 25.0}
     assert decision.diagnostics["method_degraded"] is True
     assert decision.diagnostics["reason_detail"] == "solver failed"
+    assert decision.diagnostics["failure_stage"] == "building_coordinator"
 
 
 def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
@@ -194,7 +307,7 @@ def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
             "clothing_transition_high_c": 26.0,
         }
     )
-    arguments = {
+    arguments: _DecisionArguments = {
         "output_history": np.vstack([[24.0, 100.0]] * 4),
         "control_history": np.vstack([[25.0]] * 4),
         "disturbances": np.zeros((4, 5)),
@@ -212,10 +325,95 @@ def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
     assert first.diagnostics["status"] == second.diagnostics["status"] == "optimized"
     assert first.diagnostics["coordinator_updated"] is True
     assert second.diagnostics["coordinator_updated"] is False
+    assert isinstance(first.diagnostics["coordinator_iterations"], int)
+    assert first.diagnostics["coordinator_iterations"] > 0
+    assert first.diagnostics["zone_iterations"]["z"] > 0
     assert first.diagnostics["feedback_iterations"] in {0, 1}
     assert second.diagnostics["feedback_iterations"] in {0, 1}
     assert 20.0 <= first.setpoints_c["z"] <= 30.0
     assert 20.0 <= second.setpoints_c["z"] <= 30.0
+
+
+def test_coordinator_scales_power_auxiliary_variables_to_kw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    layout = ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos"))
+    model = FittedArxModel(
+        layout=layout,
+        intercept=np.asarray([24.0, 100_000.0]),
+        coefficients=np.zeros((layout.feature_dimension, 2)),
+        scaling=Scaling(
+            feature_mean=np.zeros(layout.feature_dimension),
+            feature_scale=np.ones(layout.feature_dimension),
+            output_mean=np.zeros(2),
+            output_scale=np.ones(2),
+        ),
+        ridge_alpha=1.0,
+        identity="synthetic-power-scaling-model",
+    )
+    calls: list[dict[str, NDArray[np.float64]]] = []
+
+    def capture(
+        quadratic: NDArray[np.float64],
+        linear: NDArray[np.float64],
+        rows: list[NDArray[np.float64]],
+        lower: list[float],
+        upper: list[float],
+        warm_start: NDArray[np.float64],
+    ) -> tuple[NDArray[np.float64], float, int]:
+        calls.append(
+            {
+                "linear": linear.copy(),
+                "rows": np.vstack(rows),
+                "lower": np.asarray(lower),
+                "upper": np.asarray(upper),
+                "warm_start": warm_start.copy(),
+            }
+        )
+        return warm_start.copy(), 0.0, 1
+
+    monkeypatch.setattr("h3c_baselines.mpc.optimizer._solve_qp", capture)
+    controller = HierarchicalMpcController(
+        model,
+        {
+            "energy_weight": 1.0,
+            "energy_scale": 1.0,
+            "comfort_weight": 1.0,
+            "comfort_scale": 1.0,
+            "smoothness_weight": 1.0,
+            "smoothness_scale": 1.0,
+        },
+        CONTROL_SUPPORT,
+    )
+    decision = controller.decide(
+        step=0,
+        output_history=np.vstack([[24.0, 100_000.0]] * 4),
+        control_history=np.vstack([[25.0]] * 4),
+        disturbances=np.zeros((4, 5)),
+        prices=np.full(4, 0.1),
+        occupancy=np.zeros((4, 1)),
+        action_times=[0, 900, 1800, 2700],
+        daily_outdoor_means_c=[20.0] * 4,
+        comfort=ComfortModel(
+            {
+                "dynamic_clothing": False,
+                "metabolic_rate": 1.1,
+                "relative_humidity_percent": 50.0,
+                "air_velocity_m_s": 0.1,
+                "winter_clothing_insulation": 1.0,
+                "summer_clothing_insulation": 0.5,
+                "clothing_transition_low_c": 10.0,
+                "clothing_transition_high_c": 26.0,
+            }
+        ),
+        previous_setpoints_c={"z": 25.0},
+        enhanced_rbc_warm_start={"z": 25.0},
+    )
+
+    assert decision.diagnostics["status"] == "optimized"
+    coordinator = calls[0]
+    assert coordinator["warm_start"][4:8].tolist() == [100.0] * 4
+    assert coordinator["linear"][4:8].tolist() == pytest.approx([0.025] * 4)
 
 
 def test_negative_power_is_clipped_without_making_the_qp_infeasible() -> None:
@@ -245,7 +443,7 @@ def test_negative_power_is_clipped_without_making_the_qp_infeasible() -> None:
         },
         CONTROL_SUPPORT,
     )
-    arguments = {
+    arguments: _DecisionArguments = {
         "output_history": np.vstack([[24.0, 0.0]] * 4),
         "control_history": np.vstack([[25.0]] * 4),
         "disturbances": np.zeros((4, 5)),
@@ -374,7 +572,7 @@ def test_shifted_hourly_reference_respects_new_terminal_occupancy() -> None:
             "clothing_transition_high_c": 26.0,
         }
     )
-    common = {
+    common: _DecisionArgumentsWithoutOccupancy = {
         "output_history": np.vstack([[24.0, 100.0]] * 4),
         "control_history": np.vstack([[30.0]] * 4),
         "disturbances": np.zeros((4, 5)),

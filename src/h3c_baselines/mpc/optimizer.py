@@ -18,6 +18,9 @@ from h3c_baselines.mpc.vector_arx import FittedArxModel
 PMV_LIMIT = 0.70
 PMV_LINEARIZATION_DELTA_C = 0.05
 QP_TOLERANCE = 1e-5
+WATTS_PER_KILOWATT = 1000.0
+POWER_BUDGET_TOLERANCE_W = QP_TOLERANCE
+OSQP_ADAPTIVE_RHO_INTERVAL = 100
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,23 @@ class _UpperPlan:
     predicted_outputs: NDArray[np.float64]
     comfort_lines: tuple[_ComfortLine, ...]
     negative_power_predictions_clipped: int
+    coordinator_iterations: int | None
+
+
+class MpcSolverError(ValueError):
+    def __init__(
+        self,
+        *,
+        status: str,
+        iterations: int,
+        primal_residual: float,
+        dual_residual: float,
+    ) -> None:
+        super().__init__(f"OSQP did not solve the registered QP: {status}")
+        self.status = status
+        self.iterations = iterations
+        self.primal_residual = primal_residual
+        self.dual_residual = dual_residual
 
 
 @dataclass(frozen=True)
@@ -97,13 +117,20 @@ def _solve_qp(
         eps_rel=QP_TOLERANCE,
         max_iter=50_000,
         polishing=True,
-        adaptive_rho=False,
+        adaptive_rho=True,
+        adaptive_rho_interval=OSQP_ADAPTIVE_RHO_INTERVAL,
         verbose=False,
     )
     solver.warm_start(x=warm_start)
     result = solver.solve(raise_error=False)
-    if str(result.info.status).lower() != "solved" or result.x is None:
-        raise ValueError(f"OSQP did not solve the registered QP: {result.info.status}")
+    status = str(result.info.status)
+    if status.lower() != "solved" or result.x is None:
+        raise MpcSolverError(
+            status=status,
+            iterations=int(result.info.iter),
+            primal_residual=float(result.info.prim_res),
+            dual_residual=float(result.info.dual_res),
+        )
     solution = np.asarray(result.x, dtype=np.float64)
     if np.any(~np.isfinite(solution)):
         raise ValueError("OSQP returned a non-finite solution")
@@ -240,7 +267,6 @@ class BuildingCoordinator:
             float(self.objective["energy_weight"])
             * float(self.objective["energy_scale"])
             * 0.25
-            / 1000.0
             / zones
         )
         comfort_factor = (
@@ -269,11 +295,11 @@ class BuildingCoordinator:
             upper.append(bounds[1])
         for step in range(horizon):
             raw_power = np.zeros(variable_count, dtype=np.float64)
-            raw_power[:control_count] = power_response[step]
+            raw_power[:control_count] = power_response[step] / WATTS_PER_KILOWATT
             envelope = -raw_power
             envelope[power_slice.start + step] = 1.0
             rows.append(envelope)
-            lower.append(float(power_offset[step]))
+            lower.append(float(power_offset[step] / WATTS_PER_KILOWATT))
             upper.append(np.inf)
             nonnegative = np.zeros(variable_count, dtype=np.float64)
             nonnegative[power_slice.start + step] = 1.0
@@ -324,12 +350,12 @@ class BuildingCoordinator:
         warm_start = np.concatenate(
             (
                 warm_plan.reshape(-1),
-                np.maximum(0.0, warm_predictions[:, -1]),
+                np.maximum(0.0, warm_predictions[:, -1]) / WATTS_PER_KILOWATT,
                 warm_excess,
                 warm_smooth,
             )
         )
-        solution, _, _ = _solve_qp(quadratic, linear, rows, lower, upper, warm_start)
+        solution, _, iterations = _solve_qp(quadratic, linear, rows, lower, upper, warm_start)
         controls = solution[:control_count].reshape(horizon, zones)
         for step in range(horizon):
             for zone in range(zones):
@@ -338,7 +364,13 @@ class BuildingCoordinator:
         predictions, negative_power_count = self.model.rollout(
             output_history, control_history, controls, disturbances
         )
-        return _UpperPlan(controls, predictions, comfort_lines, negative_power_count)
+        return _UpperPlan(
+            controls,
+            predictions,
+            comfort_lines,
+            negative_power_count,
+            iterations,
+        )
 
 
 class ZoneMpcOptimizer:
@@ -362,7 +394,7 @@ class ZoneMpcOptimizer:
         offset: NDArray[np.float64],
         response: NDArray[np.float64],
         previous_setpoint: float,
-    ) -> NDArray[np.float64]:
+    ) -> tuple[NDArray[np.float64], int]:
         layout = self.model.layout
         horizon = layout.horizon_steps
         zones = layout.control_dimension
@@ -409,10 +441,10 @@ class ZoneMpcOptimizer:
             lower.append(bounds[0])
             upper.append(bounds[1])
             budget = np.zeros(variable_count, dtype=np.float64)
-            budget[:horizon] = power_response[index]
+            budget[:horizon] = power_response[index] / WATTS_PER_KILOWATT
             rows.append(budget)
             lower.append(-np.inf)
-            upper.append(float(power_budget[index]))
+            upper.append(float(power_budget[index] / WATTS_PER_KILOWATT))
         difference = _difference_matrix(horizon, 1)
         difference_offset = np.zeros(horizon, dtype=np.float64)
         difference_offset[0] = -previous_setpoint
@@ -455,7 +487,7 @@ class ZoneMpcOptimizer:
             ]
         )
         warm_smooth = np.abs(difference @ warm + difference_offset)
-        solution, _, _ = _solve_qp(
+        solution, _, iterations = _solve_qp(
             quadratic,
             linear,
             rows,
@@ -468,7 +500,7 @@ class ZoneMpcOptimizer:
             controls[step] = np.clip(
                 controls[step], *self.control_support.for_occupancy(line.occupied)
             )
-        return controls
+        return controls, iterations
 
 
 class HierarchicalMpcController:
@@ -506,6 +538,7 @@ class HierarchicalMpcController:
         warm = np.vstack([[float(enhanced_rbc_warm_start[zone]) for zone in zones]] * horizon)
         previous = np.asarray([previous_setpoints_c[zone] for zone in zones])
         coordinator_updated = step % 4 == 0 or self._hourly_reference is None
+        failure_stage = "building_coordinator"
         try:
             if coordinator_updated:
                 upper_plan = self.coordinator.solve(
@@ -543,23 +576,32 @@ class HierarchicalMpcController:
                     daily_outdoor_means_c=daily_outdoor_means_c,
                     comfort=comfort,
                 )
-                upper_plan = _UpperPlan(shifted, predictions, lines, negative_power_count)
+                upper_plan = _UpperPlan(shifted, predictions, lines, negative_power_count, None)
             offset, response = self.model.affine_rollout(
                 output_history, control_history, disturbances
             )
             local = upper_plan.controls.copy()
+            zone_iterations: dict[str, int] = {}
             for zone_index in range(len(zones)):
-                local[:, zone_index] = self.zone_optimizer.solve(
+                failure_stage = f"zone_optimizer:{zones[zone_index]}"
+                zone_plan, iterations = self.zone_optimizer.solve(
                     zone_index=zone_index,
                     upper_plan=upper_plan,
                     offset=offset,
                     response=response,
                     previous_setpoint=float(previous[zone_index]),
                 )
+                local[:, zone_index] = zone_plan
+                zone_iterations[zones[zone_index]] = iterations
             feedback_used = False
+            reconciliation_iterations: int | None = None
             if not self._combined_plan_is_admissible(local, upper_plan, offset, response):
-                local = self._reconcile(local, upper_plan, offset, response)
+                failure_stage = "feasibility_reconciliation"
+                local, reconciliation_iterations = self._reconcile(
+                    local, upper_plan, offset, response
+                )
                 feedback_used = True
+            failure_stage = "prediction_audit"
             predictions, negative_power_count = self.model.rollout(
                 output_history, control_history, local, disturbances
             )
@@ -571,16 +613,20 @@ class HierarchicalMpcController:
                 comfort,
             )
         except Exception as error:
-            return MpcDecision(
-                dict(enhanced_rbc_warm_start),
-                {
-                    "status": "fallback",
-                    "method_degraded": True,
-                    "reason": f"hierarchical_mpc_failure:{type(error).__name__}",
-                    "reason_detail": str(error),
-                    "history_initialization": "repeat_boundary_state",
-                },
-            )
+            diagnostics: dict[str, Any] = {
+                "status": "fallback",
+                "method_degraded": True,
+                "reason": f"hierarchical_mpc_failure:{type(error).__name__}",
+                "reason_detail": str(error),
+                "failure_stage": failure_stage,
+                "history_initialization": "repeat_boundary_state",
+            }
+            if isinstance(error, MpcSolverError):
+                diagnostics["solver_status"] = error.status
+                diagnostics["solver_iterations"] = error.iterations
+                diagnostics["solver_primal_residual"] = error.primal_residual
+                diagnostics["solver_dual_residual"] = error.dual_residual
+            return MpcDecision(dict(enhanced_rbc_warm_start), diagnostics)
         return MpcDecision(
             {zone: float(local[0, index]) for index, zone in enumerate(zones)},
             {
@@ -588,7 +634,10 @@ class HierarchicalMpcController:
                 "method_degraded": False,
                 "history_initialization": "repeat_boundary_state",
                 "coordinator_updated": coordinator_updated,
+                "coordinator_iterations": upper_plan.coordinator_iterations,
+                "zone_iterations": zone_iterations,
                 "feedback_iterations": int(feedback_used),
+                "reconciliation_iterations": reconciliation_iterations,
                 "planned_setpoints_c": local.tolist(),
                 "predicted_outputs": predictions.tolist(),
                 "upper_reference_setpoints_c": upper_plan.controls.tolist(),
@@ -618,7 +667,7 @@ class HierarchicalMpcController:
         ]
         combined_power = np.maximum(0.0, offset[power_rows] + response[power_rows] @ flattened)
         upper_power = np.maximum(0.0, offset[power_rows] + response[power_rows] @ upper_flattened)
-        return not np.any(combined_power > upper_power + QP_TOLERANCE)
+        return not np.any(combined_power > upper_power + POWER_BUDGET_TOLERANCE_W)
 
     def _reconcile(
         self,
@@ -626,7 +675,7 @@ class HierarchicalMpcController:
         upper_plan: _UpperPlan,
         offset: NDArray[np.float64],
         response: NDArray[np.float64],
-    ) -> NDArray[np.float64]:
+    ) -> tuple[NDArray[np.float64], int]:
         layout = self.model.layout
         variable_count = local.size
         quadratic = np.eye(variable_count, dtype=np.float64) * 2.0
@@ -645,10 +694,10 @@ class HierarchicalMpcController:
         upper_flattened = upper_plan.controls.reshape(-1)
         upper_power = np.maximum(0.0, offset[power_rows] + response[power_rows] @ upper_flattened)
         for step, row_index in enumerate(power_rows):
-            rows.append(response[row_index].copy())
+            rows.append(response[row_index].copy() / WATTS_PER_KILOWATT)
             lower.append(-np.inf)
-            upper.append(float(upper_power[step] - offset[row_index]))
-        solution, _, _ = _solve_qp(
+            upper.append(float((upper_power[step] - offset[row_index]) / WATTS_PER_KILOWATT))
+        solution, _, iterations = _solve_qp(
             quadratic,
             linear,
             rows,
@@ -659,7 +708,7 @@ class HierarchicalMpcController:
         controls = solution.reshape(layout.horizon_steps, layout.control_dimension)
         for index, bounds_for_control in enumerate(bounds):
             controls.reshape(-1)[index] = np.clip(controls.reshape(-1)[index], *bounds_for_control)
-        return controls
+        return controls, iterations
 
     @staticmethod
     def _predicted_peak_absolute_pmv(
