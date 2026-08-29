@@ -14,6 +14,11 @@ from h3c_baselines.mpc.vector_arx import (
     fit_vector_arx,
 )
 
+CONTROL_SUPPORT = {
+    "occupied_bounds_c": [23.5, 26.5],
+    "unoccupied_bounds_c": [20.0, 30.0],
+}
+
 
 def _dataset() -> tuple[
     ArxLayout,
@@ -119,6 +124,7 @@ def test_mpc_falls_back_deterministically_on_invalid_solver_result(
             "smoothness_weight": 1.0,
             "smoothness_scale": 1.0,
         },
+        CONTROL_SUPPORT,
     )
     decision = controller.decide(
         step=0,
@@ -146,6 +152,7 @@ def test_mpc_falls_back_deterministically_on_invalid_solver_result(
     )
     assert decision.setpoints_c == {"z": 25.0}
     assert decision.diagnostics["method_degraded"] is True
+    assert decision.diagnostics["reason_detail"] == "solver failed"
 
 
 def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
@@ -173,6 +180,7 @@ def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
             "smoothness_weight": 1.0,
             "smoothness_scale": 1.0,
         },
+        CONTROL_SUPPORT,
     )
     comfort = ComfortModel(
         {
@@ -208,6 +216,185 @@ def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
     assert second.diagnostics["feedback_iterations"] in {0, 1}
     assert 20.0 <= first.setpoints_c["z"] <= 30.0
     assert 20.0 <= second.setpoints_c["z"] <= 30.0
+
+
+def test_negative_power_is_clipped_without_making_the_qp_infeasible() -> None:
+    layout = ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos"))
+    model = FittedArxModel(
+        layout=layout,
+        intercept=np.asarray([24.0, -100.0]),
+        coefficients=np.zeros((layout.feature_dimension, 2)),
+        scaling=Scaling(
+            feature_mean=np.zeros(layout.feature_dimension),
+            feature_scale=np.ones(layout.feature_dimension),
+            output_mean=np.zeros(2),
+            output_scale=np.ones(2),
+        ),
+        ridge_alpha=1.0,
+        identity="synthetic-negative-power-controller-model",
+    )
+    controller = HierarchicalMpcController(
+        model,
+        {
+            "energy_weight": 1.0,
+            "energy_scale": 1.0,
+            "comfort_weight": 1.0,
+            "comfort_scale": 1.0,
+            "smoothness_weight": 1.0,
+            "smoothness_scale": 1.0,
+        },
+        CONTROL_SUPPORT,
+    )
+    arguments = {
+        "output_history": np.vstack([[24.0, 0.0]] * 4),
+        "control_history": np.vstack([[25.0]] * 4),
+        "disturbances": np.zeros((4, 5)),
+        "prices": np.full(4, 0.1),
+        "occupancy": np.zeros((4, 1)),
+        "action_times": [0, 900, 1800, 2700],
+        "daily_outdoor_means_c": [20.0] * 4,
+        "comfort": ComfortModel(
+            {
+                "dynamic_clothing": False,
+                "metabolic_rate": 1.1,
+                "relative_humidity_percent": 50.0,
+                "air_velocity_m_s": 0.1,
+                "winter_clothing_insulation": 1.0,
+                "summer_clothing_insulation": 0.5,
+                "clothing_transition_low_c": 10.0,
+                "clothing_transition_high_c": 26.0,
+            }
+        ),
+        "previous_setpoints_c": {"z": 25.0},
+        "enhanced_rbc_warm_start": {"z": 25.0},
+    }
+
+    first = controller.decide(step=0, **arguments)
+    second = controller.decide(step=1, **arguments)
+
+    assert first.diagnostics["status"] == second.diagnostics["status"] == "optimized"
+    assert first.diagnostics["negative_power_predictions_clipped"] == 4
+    assert second.diagnostics["negative_power_predictions_clipped"] == 4
+    assert np.asarray(first.diagnostics["predicted_outputs"])[:, -1].tolist() == [0.0] * 4
+
+
+def test_occupied_controls_stay_inside_identification_support() -> None:
+    layout = ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos"))
+    model = FittedArxModel(
+        layout=layout,
+        intercept=np.asarray([30.0, 0.0]),
+        coefficients=np.zeros((layout.feature_dimension, 2)),
+        scaling=Scaling(
+            feature_mean=np.zeros(layout.feature_dimension),
+            feature_scale=np.ones(layout.feature_dimension),
+            output_mean=np.zeros(2),
+            output_scale=np.ones(2),
+        ),
+        ridge_alpha=1.0,
+        identity="synthetic-unresponsive-hot-zone-model",
+    )
+    controller = HierarchicalMpcController(
+        model,
+        {
+            "energy_weight": 1.0,
+            "energy_scale": 1.0,
+            "comfort_weight": 1.0,
+            "comfort_scale": 1.0,
+            "smoothness_weight": 1.0,
+            "smoothness_scale": 1.0,
+        },
+        CONTROL_SUPPORT,
+    )
+    decision = controller.decide(
+        step=0,
+        output_history=np.vstack([[30.0, 0.0]] * 4),
+        control_history=np.vstack([[25.0]] * 4),
+        disturbances=np.zeros((4, 5)),
+        prices=np.full(4, 0.1),
+        occupancy=np.ones((4, 1)),
+        action_times=[0, 900, 1800, 2700],
+        daily_outdoor_means_c=[20.0] * 4,
+        comfort=ComfortModel(
+            {
+                "dynamic_clothing": False,
+                "metabolic_rate": 1.1,
+                "relative_humidity_percent": 50.0,
+                "air_velocity_m_s": 0.1,
+                "winter_clothing_insulation": 1.0,
+                "summer_clothing_insulation": 0.5,
+                "clothing_transition_low_c": 10.0,
+                "clothing_transition_high_c": 26.0,
+            }
+        ),
+        previous_setpoints_c={"z": 25.0},
+        enhanced_rbc_warm_start={"z": 25.0},
+    )
+
+    assert decision.diagnostics["status"] == "optimized"
+    assert 23.5 <= decision.setpoints_c["z"] <= 26.5
+    assert decision.diagnostics["predicted_peak_absolute_pmv"] > 0.70
+
+
+def test_shifted_hourly_reference_respects_new_terminal_occupancy() -> None:
+    layout = ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos"))
+    model = FittedArxModel(
+        layout=layout,
+        intercept=np.asarray([24.0, 100.0]),
+        coefficients=np.zeros((layout.feature_dimension, 2)),
+        scaling=Scaling(
+            feature_mean=np.zeros(layout.feature_dimension),
+            feature_scale=np.ones(layout.feature_dimension),
+            output_mean=np.zeros(2),
+            output_scale=np.ones(2),
+        ),
+        ridge_alpha=1.0,
+        identity="synthetic-occupancy-transition-model",
+    )
+    controller = HierarchicalMpcController(
+        model,
+        {
+            "energy_weight": 1.0,
+            "energy_scale": 1.0,
+            "comfort_weight": 1.0,
+            "comfort_scale": 1.0,
+            "smoothness_weight": 1.0,
+            "smoothness_scale": 1.0,
+        },
+        CONTROL_SUPPORT,
+    )
+    comfort = ComfortModel(
+        {
+            "dynamic_clothing": False,
+            "metabolic_rate": 1.1,
+            "relative_humidity_percent": 50.0,
+            "air_velocity_m_s": 0.1,
+            "winter_clothing_insulation": 1.0,
+            "summer_clothing_insulation": 0.5,
+            "clothing_transition_low_c": 10.0,
+            "clothing_transition_high_c": 26.0,
+        }
+    )
+    common = {
+        "output_history": np.vstack([[24.0, 100.0]] * 4),
+        "control_history": np.vstack([[30.0]] * 4),
+        "disturbances": np.zeros((4, 5)),
+        "prices": np.full(4, 0.1),
+        "action_times": [0, 900, 1800, 2700],
+        "daily_outdoor_means_c": [20.0] * 4,
+        "comfort": comfort,
+        "previous_setpoints_c": {"z": 30.0},
+        "enhanced_rbc_warm_start": {"z": 30.0},
+    }
+    first = controller.decide(step=0, occupancy=np.zeros((4, 1)), **common)
+    second = controller.decide(
+        step=1,
+        occupancy=np.asarray([[0.0], [0.0], [0.0], [1.0]]),
+        **common,
+    )
+
+    assert first.diagnostics["status"] == second.diagnostics["status"] == "optimized"
+    terminal_reference = second.diagnostics["upper_reference_setpoints_c"][-1][0]
+    assert 23.5 <= terminal_reference <= 26.5
 
 
 def test_rollout_clamps_negative_power_before_recursive_use() -> None:

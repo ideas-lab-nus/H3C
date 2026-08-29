@@ -100,6 +100,11 @@ def load_hierarchical_mpc_config(path: Path | None = None) -> dict[str, Any]:
         raise ValueError("hierarchical MPC fit checkpoints are invalid")
     if value.get("holdout_episodes") != 4 or value.get("warmup_days") != 7:
         raise ValueError("hierarchical MPC episode budget is invalid")
+    excitation = value.get("excitation", {})
+    if excitation.get("occupied_bounds_c") != [23.5, 26.5] or excitation.get(
+        "unoccupied_bounds_c"
+    ) != [20.0, 30.0]:
+        raise ValueError("hierarchical MPC identification-support bounds are invalid")
     return value
 
 

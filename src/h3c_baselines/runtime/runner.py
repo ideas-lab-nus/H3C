@@ -36,6 +36,7 @@ from h3c.runtime.source_identity import committed_source_identity
 from h3c_baselines.configuration import (
     BaselineRunPlan,
     formal_evaluation_plans,
+    load_hierarchical_mpc_config,
     mpc_formal_evaluation_plans,
 )
 from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
@@ -332,7 +333,11 @@ def _execute_one(
                 or mpc_model.layout.zones != zones
             ):
                 raise ValueError("MPC model identity or zone layout is invalid")
-            mpc = HierarchicalMpcController(mpc_model, profile["objective"])
+            mpc = HierarchicalMpcController(
+                mpc_model,
+                profile["objective"],
+                load_hierarchical_mpc_config()["excitation"],
+            )
             boundary_output = np.asarray(
                 [
                     *[zone_temperature_c(profile, state, zone) for zone in zones],

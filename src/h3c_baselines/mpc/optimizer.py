@@ -38,6 +38,33 @@ class _UpperPlan:
     controls: NDArray[np.float64]
     predicted_outputs: NDArray[np.float64]
     comfort_lines: tuple[_ComfortLine, ...]
+    negative_power_predictions_clipped: int
+
+
+@dataclass(frozen=True)
+class _ControlSupport:
+    occupied: tuple[float, float]
+    unoccupied: tuple[float, float]
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> _ControlSupport:
+        occupied = tuple(float(item) for item in value["occupied_bounds_c"])
+        unoccupied = tuple(float(item) for item in value["unoccupied_bounds_c"])
+        if (
+            len(occupied) != 2
+            or len(unoccupied) != 2
+            or occupied[0] >= occupied[1]
+            or unoccupied[0] >= unoccupied[1]
+            or unoccupied[0] < 20.0
+            or unoccupied[1] > 30.0
+            or occupied[0] < unoccupied[0]
+            or occupied[1] > unoccupied[1]
+        ):
+            raise ValueError("MPC identification-support bounds are invalid")
+        return cls((occupied[0], occupied[1]), (unoccupied[0], unoccupied[1]))
+
+    def for_occupancy(self, occupied: bool) -> tuple[float, float]:
+        return self.occupied if occupied else self.unoccupied
 
 
 def _difference_matrix(horizon: int, zones: int) -> NDArray[np.float64]:
@@ -68,7 +95,7 @@ def _solve_qp(
         u=np.asarray(upper, dtype=np.float64),
         eps_abs=QP_TOLERANCE,
         eps_rel=QP_TOLERANCE,
-        max_iter=10_000,
+        max_iter=50_000,
         polishing=True,
         adaptive_rho=False,
         verbose=False,
@@ -145,19 +172,20 @@ def _add_comfort_constraints(
         rows.append(excess_row)
         lower.append(0.0)
         upper.append(np.inf)
-        pmv_row = np.zeros(variable_count, dtype=np.float64)
-        pmv_row[control_slice] = pmv_response
-        rows.append(pmv_row)
-        lower.append(-PMV_LIMIT - pmv_offset)
-        upper.append(PMV_LIMIT - pmv_offset)
 
 
 class BuildingCoordinator:
     """Solve the registered whole-building objective once per hour."""
 
-    def __init__(self, model: FittedArxModel, objective: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        model: FittedArxModel,
+        objective: Mapping[str, Any],
+        control_support: _ControlSupport,
+    ) -> None:
         self.model = model
         self.objective = dict(objective)
+        self.control_support = control_support
 
     def solve(
         self,
@@ -234,14 +262,14 @@ class BuildingCoordinator:
             row = np.zeros(variable_count, dtype=np.float64)
             row[index] = 1.0
             rows.append(row)
-            lower.append(20.0)
-            upper.append(30.0)
+            bounds = self.control_support.for_occupancy(
+                bool(float(occupancy[index // zones, index % zones]) > 0)
+            )
+            lower.append(bounds[0])
+            upper.append(bounds[1])
         for step in range(horizon):
             raw_power = np.zeros(variable_count, dtype=np.float64)
             raw_power[:control_count] = power_response[step]
-            rows.append(raw_power)
-            lower.append(-float(power_offset[step]))
-            upper.append(np.inf)
             envelope = -raw_power
             envelope[power_slice.start + step] = 1.0
             rows.append(envelope)
@@ -303,18 +331,28 @@ class BuildingCoordinator:
         )
         solution, _, _ = _solve_qp(quadratic, linear, rows, lower, upper, warm_start)
         controls = solution[:control_count].reshape(horizon, zones)
-        predictions = self.model.rollout_unclipped(
+        for step in range(horizon):
+            for zone in range(zones):
+                bounds = self.control_support.for_occupancy(bool(float(occupancy[step, zone]) > 0))
+                controls[step, zone] = np.clip(controls[step, zone], *bounds)
+        predictions, negative_power_count = self.model.rollout(
             output_history, control_history, controls, disturbances
         )
-        return _UpperPlan(controls, predictions, comfort_lines)
+        return _UpperPlan(controls, predictions, comfort_lines, negative_power_count)
 
 
 class ZoneMpcOptimizer:
     """Resolve zone plans inside the coordinator's power contribution budget."""
 
-    def __init__(self, model: FittedArxModel, objective: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        model: FittedArxModel,
+        objective: Mapping[str, Any],
+        control_support: _ControlSupport,
+    ) -> None:
         self.model = model
         self.objective = dict(objective)
+        self.control_support = control_support
 
     def solve(
         self,
@@ -360,12 +398,16 @@ class ZoneMpcOptimizer:
         rows: list[NDArray[np.float64]] = []
         lower: list[float] = []
         upper: list[float] = []
+        zone_lines = tuple(
+            upper_plan.comfort_lines[step * zones + zone_index] for step in range(horizon)
+        )
         for index in range(horizon):
             row = np.zeros(variable_count, dtype=np.float64)
             row[index] = 1.0
             rows.append(row)
-            lower.append(20.0)
-            upper.append(30.0)
+            bounds = self.control_support.for_occupancy(zone_lines[index].occupied)
+            lower.append(bounds[0])
+            upper.append(bounds[1])
             budget = np.zeros(variable_count, dtype=np.float64)
             budget[:horizon] = power_response[index]
             rows.append(budget)
@@ -387,9 +429,6 @@ class ZoneMpcOptimizer:
             rows.append(row)
             lower.append(0.0)
             upper.append(np.inf)
-        zone_lines = tuple(
-            upper_plan.comfort_lines[step * zones + zone_index] for step in range(horizon)
-        )
         _add_comfort_constraints(
             variable_count=variable_count,
             control_slice=slice(0, horizon),
@@ -424,16 +463,27 @@ class ZoneMpcOptimizer:
             upper,
             np.concatenate((warm, warm_excess, warm_smooth)),
         )
-        return solution[:horizon]
+        controls = solution[:horizon]
+        for step, line in enumerate(zone_lines):
+            controls[step] = np.clip(
+                controls[step], *self.control_support.for_occupancy(line.occupied)
+            )
+        return controls
 
 
 class HierarchicalMpcController:
     """Coordinate hourly building plans and 15-minute zone optimization."""
 
-    def __init__(self, model: FittedArxModel, objective: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        model: FittedArxModel,
+        objective: Mapping[str, Any],
+        control_support: Mapping[str, Any],
+    ) -> None:
         self.model = model
-        self.coordinator = BuildingCoordinator(model, objective)
-        self.zone_optimizer = ZoneMpcOptimizer(model, objective)
+        self.control_support = _ControlSupport.from_mapping(control_support)
+        self.coordinator = BuildingCoordinator(model, objective, self.control_support)
+        self.zone_optimizer = ZoneMpcOptimizer(model, objective, self.control_support)
         self._hourly_reference: NDArray[np.float64] | None = None
 
     def decide(
@@ -474,8 +524,16 @@ class HierarchicalMpcController:
             else:
                 assert self._hourly_reference is not None
                 shifted = np.vstack((self._hourly_reference[1:], self._hourly_reference[-1]))
+                for horizon_step in range(horizon):
+                    for zone_index in range(len(zones)):
+                        bounds = self.control_support.for_occupancy(
+                            bool(float(occupancy[horizon_step, zone_index]) > 0)
+                        )
+                        shifted[horizon_step, zone_index] = np.clip(
+                            shifted[horizon_step, zone_index], *bounds
+                        )
                 self._hourly_reference = shifted
-                predictions = self.model.rollout_unclipped(
+                predictions, negative_power_count = self.model.rollout(
                     output_history, control_history, shifted, disturbances
                 )
                 lines = _linearized_comfort(
@@ -485,7 +543,7 @@ class HierarchicalMpcController:
                     daily_outdoor_means_c=daily_outdoor_means_c,
                     comfort=comfort,
                 )
-                upper_plan = _UpperPlan(shifted, predictions, lines)
+                upper_plan = _UpperPlan(shifted, predictions, lines, negative_power_count)
             offset, response = self.model.affine_rollout(
                 output_history, control_history, disturbances
             )
@@ -502,18 +560,16 @@ class HierarchicalMpcController:
             if not self._combined_plan_is_admissible(local, upper_plan, offset, response):
                 local = self._reconcile(local, upper_plan, offset, response)
                 feedback_used = True
-            predictions = self.model.rollout_unclipped(
+            predictions, negative_power_count = self.model.rollout(
                 output_history, control_history, local, disturbances
             )
-            self._validate_true_comfort(
+            predicted_peak_absolute_pmv = self._predicted_peak_absolute_pmv(
                 predictions,
                 occupancy,
                 action_times,
                 daily_outdoor_means_c,
                 comfort,
             )
-            if np.any(predictions[:, -1] < -QP_TOLERANCE):
-                raise ValueError("MPC final plan predicts negative site power")
         except Exception as error:
             return MpcDecision(
                 dict(enhanced_rbc_warm_start),
@@ -521,6 +577,7 @@ class HierarchicalMpcController:
                     "status": "fallback",
                     "method_degraded": True,
                     "reason": f"hierarchical_mpc_failure:{type(error).__name__}",
+                    "reason_detail": str(error),
                     "history_initialization": "repeat_boundary_state",
                 },
             )
@@ -536,6 +593,11 @@ class HierarchicalMpcController:
                 "predicted_outputs": predictions.tolist(),
                 "upper_reference_setpoints_c": upper_plan.controls.tolist(),
                 "upper_predicted_site_power_w": upper_plan.predicted_outputs[:, -1].tolist(),
+                "negative_power_predictions_clipped": negative_power_count,
+                "upper_negative_power_predictions_clipped": (
+                    upper_plan.negative_power_predictions_clipped
+                ),
+                "predicted_peak_absolute_pmv": predicted_peak_absolute_pmv,
             },
         )
 
@@ -554,21 +616,9 @@ class HierarchicalMpcController:
             step * output_dimension + layout.control_dimension
             for step in range(layout.horizon_steps)
         ]
-        combined_power = offset[power_rows] + response[power_rows] @ flattened
-        upper_power = offset[power_rows] + response[power_rows] @ upper_flattened
-        if np.any(combined_power > upper_power + QP_TOLERANCE):
-            return False
-        temperature_rows = [
-            step * output_dimension + zone
-            for step in range(layout.horizon_steps)
-            for zone in range(layout.control_dimension)
-        ]
-        temperatures = offset[temperature_rows] + response[temperature_rows] @ flattened
-        return all(
-            not line.occupied
-            or abs(line.slope * temperature + line.intercept) <= PMV_LIMIT + QP_TOLERANCE
-            for temperature, line in zip(temperatures, upper_plan.comfort_lines, strict=True)
-        )
+        combined_power = np.maximum(0.0, offset[power_rows] + response[power_rows] @ flattened)
+        upper_power = np.maximum(0.0, offset[power_rows] + response[power_rows] @ upper_flattened)
+        return not np.any(combined_power > upper_power + QP_TOLERANCE)
 
     def _reconcile(
         self,
@@ -582,31 +632,22 @@ class HierarchicalMpcController:
         quadratic = np.eye(variable_count, dtype=np.float64) * 2.0
         linear = -2.0 * local.reshape(-1)
         rows = [np.eye(variable_count, dtype=np.float64)[index] for index in range(variable_count)]
-        lower = [20.0] * variable_count
-        upper = [30.0] * variable_count
+        bounds = [
+            self.control_support.for_occupancy(line.occupied) for line in upper_plan.comfort_lines
+        ]
+        lower = [bound[0] for bound in bounds]
+        upper = [bound[1] for bound in bounds]
         output_dimension = layout.output_dimension
         power_rows = [
             step * output_dimension + layout.control_dimension
             for step in range(layout.horizon_steps)
         ]
         upper_flattened = upper_plan.controls.reshape(-1)
-        upper_power = offset[power_rows] + response[power_rows] @ upper_flattened
+        upper_power = np.maximum(0.0, offset[power_rows] + response[power_rows] @ upper_flattened)
         for step, row_index in enumerate(power_rows):
             rows.append(response[row_index].copy())
-            lower.append(-float(offset[row_index]))
+            lower.append(-np.inf)
             upper.append(float(upper_power[step] - offset[row_index]))
-        temperature_rows = [
-            step * output_dimension + zone
-            for step in range(layout.horizon_steps)
-            for zone in range(layout.control_dimension)
-        ]
-        for row_index, line in zip(temperature_rows, upper_plan.comfort_lines, strict=True):
-            if line.occupied:
-                pmv_response = line.slope * response[row_index]
-                pmv_offset = line.slope * offset[row_index] + line.intercept
-                rows.append(pmv_response)
-                lower.append(-PMV_LIMIT - pmv_offset)
-                upper.append(PMV_LIMIT - pmv_offset)
         solution, _, _ = _solve_qp(
             quadratic,
             linear,
@@ -615,24 +656,29 @@ class HierarchicalMpcController:
             upper,
             upper_plan.controls.reshape(-1),
         )
-        return solution.reshape(layout.horizon_steps, layout.control_dimension)
+        controls = solution.reshape(layout.horizon_steps, layout.control_dimension)
+        for index, bounds_for_control in enumerate(bounds):
+            controls.reshape(-1)[index] = np.clip(controls.reshape(-1)[index], *bounds_for_control)
+        return controls
 
     @staticmethod
-    def _validate_true_comfort(
+    def _predicted_peak_absolute_pmv(
         predictions: NDArray[np.float64],
         occupancy: NDArray[np.float64],
         action_times: Sequence[int],
         daily_outdoor_means_c: Sequence[float],
         comfort: ComfortModel,
-    ) -> None:
+    ) -> float:
         predicted_comfort = copy.deepcopy(comfort)
+        peak = 0.0
         for step in range(len(predictions)):
             predicted_comfort.update_clothing(
                 float(action_times[step]), float(daily_outdoor_means_c[step])
             )
             for zone in range(occupancy.shape[1]):
-                if (
-                    float(occupancy[step, zone]) > 0
-                    and abs(predicted_comfort.pmv(float(predictions[step, zone]))) > PMV_LIMIT
-                ):
-                    raise ValueError("MPC true PMV validation failed")
+                if float(occupancy[step, zone]) > 0:
+                    peak = max(
+                        peak,
+                        abs(predicted_comfort.pmv(float(predictions[step, zone]))),
+                    )
+        return peak

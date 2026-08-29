@@ -313,7 +313,11 @@ def _collect_episode(
         seed=10_000 * (lane.index + 1) + 101 * episode + sum(ord(value) for value in role),
     )
     hierarchical = (
-        HierarchicalMpcController(model, profile["objective"])
+        HierarchicalMpcController(
+            model,
+            profile["objective"],
+            load_hierarchical_mpc_config()["excitation"],
+        )
         if role == "validation" and model is not None
         else None
     )
@@ -738,6 +742,10 @@ def _freeze_model(
             "training_week_days": 7,
             "model_structure": "vector_arx_four_lag_four_step",
             "hierarchy": "hourly_building_coordinator_and_15_minute_zone_mpc",
+            "control_support_bounds_c": {
+                key: load_hierarchical_mpc_config()["excitation"][key]
+                for key in ("occupied_bounds_c", "unoccupied_bounds_c")
+            },
             "summary": dict(summary),
         },
     )
@@ -768,6 +776,11 @@ def _freeze_model(
 
 def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
     profile = load_profile(case)
+    configuration = load_hierarchical_mpc_config()
+    expected_support = {
+        key: configuration["excitation"][key]
+        for key in ("occupied_bounds_c", "unoccupied_bounds_c")
+    }
     target = repository_root() / "models" / "mpc" / case
     card = json.loads((target / "model_card.json").read_text(encoding="utf-8"))
     manifest = json.loads((target / "training_manifest.json").read_text(encoding="utf-8"))
@@ -784,7 +797,9 @@ def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
         "training_window": card.get("training_week_start_day")
         == int(profile["evaluation_start_day"]) - 7
         and card.get("training_week_days") == 7,
-        "lane_lifecycle": all(
+        "control_support": card.get("control_support_bounds_c") == expected_support,
+        "lane_lifecycle": len(manifest.get("lane_lifecycle", [])) == 4
+        and all(
             row.get("select_count") == 1
             and row.get("stop_count") == 1
             and row.get("initialize_count", 0) > 0
