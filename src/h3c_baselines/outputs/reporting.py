@@ -18,17 +18,50 @@ def _load(path: Path) -> dict[str, Any]:
     return value
 
 
+def _cumulative(values: list[float]) -> list[float]:
+    total = 0.0
+    result: list[float] = []
+    for value in values:
+        total += value
+        result.append(total)
+    return result
+
+
+def _format_optional_metric(value: Any) -> str:
+    return "—" if value is None else f"{float(value):.6f}"
+
+
 def _run_summary(run_dir: Path) -> dict[str, Any]:
     manifest = _load(run_dir / "manifest.json")
     metrics = _load(run_dir / "metrics.json")
     completion = _load(run_dir / "completion.json")
+    native_kpis = _load(run_dir / "native_boptest_kpis.json")
+    model_path = run_dir / "model_identity.json"
+    model_identity = _load(model_path) if model_path.is_file() else None
     return {
         "case": manifest["case"],
         "controller": manifest["controller"],
         "classification": completion["classification"],
+        "source_commit": manifest["source_commit"],
+        "run_identity": manifest["run_identity"],
+        "model_sha256": None if model_identity is None else model_identity["sha256"],
         **metrics["physical"],
         **metrics["setpoint_dynamics"],
         "fallback_count": metrics["controller"]["fallback_count"],
+        **{
+            f"native_{key}": native_kpis.get(key)
+            for key in (
+                "cost_tot",
+                "ener_tot",
+                "emis_tot",
+                "idis_tot",
+                "tdis_tot",
+                "pdih_tot",
+                "pele_tot",
+                "pgas_tot",
+                "time_rat",
+            )
+        },
         "run_dir": str(run_dir),
     }
 
@@ -48,9 +81,10 @@ def _plot_run(run_dir: Path, destination: Path) -> None:
     pmv = [json.loads(row["zone_pmv"]) for row in rows]
     occupancy = [json.loads(row["zone_occupancy"]) for row in rows]
     power = [float(row["total_power_w"]) for row in rows]
+    cumulative_cost = _cumulative([float(row["step_cost"]) for row in rows])
     resolved = _load(run_dir / "resolved_config.json")
     zones = list(resolved["case_profile"]["zones"])
-    figure, axes = plt.subplots(5, 1, figsize=(12, 14), sharex=True)
+    figure, axes = plt.subplots(6, 1, figsize=(12, 16), sharex=True)
     for zone in range(len(temperatures[0])):
         label = zones[zone]
         axes[0].plot(hours, [row[zone] for row in temperatures], label=label)
@@ -63,9 +97,11 @@ def _plot_run(run_dir: Path, destination: Path) -> None:
     axes[2].axhspan(-0.5, 0.5, color="#2ca02c", alpha=0.1)
     axes[2].set_ylabel("PMV")
     axes[3].set_ylabel("Occupancy")
-    axes[4].plot(hours, power, color="#d62728")
-    axes[4].set_ylabel("Power (W)")
-    axes[4].set_xlabel("Evaluation hour")
+    axes[4].plot(hours, cumulative_cost, color="#9467bd")
+    axes[4].set_ylabel("Cumulative cost")
+    axes[5].plot(hours, power, color="#d62728")
+    axes[5].set_ylabel("Power (W)")
+    axes[5].set_xlabel("Evaluation hour")
     for axis in axes:
         axis.grid(alpha=0.2)
     figure.tight_layout()
@@ -113,14 +149,34 @@ def generate_report(source: Path, output_root: Path | None = None) -> dict[str, 
     lines = [
         "# H3C baseline report",
         "",
-        "| Case | Controller | Classification | Cost | Energy (kWh) | Reward | Zone-h | PMV·h |",
-        "|---|---|---|---:|---:|---:|---:|---:|",
+        "| Case | Controller | Classification | Cost | Energy (kWh) | Reward | Zone-h | PMV·h | Peak | TV (°C) | Reversals | Crossings |",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summaries:
         lines.append(
             f"| {row['case']} | {row['controller']} | {row['classification']} | "
             f"{row['total_cost']:.6f} | {row['energy_kwh']:.6f} | {row['reward']:.6f} | "
-            f"{row['discomfort_zone_hours']:.3f} | {row['discomfort_pmv_hours']:.6f} |"
+            f"{row['discomfort_zone_hours']:.3f} | {row['discomfort_pmv_hours']:.6f} | "
+            f"{row['occupied_peak_absolute_pmv']:.3f} | {row['total_variation_c']:.3f} | "
+            f"{row['direction_reversals']} | {row['occupied_comfort_band_crossings']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Native BOPTEST KPIs",
+            "",
+            "| Case | Controller | cost_tot | ener_tot | emis_tot | idis_tot | tdis_tot |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in summaries:
+        lines.append(
+            f"| {row['case']} | {row['controller']} | "
+            f"{_format_optional_metric(row['native_cost_tot'])} | "
+            f"{_format_optional_metric(row['native_ener_tot'])} | "
+            f"{_format_optional_metric(row['native_emis_tot'])} | "
+            f"{_format_optional_metric(row['native_idis_tot'])} | "
+            f"{_format_optional_metric(row['native_tdis_tot'])} |"
         )
     (destination / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     for index, run in enumerate(runs):

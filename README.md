@@ -144,7 +144,8 @@ outputs/baselines/reports/       benchmark tables and figures
 
 Baseline reports include cost, energy, common reward, discomfort zone-hours, PMV·h, occupied
 peak PMV, setpoint total variation, reversals, comfort-band crossings, native BOPTEST KPIs, and
-per-zone power/temperature/PMV/occupancy/setpoint time series. See
+time series for cumulative cost, site power, and per-zone temperature, PMV, occupancy, and
+setpoint. See
 [run artifacts](docs/run_artifacts.md) and [`outputs/README.md`](outputs/README.md).
 
 ## Repository map

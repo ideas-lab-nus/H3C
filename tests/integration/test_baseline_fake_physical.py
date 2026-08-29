@@ -177,6 +177,14 @@ def test_basic_rbc_fake_lifecycle_and_artifact_contract(tmp_path: Path, monkeypa
     assert (report_dir / "report.md").is_file()
     assert (report_dir / "results.csv").is_file()
     assert (report_dir / "SZ_Air_basic-rbc_timeseries.png").is_file()
+    report_payload = json.loads((report_dir / "report.json").read_text(encoding="utf-8"))
+    summary = report_payload["runs"][0]
+    assert summary["source_commit"] == manifest["source_commit"]
+    assert summary["run_identity"] == manifest["run_identity"]
+    assert summary["model_sha256"] is None
+    assert summary["native_cost_tot"] == 1.0
+    report_markdown = (report_dir / "report.md").read_text(encoding="utf-8")
+    assert "Native BOPTEST KPIs" in report_markdown
 
     timing_path = run_dir / "timing.jsonl"
     timing_rows = [
