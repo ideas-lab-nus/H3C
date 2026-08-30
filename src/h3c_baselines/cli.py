@@ -92,7 +92,9 @@ def _parser() -> argparse.ArgumentParser:
     verify = commands.add_parser("verify")
     verify.add_argument("run_directory", type=Path)
     report = commands.add_parser("report")
-    report.add_argument("source", type=Path)
+    report.add_argument("source", type=Path, nargs="+")
+    report.add_argument("--require-complete-benchmark", action="store_true")
+    report.add_argument("--mpc-suite-evidence", type=Path)
     return parser
 
 
@@ -208,7 +210,13 @@ def main(argv: list[str] | None = None) -> int:
         _print(result)
         return 0 if result["execution_integrity"] else 1
     if arguments.command == "report":
-        _print(generate_report(arguments.source))
+        _print(
+            generate_report(
+                arguments.source,
+                require_complete_benchmark=arguments.require_complete_benchmark,
+                mpc_suite_evidence=arguments.mpc_suite_evidence,
+            )
+        )
         return 0
     raise AssertionError("unreachable baseline command")
 
