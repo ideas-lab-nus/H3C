@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -238,11 +239,14 @@ def test_concurrent_runner_awaits_all_arms_and_preserves_primary_and_stop_failur
     assert summary["failed_runs"][0]["failure_evidence_present"] is True
     failed_run = Path(summary["failed_runs"][0]["run_dir"])
     failure = json.loads((failed_run / "failure.json").read_text(encoding="utf-8"))
-    assert failure["primary_failure"] == {
+    failure_details = json.loads((failed_run / "failure_details.json").read_text(encoding="utf-8"))
+    assert failure["schema_version"] == 2
+    assert failure["failure_details_identity"] == runner._identity(failure_details)
+    assert failure_details["primary_failure"] == {
         "type": "RuntimeError",
         "message": "advance failed for MZ_Hydro",
     }
-    assert failure["stop_failure"] == {
+    assert failure_details["stop_failure"] == {
         "type": "RuntimeError",
         "message": "stop failed for MZ_Hydro",
     }
@@ -273,12 +277,25 @@ def test_concurrent_preflight_fails_before_artifacts_threads_or_physical(
         return "b" * 40
 
     def prepare(
-        plan: BaselineRunPlan, *, endpoint: str, source_commit: str
+        plan: BaselineRunPlan,
+        *,
+        endpoint: str,
+        source_commit: str,
+        dispatch_mode: str = "strictly_serial",
+        suite_identity: str | None = None,
+        mpc_freeze_identity: str | None = None,
     ) -> runner._PreparedBaselineRun:
         assert threading.current_thread() is threading.main_thread()
         if plan.case == "MZ_Hydro":
             raise RuntimeError("preflight failed")
-        return real_prepare(plan, endpoint=endpoint, source_commit=source_commit)
+        return real_prepare(
+            plan,
+            endpoint=endpoint,
+            source_commit=source_commit,
+            dispatch_mode=dispatch_mode,
+            suite_identity=suite_identity,
+            mpc_freeze_identity=mpc_freeze_identity,
+        )
 
     def physical_factory(endpoint: str) -> ConcurrentFakePhysical:
         nonlocal physical_calls
@@ -302,6 +319,113 @@ def test_concurrent_preflight_fails_before_artifacts_threads_or_physical(
     assert not (tmp_path / "locks").exists()
 
 
+def test_controller_construction_is_a_main_thread_preflight_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    physical_calls = 0
+
+    class RejectedEnhancedController:
+        def __init__(self, zones: tuple[str, ...], program: Path) -> None:
+            del zones, program
+            assert threading.current_thread() is threading.main_thread()
+            raise RuntimeError("program preflight failed")
+
+    def physical_factory(endpoint: str) -> ConcurrentFakePhysical:
+        nonlocal physical_calls
+        physical_calls += 1
+        return ConcurrentFakePhysical(endpoint)
+
+    monkeypatch.setattr(runner, "EnhancedRbcController", RejectedEnhancedController)
+    with pytest.raises(RuntimeError, match="program preflight failed"):
+        runner.execute_baseline_plans_concurrently(
+            [BaselineRunPlan("SZ_Air", "enhanced-rbc", evaluation_hours=1)],
+            suite="controller-preflight-test",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "locks",
+            physical_factory=physical_factory,
+        )
+
+    assert physical_calls == 0
+    assert not (tmp_path / "runs").exists()
+
+
+def test_mpc_model_and_controller_construction_precede_artifacts_and_physical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    physical_calls = 0
+
+    class RejectedMpcController:
+        def __init__(self, *args: Any) -> None:
+            del args
+            assert threading.current_thread() is threading.main_thread()
+            raise RuntimeError("MPC construction failed")
+
+    def physical_factory(endpoint: str) -> ConcurrentFakePhysical:
+        nonlocal physical_calls
+        physical_calls += 1
+        return ConcurrentFakePhysical(endpoint)
+
+    monkeypatch.setattr(runner, "_verified_mpc_freeze_identity", lambda: "f" * 64)
+    monkeypatch.setattr(runner, "verify_frozen_mpc_model", lambda case: {"valid": True})
+    monkeypatch.setattr(
+        runner.FittedArxModel,
+        "load",
+        lambda path: SimpleNamespace(
+            identity="m" * 64,
+            layout=SimpleNamespace(zones=tuple(load_profile("SZ_Air")["zones"])),
+        ),
+    )
+    monkeypatch.setattr(runner, "HierarchicalMpcController", RejectedMpcController)
+    with pytest.raises(RuntimeError, match="MPC construction failed"):
+        runner.execute_baseline_plans_concurrently(
+            [BaselineRunPlan("SZ_Air", "hierarchical-mpc", evaluation_hours=1)],
+            suite="mpc-controller-preflight-test",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "locks",
+            physical_factory=physical_factory,
+        )
+
+    assert physical_calls == 0
+    assert not (tmp_path / "runs").exists()
+
+
+def test_artifact_creation_failure_is_finalized_before_terminal_sentinel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    original_create = runner.BaselineArtifacts.create
+    physical_calls = 0
+
+    def create_then_fail(self: runner.BaselineArtifacts, *args: Any, **kwargs: Any) -> None:
+        original_create(self, *args, **kwargs)
+        raise RuntimeError("artifact create failed")
+
+    def physical_factory(endpoint: str) -> ConcurrentFakePhysical:
+        nonlocal physical_calls
+        physical_calls += 1
+        return ConcurrentFakePhysical(endpoint)
+
+    monkeypatch.setattr(runner.BaselineArtifacts, "create", create_then_fail)
+    with pytest.raises(runner.ConcurrentBaselineExecutionError) as raised:
+        runner.execute_baseline_plans_concurrently(
+            [BaselineRunPlan("SZ_Air", "basic-rbc", evaluation_hours=1)],
+            suite="artifact-failure-test",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "locks",
+            physical_factory=physical_factory,
+        )
+
+    failed_run = Path(raised.value.summary["failed_runs"][0]["run_dir"])
+    assert physical_calls == 0
+    assert (failed_run / "failure_details.json").is_file()
+    assert (failed_run / "failure.json").is_file()
+    manifest = json.loads((failed_run / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["secret_scan_status"] == "completed"
+    assert manifest["secret_exposure_count"] == 0
+
+
 def test_method_degraded_result_is_completed_without_resubmission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -321,6 +445,8 @@ def test_method_degraded_result_is_completed_without_resubmission(
                 "METHOD-DEGRADED" if prepared.plan.case == "MZ_Hydro" else "BASELINE-PASS"
             ),
             "run_dir": str(tmp_path / prepared.plan.case),
+            "run_identity": prepared.run_identity,
+            "test_id": f"test-{prepared.plan.case}",
         }
 
     monkeypatch.setattr(runner, "_execute_prepared_concurrent_arm", execute)
@@ -336,6 +462,39 @@ def test_method_degraded_result_is_completed_without_resubmission(
     assert len(calls) == 3
     assert result["failed_runs"] == []
     assert result["completed_runs"][1]["classification"] == "METHOD-DEGRADED"
+
+
+def test_suite_evidence_rejects_duplicate_cross_arm_test_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+
+    def execute(
+        prepared: runner._PreparedBaselineRun,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        del kwargs
+        return {
+            "case": prepared.plan.case,
+            "controller": prepared.plan.controller,
+            "classification": "BASELINE-PASS",
+            "run_dir": str(tmp_path / prepared.plan.case),
+            "run_identity": prepared.run_identity,
+            "test_id": "duplicated-test-id",
+        }
+
+    monkeypatch.setattr(runner, "_execute_prepared_concurrent_arm", execute)
+    with pytest.raises(runner.ConcurrentBaselineExecutionError) as raised:
+        runner.execute_baseline_plans_concurrently(
+            _plans(),
+            suite="duplicate-test-id",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "locks",
+            physical_factory=ConcurrentFakePhysical,
+        )
+
+    assert raised.value.summary["suite_evidence_valid"] is False
+    assert "cross_arm_test_identity" in raised.value.summary["suite_evidence_errors"]
 
 
 def test_mpc_formal_suite_uses_the_dynamic_concurrent_runner(

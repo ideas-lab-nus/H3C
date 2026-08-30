@@ -21,6 +21,7 @@ from h3c.runtime.protocol import (
 from h3c_baselines.configuration import BaselineRunPlan
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.models import model_entry, verify_checkpoint
+from h3c_baselines.mpc.registry import verify_frozen_mpc_suite
 from h3c_baselines.mpc.training import verify_frozen_mpc_model
 from h3c_baselines.outputs.artifacts import PERFORMANCE_COLUMNS
 from h3c_baselines.outputs.metrics import compute_baseline_metrics
@@ -92,6 +93,79 @@ def _same(left: Any, right: Any) -> bool:
         and _finite(right)
         and math.isclose(float(left), float(right), rel_tol=1e-9, abs_tol=1e-9)
     )
+
+
+def verify_concurrent_suite_evidence(path: Path) -> dict[str, Any]:
+    """Verify suite binding, arm order, and fresh cross-arm physical identities."""
+
+    try:
+        evidence = _load(path.resolve())
+        expected_fields = {
+            "suite_evidence_schema",
+            "schema_version",
+            "suite",
+            "suite_identity",
+            "dispatch_mode",
+            "source_commit",
+            "plan_identities",
+            "mpc_freeze_identity",
+            "arms",
+        }
+        plans = evidence.get("plan_identities")
+        arms = evidence.get("arms")
+        source_commit = evidence.get("source_commit")
+        suite = evidence.get("suite")
+        expected_identity = _identity(
+            {
+                "dispatch_mode": "auto",
+                "plans": plans,
+                "source_commit": source_commit,
+                "suite": suite,
+                "mpc_freeze_identity": evidence.get("mpc_freeze_identity"),
+            }
+        )
+        test_ids = [row.get("test_id") for row in arms] if isinstance(arms, list) else []
+        run_ids = [row.get("run_identity") for row in arms] if isinstance(arms, list) else []
+        recorded_freeze_identity = evidence.get("mpc_freeze_identity")
+        freeze_binding = recorded_freeze_identity is None
+        if isinstance(recorded_freeze_identity, str):
+            frozen = verify_frozen_mpc_suite()
+            if frozen.get("valid") is True:
+                freeze_manifest = _load(Path(str(frozen["target"])) / "freeze_manifest.json")
+                freeze_binding = freeze_manifest.get("freeze_identity") == recorded_freeze_identity
+        checks = {
+            "schema": set(evidence) == expected_fields
+            and evidence.get("suite_evidence_schema") == "h3c_concurrent_baseline_suite"
+            and evidence.get("schema_version") == 1,
+            "dispatch_mode": evidence.get("dispatch_mode") == "auto",
+            "source_identity": isinstance(source_commit, str)
+            and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None,
+            "suite_identity": evidence.get("suite_identity") == expected_identity,
+            "mpc_freeze_identity": evidence.get("mpc_freeze_identity") is None
+            or (
+                isinstance(evidence.get("mpc_freeze_identity"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", evidence["mpc_freeze_identity"]) is not None
+            ),
+            "mpc_freeze_registry_binding": freeze_binding,
+            "arm_identity": isinstance(plans, list)
+            and isinstance(arms, list)
+            and len(plans) == len(arms)
+            and [row.get("plan_identity") for row in arms] == plans
+            and all(
+                isinstance(row, dict)
+                and isinstance(row.get("run_identity"), str)
+                and isinstance(row.get("case"), str)
+                for row in arms
+            ),
+            "cross_arm_test_identity": bool(test_ids)
+            and all(isinstance(value, str) and value for value in test_ids)
+            and len(test_ids) == len(set(test_ids)),
+            "cross_arm_run_identity": bool(run_ids) and len(run_ids) == len(set(run_ids)),
+        }
+        errors = sorted(name for name, value in checks.items() if not value)
+        return {"checks": checks, "errors": errors, "valid": not errors}
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        return {"checks": {}, "errors": [type(error).__name__], "valid": False}
 
 
 def _exact_numeric_map(value: Any, keys: set[str]) -> bool:
@@ -171,6 +245,9 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             "source_commit",
             "physical_endpoint_identity",
             "mpc_model_identity",
+            "dispatch_mode",
+            "suite_identity",
+            "mpc_freeze_identity",
         }
         expected_manifest_fields = {
             "manifest_schema",
@@ -228,6 +305,16 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
                 execution_identity.get("mpc_model_identity") is None
                 if controller != "hierarchical-mpc"
                 else isinstance(execution_identity.get("mpc_model_identity"), str)
+            )
+            and execution_identity.get("dispatch_mode") in {"auto", "strictly_serial"}
+            and isinstance(execution_identity.get("suite_identity"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", execution_identity["suite_identity"]) is not None
+            and (
+                execution_identity.get("mpc_freeze_identity") is None
+                if controller != "hierarchical-mpc"
+                else isinstance(execution_identity.get("mpc_freeze_identity"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", execution_identity["mpc_freeze_identity"])
+                is not None
             ),
             "manifest_identity": set(manifest) == expected_manifest_fields
             and manifest.get("manifest_schema") == "h3c_baseline_manifest"
@@ -295,6 +382,39 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             )
             and len(lifecycle_test_ids) == 1
         )
+        dispatch = [row for row in timing if row.get("phase") == "physical_dispatch"]
+        if execution_identity.get("dispatch_mode") == "auto":
+            dispatch_events = [row.get("event") for row in dispatch]
+            running_before_configured = (
+                any(
+                    row.get("event") == "status_changed" and row.get("status") == "Running"
+                    for row in dispatch[: dispatch_events.index("configured")]
+                )
+                if "configured" in dispatch_events
+                else False
+            )
+            queued_statuses = [
+                row.get("status") for row in dispatch if row.get("event") == "status_changed"
+            ]
+            checks["dynamic_dispatch_lifecycle"] = (
+                len(dispatch) >= 5
+                and dispatch_events[0] == "selected"
+                and dispatch_events[-1] == "stopped"
+                and dispatch_events.count("selected") == 1
+                and dispatch_events.count("configured") == 1
+                and dispatch_events.count("initialized") == 1
+                and dispatch_events.count("stopped") == 1
+                and dispatch_events.index("configured") < dispatch_events.index("initialized")
+                and running_before_configured
+                and set(queued_statuses).issubset({"Queued", "Running"})
+                and "Running" in queued_statuses
+                and all(row.get("dispatch_mode") == "auto" for row in dispatch)
+                and {row.get("test_id") for row in dispatch} == lifecycle_test_ids
+            )
+        else:
+            checks["dynamic_dispatch_lifecycle"] = not dispatch or all(
+                row.get("dispatch_mode") == "auto" for row in dispatch
+            )
 
         boundary_rows = [row for row in timing if row.get("phase") == "evaluation_boundary"]
         boundary_ok = False

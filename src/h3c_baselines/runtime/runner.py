@@ -46,12 +46,16 @@ from h3c_baselines.controllers.drl import FrozenDrlController
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 from h3c_baselines.models import model_entry, verify_checkpoint
 from h3c_baselines.mpc.optimizer import HierarchicalMpcController
+from h3c_baselines.mpc.registry import verify_frozen_mpc_suite
 from h3c_baselines.mpc.training import verify_frozen_mpc_model
 from h3c_baselines.mpc.vector_arx import FittedArxModel
 from h3c_baselines.outputs.artifacts import BaselineArtifacts
 from h3c_baselines.outputs.integrity import secret_occurrences
 from h3c_baselines.outputs.metrics import compute_baseline_metrics
-from h3c_baselines.outputs.verification import verify_baseline_run
+from h3c_baselines.outputs.verification import (
+    verify_baseline_run,
+    verify_concurrent_suite_evidence,
+)
 from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
 
 PhysicalFactory = Callable[[str], PhysicalClient]
@@ -66,6 +70,8 @@ class _PreparedBaselineRun:
     drl_identity: dict[str, Any] | None
     mpc_model: FittedArxModel | None
     mpc_identity: dict[str, Any] | None
+    enhanced_controller: EnhancedRbcController | None
+    mpc_controller: HierarchicalMpcController | None
     source_commit: str
     execution_identity: dict[str, Any]
     run_identity: str
@@ -212,16 +218,54 @@ def _native_kpis(physical: PhysicalClient) -> dict[str, Any]:
     return value
 
 
+def _publish_finalized_failure(
+    artifacts: BaselineArtifacts,
+    manifest: dict[str, Any],
+    failure_details: Mapping[str, Any],
+) -> None:
+    """Finalize inspectable evidence before publishing the terminal sentinel."""
+
+    artifacts.write_new_json("failure_details.json", failure_details)
+    manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
+    manifest["secret_scan_status"] = "completed"
+    artifacts.replace_json("manifest.json", manifest)
+    artifacts.publish_failure(
+        {
+            "failure_schema": "h3c_baseline_failure",
+            "schema_version": 2,
+            "classification": "RUN-INVALID",
+            "run_identity": failure_details["run_identity"],
+            "failure_details_identity": _identity(failure_details),
+        }
+    )
+
+
+def _verified_mpc_freeze_identity() -> str:
+    verification = verify_frozen_mpc_suite()
+    if verification.get("valid") is not True:
+        raise ValueError("frozen MPC suite verification failed")
+    manifest_path = Path(str(verification["target"])) / "freeze_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    freeze_identity = manifest.get("freeze_identity")
+    if not isinstance(freeze_identity, str) or not freeze_identity:
+        raise ValueError("frozen MPC suite identity is missing")
+    return freeze_identity
+
+
 def _prepare_baseline_run(
     plan: BaselineRunPlan,
     *,
     endpoint: str,
     source_commit: str,
+    dispatch_mode: str = "strictly_serial",
+    suite_identity: str | None = None,
+    mpc_freeze_identity: str | None = None,
 ) -> _PreparedBaselineRun:
     """Resolve one arm and load all optional dependencies before physical work."""
 
     resolved = plan.resolved()
     profile = resolved["case_profile"]
+    zones = tuple(profile["zones"])
     drl: FrozenDrlController | None = None
     observation_builder: PolicyObservationBuilder | None = None
     drl_identity: dict[str, Any] | None = None
@@ -233,19 +277,44 @@ def _prepare_baseline_run(
 
     mpc_model: FittedArxModel | None = None
     mpc_identity: dict[str, Any] | None = None
+    enhanced_controller = (
+        EnhancedRbcController(zones, repository_root() / profile["program"])
+        if plan.controller in {"enhanced-rbc", "hierarchical-mpc"}
+        else None
+    )
+    mpc_controller: HierarchicalMpcController | None = None
     if plan.controller == "hierarchical-mpc":
+        mpc_freeze_identity = mpc_freeze_identity or _verified_mpc_freeze_identity()
         mpc_identity = verify_frozen_mpc_model(plan.case)
         if mpc_identity["valid"] is not True:
             raise ValueError("frozen hierarchical MPC model verification failed")
         mpc_model = FittedArxModel.load(
             repository_root() / "models" / "mpc" / plan.case / "model_coefficients.npz"
         )
+        if mpc_model.layout.zones != zones:
+            raise ValueError("MPC model zone layout is invalid")
+        mpc_controller = HierarchicalMpcController(
+            mpc_model,
+            profile["objective"],
+            load_hierarchical_mpc_config()["excitation"],
+        )
+
+    resolved_suite_identity = suite_identity or _identity(
+        {
+            "dispatch_mode": dispatch_mode,
+            "plans": [resolved["plan_identity"]],
+            "source_commit": source_commit,
+        }
+    )
 
     execution_identity = {
         "plan_identity": resolved["plan_identity"],
         "source_commit": source_commit,
         "physical_endpoint_identity": _identity(endpoint.rstrip("/")),
         "mpc_model_identity": None if mpc_model is None else mpc_model.identity,
+        "dispatch_mode": dispatch_mode,
+        "suite_identity": resolved_suite_identity,
+        "mpc_freeze_identity": mpc_freeze_identity,
     }
     run_identity = _identity(execution_identity)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + run_identity[:12]
@@ -258,6 +327,8 @@ def _prepare_baseline_run(
         drl_identity=drl_identity,
         mpc_model=mpc_model,
         mpc_identity=mpc_identity,
+        enhanced_controller=enhanced_controller,
+        mpc_controller=mpc_controller,
         source_commit=source_commit,
         execution_identity=execution_identity,
         run_identity=run_identity,
@@ -289,6 +360,8 @@ def _execute_one(
     drl_identity = prepared_run.drl_identity
     mpc_model = prepared_run.mpc_model
     mpc_identity = prepared_run.mpc_identity
+    enhanced = prepared_run.enhanced_controller
+    mpc = prepared_run.mpc_controller
     execution_identity = prepared_run.execution_identity
     run_identity = prepared_run.run_identity
     artifacts = BaselineArtifacts(
@@ -319,11 +392,35 @@ def _execute_one(
             "test_id_changes": 0,
         },
     }
-    artifacts.create(
-        resolved,
-        manifest,
-        reserved_by_execution_lock=reserved_run_directory,
-    )
+    try:
+        artifacts.create(
+            resolved,
+            manifest,
+            reserved_by_execution_lock=reserved_run_directory,
+        )
+    except Exception as error:
+        # Artifact creation is intentionally before any physical client exists. A
+        # manifest-backed partial directory can be closed as terminal evidence;
+        # failure before manifest creation remains non-terminal and is owned by
+        # the suite-level failure evidence.
+        if (artifacts.run_dir / "manifest.json").is_file():
+            _publish_finalized_failure(
+                artifacts,
+                manifest,
+                {
+                    "failure_details_schema": "h3c_baseline_failure_details",
+                    "schema_version": 1,
+                    "classification": "RUN-INVALID",
+                    "run_identity": run_identity,
+                    "primary_failure": {
+                        "type": type(error).__name__,
+                        "message": str(error),
+                    },
+                    "stop_failure": None,
+                    "elapsed_seconds": 0.0,
+                },
+            )
+        raise
     if drl_identity is not None:
         artifacts.write_new_json("model_identity.json", drl_identity)
     if mpc_identity is not None:
@@ -393,15 +490,9 @@ def _execute_one(
         last_setpoints = dict(boundary.last_setpoint_c)
         last_pmv = dict(boundary.last_pmv)
         last_occupancy = dict(boundary.last_occupancy)
-        enhanced = (
-            EnhancedRbcController(zones, repository_root() / profile["program"])
-            if plan.controller in {"enhanced-rbc", "hierarchical-mpc"}
-            else None
-        )
         policy_comfort = ComfortModel(profile["comfort"]) if drl is not None else None
         if observation_builder is not None:
             observation_builder.reset(state)
-        mpc: HierarchicalMpcController | None = None
         output_history: NDArray[np.float64] | None = None
         control_history: NDArray[np.float64] | None = None
         if plan.controller == "hierarchical-mpc":
@@ -411,11 +502,8 @@ def _execute_one(
                 or mpc_model.layout.zones != zones
             ):
                 raise ValueError("MPC model identity or zone layout is invalid")
-            mpc = HierarchicalMpcController(
-                mpc_model,
-                profile["objective"],
-                load_hierarchical_mpc_config()["excitation"],
-            )
+            if mpc is None:
+                raise ValueError("MPC controller was not constructed during preflight")
             boundary_output = np.asarray(
                 [
                     *[zone_temperature_c(profile, state, zone) for zone in zones],
@@ -640,9 +728,11 @@ def _execute_one(
             except Exception as error:
                 stop_error = error
     if primary_error is not None or stop_error is not None:
-        artifacts.publish_failure(
+        _publish_finalized_failure(
+            artifacts,
+            manifest,
             {
-                "failure_schema": "h3c_baseline_failure",
+                "failure_details_schema": "h3c_baseline_failure_details",
                 "schema_version": 1,
                 "classification": "RUN-INVALID",
                 "run_identity": run_identity,
@@ -657,11 +747,8 @@ def _execute_one(
                     else {"type": type(stop_error).__name__, "message": str(stop_error)}
                 ),
                 "elapsed_seconds": time.perf_counter() - started,
-            }
+            },
         )
-        manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
-        manifest["secret_scan_status"] = "completed"
-        artifacts.replace_json("manifest.json", manifest)
         if primary_error is not None:
             if stop_error is not None:
                 raise primary_error from stop_error
@@ -681,19 +768,19 @@ def _execute_one(
         if verification["completion_eligible"] is not True:
             raise ValueError(f"baseline verification failed: {verification['errors']}")
     except Exception as error:
-        artifacts.publish_failure(
+        _publish_finalized_failure(
+            artifacts,
+            manifest,
             {
-                "failure_schema": "h3c_baseline_failure",
+                "failure_details_schema": "h3c_baseline_failure_details",
                 "schema_version": 1,
                 "classification": "RUN-INVALID",
                 "run_identity": run_identity,
                 "primary_failure": {"type": type(error).__name__, "message": str(error)},
                 "stop_failure": None,
                 "elapsed_seconds": time.perf_counter() - started,
-            }
+            },
         )
-        manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
-        artifacts.replace_json("manifest.json", manifest)
         raise
     completion = {
         "completion_schema": "h3c_baseline_completion",
@@ -711,6 +798,9 @@ def _execute_one(
         "controller": plan.controller,
         "classification": final["classification"],
         "run_dir": str(artifacts.run_dir),
+        "test_id": frozen_test_id,
+        "run_identity": run_identity,
+        "plan_identity": resolved["plan_identity"],
     }
 
 
@@ -787,6 +877,14 @@ def _concurrent_failure(
         prepared.run_id,
         prepared.plan.controller,
     )
+    test_ids: set[str] = set()
+    timing_path = artifacts.run_dir / "timing.jsonl"
+    if timing_path.is_file():
+        for line in timing_path.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            test_id = row.get("test_id")
+            if isinstance(test_id, str) and test_id:
+                test_ids.add(test_id)
     return {
         "case": prepared.plan.case,
         "controller": prepared.plan.controller,
@@ -795,6 +893,9 @@ def _concurrent_failure(
         "error_type": type(error).__name__,
         "error_message": str(error),
         "failure_evidence_present": (artifacts.run_dir / "failure.json").is_file(),
+        "run_identity": prepared.run_identity,
+        "test_id": next(iter(test_ids)) if len(test_ids) == 1 else None,
+        "plan_identity": prepared.resolved["plan_identity"],
     }
 
 
@@ -821,8 +922,30 @@ def execute_baseline_plans_concurrently(
     # Source identity and every optional dependency are resolved on the caller thread.
     # No artifacts, workers, test ids, or physical requests exist before this completes.
     source_commit = _source_commit()
+    plan_identities = [plan.resolved()["plan_identity"] for plan in plans]
+    mpc_freeze_identity = (
+        _verified_mpc_freeze_identity()
+        if any(plan.controller == "hierarchical-mpc" for plan in plans)
+        else None
+    )
+    suite_identity = _identity(
+        {
+            "dispatch_mode": "auto",
+            "plans": plan_identities,
+            "source_commit": source_commit,
+            "suite": suite,
+            "mpc_freeze_identity": mpc_freeze_identity,
+        }
+    )
     prepared = [
-        _prepare_baseline_run(plan, endpoint=endpoint, source_commit=source_commit)
+        _prepare_baseline_run(
+            plan,
+            endpoint=endpoint,
+            source_commit=source_commit,
+            dispatch_mode="auto",
+            suite_identity=suite_identity,
+            mpc_freeze_identity=mpc_freeze_identity,
+        )
         for plan in plans
     ]
     for item in prepared:
@@ -836,48 +959,50 @@ def execute_baseline_plans_concurrently(
         if artifacts.run_dir.exists():
             raise ValueError("fresh baseline run directory already exists")
 
-    suite_lock_identity = _identity(
-        {
-            "suite": suite,
-            "source_commit": source_commit,
-            "plans": [item.resolved["plan_identity"] for item in prepared],
-        }
-    )
+    suite_lock_identity = suite_identity
     suite_lock_root = resolved_lock_root / "concurrent-suites" / suite_lock_identity
+    suite_evidence_dir = root / suite / "suite-evidence"
+    suite_evidence_path = suite_evidence_dir / f"{suite_identity}.json"
+    suite_claim_path = suite_evidence_dir / f".{suite_identity}.claim"
     factory = physical_factory or BoptestHttpClient
     completed: list[dict[str, Any] | None] = [None] * len(prepared)
     failures: list[dict[str, Any] | None] = [None] * len(prepared)
-    with (
-        physical_execution_lock(suite_lock_root),
+    with physical_execution_lock(suite_lock_root):
+        if suite_evidence_path.exists() or suite_claim_path.exists():
+            raise ValueError("concurrent suite evidence already exists")
+        suite_evidence_dir.mkdir(parents=True, exist_ok=True)
+        with suite_claim_path.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(suite_identity + "\n")
+            file.flush()
+            os.fsync(file.fileno())
         # This is one local task per registered arm, not a physical worker limit.
         # BOPTEST alone admits each selected test as Running or Queued.
-        ThreadPoolExecutor(
+        with ThreadPoolExecutor(
             max_workers=len(prepared),
             thread_name_prefix="h3c-baseline-arm",
-        ) as executor,
-    ):
-        futures: dict[Future[dict[str, Any]], int] = {
-            executor.submit(
-                _execute_prepared_concurrent_arm,
-                item,
-                suite=suite,
-                endpoint=endpoint,
-                output_root=root,
-                physical_factory=factory,
-            ): index
-            for index, item in enumerate(prepared)
-        }
-        for future in as_completed(futures):
-            index = futures[future]
-            try:
-                completed[index] = future.result()
-            except Exception as error:
-                failures[index] = _concurrent_failure(
-                    prepared[index],
-                    error,
+        ) as executor:
+            futures: dict[Future[dict[str, Any]], int] = {
+                executor.submit(
+                    _execute_prepared_concurrent_arm,
+                    item,
                     suite=suite,
+                    endpoint=endpoint,
                     output_root=root,
-                )
+                    physical_factory=factory,
+                ): index
+                for index, item in enumerate(prepared)
+            }
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    completed[index] = future.result()
+                except Exception as error:
+                    failures[index] = _concurrent_failure(
+                        prepared[index],
+                        error,
+                        suite=suite,
+                        output_root=root,
+                    )
 
     ordered_runs = [
         completed[index] if completed[index] is not None else failures[index]
@@ -887,11 +1012,58 @@ def execute_baseline_plans_concurrently(
         "execution": "dynamic_concurrent",
         "dispatch_mode": "auto",
         "source_commit": source_commit,
+        "suite_identity": suite_identity,
         "submitted_runs": len(prepared),
         "runs": ordered_runs,
         "completed_runs": [row for row in completed if row is not None],
         "failed_runs": [row for row in failures if row is not None],
     }
+    suite_arms: list[dict[str, Any]] = []
+    for index, optional_row in enumerate(ordered_runs):
+        if optional_row is None:
+            raise AssertionError("concurrent arm completed without a result")
+        suite_arms.append(
+            {
+                **{
+                    key: optional_row.get(key)
+                    for key in (
+                        "case",
+                        "controller",
+                        "classification",
+                        "run_dir",
+                        "run_identity",
+                        "test_id",
+                        "failure_evidence_present",
+                    )
+                    if key in optional_row
+                },
+                "plan_identity": plan_identities[index],
+            }
+        )
+    suite_evidence = {
+        "suite_evidence_schema": "h3c_concurrent_baseline_suite",
+        "schema_version": 1,
+        "suite": suite,
+        "suite_identity": suite_identity,
+        "dispatch_mode": "auto",
+        "source_commit": source_commit,
+        "plan_identities": plan_identities,
+        "mpc_freeze_identity": mpc_freeze_identity,
+        "arms": suite_arms,
+    }
+    pending_suite_evidence = suite_evidence_dir / f".{suite_identity}.pending"
+    with pending_suite_evidence.open("x", encoding="utf-8", newline="\n") as file:
+        file.write(_canonical(suite_evidence) + "\n")
+        file.flush()
+        os.fsync(file.fileno())
+    pending_suite_evidence.replace(suite_evidence_path)
+    suite_claim_path.unlink()
+    summary["suite_evidence"] = str(suite_evidence_path)
+    suite_verification = verify_concurrent_suite_evidence(suite_evidence_path)
+    summary["suite_evidence_valid"] = suite_verification["valid"]
+    if suite_verification["valid"] is not True:
+        summary["suite_evidence_errors"] = suite_verification["errors"]
+        raise ConcurrentBaselineExecutionError(summary)
     if summary["failed_runs"]:
         raise ConcurrentBaselineExecutionError(summary)
     return summary
