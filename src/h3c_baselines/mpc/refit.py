@@ -73,6 +73,12 @@ class _EpisodeRoles:
         }
 
 
+@dataclass(frozen=True)
+class _RebuiltCandidate:
+    model: FittedArxModel
+    evidence: dict[str, Any]
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
@@ -156,10 +162,12 @@ def _load_episode(case: str, case_dir: Path, episode_dir: Path) -> _SourceEpisod
         raise ValueError(f"MPC source episode identity mismatch: {episode_dir.name}")
     if role not in {"fit", "holdout", "basic_reference", "validation"}:
         raise ValueError(f"MPC source episode role is invalid: {role}")
+    registered_steps = 668 if role == "validation" else 672
     if (
         int(manifest.get("warmup_period_seconds", -1)) != 7 * 86400
         or int(manifest.get("start_time_seconds", -1))
         != (int(profile["evaluation_start_day"]) - 7) * 86400
+        or int(manifest.get("steps", -1)) != registered_steps
     ):
         raise ValueError(f"MPC source episode protocol is invalid: {episode_dir.name}")
     trajectory_path = episode_dir / "trajectory.npz"
@@ -170,8 +178,12 @@ def _load_episode(case: str, case_dir: Path, episode_dir: Path) -> _SourceEpisod
         disturbances = np.asarray(source["disturbances"], dtype=np.float64)
     rows = len(times)
     expected_steps = int(manifest.get("steps", -1))
+    expected_start = (int(profile["evaluation_start_day"]) - 7) * 86400
     if (
         rows != expected_steps + 1
+        or rows != registered_steps + 1
+        or int(times[0]) != expected_start
+        or int(times[-1]) != expected_start + registered_steps * STEP_SECONDS
         or outputs.shape != (rows, layout.output_dimension)
         or controls.shape != (rows, layout.control_dimension)
         or disturbances.shape != (rows, len(layout.disturbance_names))
@@ -235,6 +247,20 @@ def _case_roles(case: str, source: Path) -> _EpisodeRoles:
     identities = [(episode.data.role, episode.data.episode) for episode in episodes]
     if len(identities) != len(set(identities)):
         raise ValueError(f"MPC source contains duplicate episode identity for {case}")
+    fit_episode_ids = sorted(
+        episode.data.episode for episode in episodes if episode.data.role == "fit"
+    )
+    if fit_episode_ids != list(range(len(fit_episode_ids))):
+        raise ValueError(f"MPC source fit episode IDs are not contiguous for {case}")
+    registered_fit_counts = {int(value) for value in config["fit_checkpoints"]}
+    if len(fit_episode_ids) not in registered_fit_counts:
+        raise ValueError(f"MPC source fit episode count is not registered for {case}")
+    for episode in episodes:
+        expected_lane = (
+            episode.data.episode % worker_count if episode.data.role in {"fit", "holdout"} else 0
+        )
+        if episode.data.lane != expected_lane:
+            raise ValueError(f"MPC source episode lane assignment is invalid for {case}")
     lane_test_ids: dict[int, set[str]] = {lane: set() for lane in range(worker_count)}
     lane_episode_counts = {lane: 0 for lane in range(worker_count)}
     for episode in episodes:
@@ -429,6 +455,24 @@ def _daily_outdoor_means(reference: EpisodeData) -> dict[int, float]:
     return {day: float(np.mean(values)) for day, values in by_day.items()}
 
 
+def _require_calibration_disturbance_alignment(
+    calibration: EpisodeData,
+    basic_reference: EpisodeData,
+) -> None:
+    reference_indices = {
+        int(time_seconds): index for index, time_seconds in enumerate(basic_reference.times[:-1])
+    }
+    if len(reference_indices) != len(basic_reference.times) - 1:
+        raise ValueError("MPC Basic-RBC reference timeline contains duplicate timestamps")
+    for calibration_index, time_seconds in enumerate(calibration.times[:-1]):
+        reference_index = reference_indices.get(int(time_seconds))
+        if reference_index is None or not np.array_equal(
+            calibration.disturbances[calibration_index],
+            basic_reference.disturbances[reference_index],
+        ):
+            raise ValueError("MPC calibration exogenous disturbances do not align with Basic RBC")
+
+
 def _calibration_report(
     model: FittedArxModel,
     calibration: EpisodeData,
@@ -437,6 +481,7 @@ def _calibration_report(
     daily_outdoor_means: Mapping[int, float],
 ) -> dict[str, Any]:
     layout = model.layout
+    _require_calibration_disturbance_alignment(calibration, occupancy_reference)
     residuals: list[float] = []
     temperature_residuals: list[float] = []
     terminal_residual_count = 0
@@ -659,38 +704,93 @@ def _fit_candidate(
     return report
 
 
-def recompute_candidate_source_evidence(
+def _rebuild_candidate_from_source(
     case: str,
     source_run: Path,
-    model: FittedArxModel,
-) -> dict[str, Any]:
-    """Recompute launch gates from immutable episodes, never candidate JSON."""
+) -> _RebuiltCandidate:
+    """Rebuild the exact candidate from immutable episodes, never candidate JSON."""
     source = _resolve_source_run(source_run)
+    config = load_hierarchical_mpc_config()
     roles = _case_roles(case, source)
-    layout = _arx_layout(load_profile(case))
-    fit_features, _ = _episode_dataset(layout, [episode.data for episode in roles.fit])
-    holdout_features, _ = _episode_dataset(layout, [episode.data for episode in roles.holdout])
+    profile = load_profile(case)
+    layout = _arx_layout(profile)
+    fit_features, fit_targets = _episode_dataset(layout, [episode.data for episode in roles.fit])
+    holdout_features, holdout_targets = _episode_dataset(
+        layout, [episode.data for episode in roles.holdout]
+    )
+    base_model, fit_report = fit_vector_arx(
+        layout,
+        fit_features,
+        fit_targets,
+        holdout_features=holdout_features,
+        holdout_outputs=holdout_targets,
+        alpha_candidates=tuple(float(value) for value in config["ridge_alpha_candidates"]),
+    )
     basic_reference = next(
         episode.data for episode in roles.fit if episode.data.role == "basic_reference"
     )
-    return {
+    calibration = _calibration_report(
+        base_model,
+        roles.calibration.data,
+        basic_reference,
+        profile,
+        _daily_outdoor_means(basic_reference),
+    )
+    candidate = with_pmv_robust_margin(base_model, float(calibration["pmv_robust_margin"]))
+    evidence = {
         "episode_roles": _role_summary(roles),
         "fit_rows": len(fit_features),
         "holdout_rows": len(holdout_features),
         "calibration_one_step_rows": len(roles.calibration.data.times) - layout.lag_count,
+        "fit_report": fit_report,
         "holdout_use": "alpha_selection_and_persistence_gate_only",
         "final_fit_includes_holdout": False,
         "prediction_quality": open_loop_prediction_quality(
-            model, [episode.data for episode in roles.holdout]
+            candidate, [episode.data for episode in roles.holdout]
         ),
-        "calibration": _calibration_report(
-            model,
-            roles.calibration.data,
-            basic_reference,
-            load_profile(case),
-            _daily_outdoor_means(basic_reference),
-        ),
+        "calibration": calibration,
+        "candidate_model_identity": candidate.identity,
     }
+    return _RebuiltCandidate(candidate, evidence)
+
+
+def recompute_candidate_source_evidence(
+    case: str,
+    source_run: Path,
+) -> dict[str, Any]:
+    """Expose immutable source evidence for later physical-launch validation."""
+    return _rebuild_candidate_from_source(case, source_run).evidence
+
+
+def _source_model_checks(
+    stored: FittedArxModel,
+    rebuilt: FittedArxModel | None,
+) -> dict[str, bool]:
+    if rebuilt is None:
+        return {"source_model_exact": True}
+    checks = {
+        "source_layout": stored.layout == rebuilt.layout,
+        "source_ridge_alpha": stored.ridge_alpha == rebuilt.ridge_alpha,
+        "source_pmv_robust_margin": stored.pmv_robust_margin == rebuilt.pmv_robust_margin,
+        "source_intercept": np.array_equal(stored.intercept, rebuilt.intercept),
+        "source_coefficients": np.array_equal(stored.coefficients, rebuilt.coefficients),
+        "source_feature_mean": np.array_equal(
+            stored.scaling.feature_mean, rebuilt.scaling.feature_mean
+        ),
+        "source_feature_scale": np.array_equal(
+            stored.scaling.feature_scale, rebuilt.scaling.feature_scale
+        ),
+        "source_output_mean": np.array_equal(
+            stored.scaling.output_mean, rebuilt.scaling.output_mean
+        ),
+        "source_output_scale": np.array_equal(
+            stored.scaling.output_scale, rebuilt.scaling.output_scale
+        ),
+        "stored_expected_identity": stored.identity == expected_model_identity(stored),
+        "rebuilt_expected_identity": rebuilt.identity == expected_model_identity(rebuilt),
+        "source_model_identity": stored.identity == rebuilt.identity,
+    }
+    return {**checks, "source_model_exact": all(checks.values())}
 
 
 def _verify_candidate(
@@ -698,6 +798,7 @@ def _verify_candidate(
     target: Path,
     *,
     source_evidence: Mapping[str, Any] | None = None,
+    source_model: FittedArxModel | None = None,
 ) -> dict[str, Any]:
     report = _read_json(target / "candidate_report.json")
     card = _read_json(target / "model_card.json")
@@ -722,7 +823,9 @@ def _verify_candidate(
     robust = robust if isinstance(robust, dict) else {}
     reported_checks = report.get("checks")
     fit_report = report.get("fit_report")
+    source_model_checks = _source_model_checks(model, source_model)
     checks = {
+        "report_schema": report.get("schema") == "h3c_hierarchical_mpc_refit_candidate",
         "case": report.get("case") == case,
         "model_identity": report.get("model_identity") == model.identity,
         "candidate_eligible": report.get("eligible") is True,
@@ -765,6 +868,11 @@ def _verify_candidate(
         ),
         "source_calibration": source_evidence is None
         or source_evidence.get("calibration") == calibration,
+        "source_fit_report": source_evidence is None
+        or source_evidence.get("fit_report") == fit_report,
+        "source_candidate_identity": source_evidence is None
+        or source_evidence.get("candidate_model_identity") == model.identity,
+        **source_model_checks,
         "model_card": card.get("schema") == "h3c_hierarchical_mpc_refit_model_card"
         and card.get("case") == case
         and card.get("model_identity") == model.identity
@@ -825,16 +933,12 @@ def refit_hierarchical_mpc(source_run: Path) -> dict[str, Any]:
             source_manifest_identity = _sha256(run_dir / "source_manifest.json")
             for case in config["case_order"]:
                 report = _fit_candidate(case, source, run_dir / case / "candidate_model")
+                rebuilt = _rebuild_candidate_from_source(case, source)
                 verification = _verify_candidate(
                     case,
                     run_dir / case / "candidate_model",
-                    source_evidence=recompute_candidate_source_evidence(
-                        case,
-                        source,
-                        FittedArxModel.load(
-                            run_dir / case / "candidate_model" / "model_coefficients.npz"
-                        ),
-                    ),
+                    source_evidence=rebuilt.evidence,
+                    source_model=rebuilt.model,
                 )
                 if verification["valid"] is not True:
                     raise ValueError(f"{case} staged MPC refit verification failed")
@@ -902,20 +1006,17 @@ def verify_refit_workspace(workspace: Path) -> dict[str, Any]:
         if not isinstance(expected_files, list) or expected_files != _source_file_manifest(source):
             raise ValueError("MPC refit source file identity changed")
         config = load_hierarchical_mpc_config()
-        case_results = [
-            _verify_candidate(
-                case,
-                target / case / "candidate_model",
-                source_evidence=recompute_candidate_source_evidence(
+        case_results: list[dict[str, Any]] = []
+        for case in config["case_order"]:
+            rebuilt = _rebuild_candidate_from_source(case, source)
+            case_results.append(
+                _verify_candidate(
                     case,
-                    source,
-                    FittedArxModel.load(
-                        target / case / "candidate_model" / "model_coefficients.npz"
-                    ),
-                ),
+                    target / case / "candidate_model",
+                    source_evidence=rebuilt.evidence,
+                    source_model=rebuilt.model,
+                )
             )
-            for case in config["case_order"]
-        ]
         completion_cases = completion.get("cases")
         completion_by_case = (
             {str(value.get("case")): value for value in completion_cases}

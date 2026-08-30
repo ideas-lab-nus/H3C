@@ -29,6 +29,7 @@ def _configuration() -> dict[str, Any]:
         "case_order": ["Case"],
         "fit_checkpoints": [8, 16, 32, 64],
         "holdout_episodes": 4,
+        "ridge_alpha_candidates": [1e-6, 1.0],
     }
 
 
@@ -56,11 +57,12 @@ def _episode(
     episode: int,
     lane: int,
     fallback_count: int = 0,
-    rows: int = 9,
 ) -> Path:
     path = case_dir / "episodes" / f"{role}-{episode:03d}-lane-{lane}"
     path.mkdir(parents=True)
     start = 3 * 86400
+    steps = 668 if role == "validation" else 672
+    rows = steps + 1
     np.savez_compressed(
         path / "trajectory.npz",
         times=np.arange(rows, dtype=np.int64) * 900 + start,
@@ -77,7 +79,7 @@ def _episode(
             "test_id": f"test-lane-{lane}",
             "start_time_seconds": start,
             "warmup_period_seconds": 7 * 86400,
-            "steps": rows - 1,
+            "steps": steps,
             "reward": -1.0,
             "peak_occupied_absolute_pmv": 0.6,
             "fallback_count": fallback_count,
@@ -122,7 +124,8 @@ def _source_bank(
     )
     episode_paths = [
         *[_episode(case_dir, role="fit", episode=index, lane=index) for index in range(4)],
-        _episode(case_dir, role="basic_reference", episode=0, lane=0, rows=13),
+        *[_episode(case_dir, role="fit", episode=index, lane=index % 4) for index in range(4, 8)],
+        _episode(case_dir, role="basic_reference", episode=0, lane=0),
         *[_episode(case_dir, role="holdout", episode=index, lane=index) for index in range(4)],
     ]
     fallback = {8: 0, 16: 1, 32: 0, 64: 0}
@@ -210,6 +213,7 @@ def test_source_roles_reconstruct_exact_partition_and_lane_identity(
         ("test_id", "different-test", "test identity is unstable"),
         ("reward", float("nan"), "episode metrics are invalid"),
         ("fallback_count", -1, "episode metrics are invalid"),
+        ("steps", 672, "episode protocol is invalid"),
     ],
 )
 def test_source_episode_tampering_fails_closed(
@@ -242,6 +246,52 @@ def test_source_plan_and_failure_commit_must_match(
 
     with pytest.raises(ValueError, match="plan/failure identity is inconsistent"):
         refit._resolve_source_run(source)
+
+
+def test_source_episode_timeline_must_match_registered_role_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, case_dir = _source_bank(tmp_path)
+    _patch_source_owners(monkeypatch, tmp_path)
+    trajectory_path = case_dir / "episodes" / "validation-032-lane-0" / "trajectory.npz"
+    with np.load(trajectory_path, allow_pickle=False) as value:
+        arrays = {name: np.asarray(value[name]).copy() for name in value.files}
+    arrays["times"] += 900
+    np.savez_compressed(trajectory_path, **arrays)
+
+    with pytest.raises(ValueError, match="source trajectory is invalid"):
+        refit._case_roles("Case", source)
+
+
+def test_source_fit_ids_and_registered_lane_assignment_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, case_dir = _source_bank(tmp_path)
+    _patch_source_owners(monkeypatch, tmp_path)
+    original = case_dir / "episodes" / "fit-003-lane-3"
+    renumbered = case_dir / "episodes" / "fit-009-lane-3"
+    original.rename(renumbered)
+    manifest_path = renumbered / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["episode"] = 9
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="fit episode IDs are not contiguous"):
+        refit._case_roles("Case", source)
+
+    renumbered.rename(original)
+    manifest["episode"] = 3
+    manifest_path = original / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    wrong_lane = case_dir / "episodes" / "fit-001-lane-1"
+    renamed = case_dir / "episodes" / "fit-001-lane-0"
+    wrong_lane.rename(renamed)
+    manifest_path = renamed / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["lane"] = 0
+    manifest["test_id"] = "test-lane-0"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="episode lane assignment is invalid"):
+        refit._case_roles("Case", source)
 
 
 def _constant_model(layout: ArxLayout) -> FittedArxModel:
@@ -278,6 +328,7 @@ def test_calibration_uses_real_basic_reference_occupancy_at_k_plus_4() -> None:
     reference_times = np.arange(13, dtype=np.int64) * 900
     reference_disturbances = np.zeros((13, 5))
     # For origin=3, k+3 is unoccupied while the real k+4 target is occupied.
+    calibration_disturbances[7, 2] = 1.0
     reference_disturbances[7, 2] = 1.0
     calibration = EpisodeData(
         "validation",
@@ -315,6 +366,10 @@ def test_calibration_uses_real_basic_reference_occupancy_at_k_plus_4() -> None:
     assert report["residual_count"] == 2
     assert report["scope"] == "case_specific_estimate_common_formula"
 
+    reference_disturbances[5, 0] = 1.0
+    with pytest.raises(ValueError, match="exogenous disturbances do not align"):
+        refit._calibration_report(model, calibration, basic, _profile(), {0: 20.0})
+
 
 def test_margin_changes_bundle_identity_but_zero_preserves_it() -> None:
     model = _constant_model(ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos")))
@@ -325,12 +380,131 @@ def test_margin_changes_bundle_identity_but_zero_preserves_it() -> None:
     assert calibrated.identity == expected_model_identity(calibrated)
 
 
+def test_coordinated_candidate_artifact_tamper_cannot_bypass_source_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(refit, "load_profile", lambda _case: _profile())
+    source_model = with_pmv_robust_margin(_constant_model(refit._arx_layout(_profile())), 0.1)
+    target = tmp_path / "candidate"
+    target.mkdir()
+    source_model.save(target / "model_coefficients.npz")
+    episode_roles = {
+        "episodes": {
+            "fit": ["fit", "adaptive"],
+            "adaptive_validation": ["adaptive"],
+            "calibration": "calibration",
+            "holdout": ["holdout"],
+            "excluded_fallback": [],
+            "unused_validation": [],
+        }
+    }
+    calibration = {
+        "pmv_robust_margin": 0.1,
+        "internal_comfort_band": 0.4,
+        "residual_count": 4,
+    }
+    fit_report = {"final_fit_includes_holdout": False}
+    quality = {"finite": True, "beats_persistence": True}
+    report = {
+        "schema": "h3c_hierarchical_mpc_refit_candidate",
+        "case": "Case",
+        "model_identity": source_model.identity,
+        "eligible": True,
+        "checks": {"registered": True},
+        "episode_roles": episode_roles,
+        "fit_rows": 10,
+        "holdout_rows": 4,
+        "calibration_one_step_rows": 5,
+        "fit_report": fit_report,
+        "holdout_use": "alpha_selection_and_persistence_gate_only",
+        "final_fit_includes_holdout": False,
+        "prediction_quality": quality,
+        "calibration": calibration,
+        "physical_validation": "pending_fresh_validation",
+    }
+    card = {
+        "schema": "h3c_hierarchical_mpc_refit_model_card",
+        "case": "Case",
+        "model_identity": source_model.identity,
+        "holdout_use": "alpha_selection_and_persistence_gate_only",
+        "final_fit_includes_holdout": False,
+        "robust_margin": {
+            "scope": "case_specific_estimate_common_formula",
+            "estimator": "p95_absolute_occupied_pmv_prediction_residual",
+            "order_statistic": "higher",
+            "sample_count": 4,
+            "pmv_margin": 0.1,
+            "internal_comfort_band": 0.4,
+        },
+        "physical_validation": "pending_fresh_validation",
+    }
+    source_evidence = {
+        "episode_roles": episode_roles,
+        "fit_rows": 10,
+        "holdout_rows": 4,
+        "calibration_one_step_rows": 5,
+        "fit_report": fit_report,
+        "holdout_use": "alpha_selection_and_persistence_gate_only",
+        "final_fit_includes_holdout": False,
+        "prediction_quality": quality,
+        "calibration": calibration,
+        "candidate_model_identity": source_model.identity,
+    }
+    _write_json(target / "candidate_report.json", report)
+    _write_json(target / "model_card.json", card)
+    assert (
+        refit._verify_candidate(
+            "Case",
+            target,
+            source_evidence=source_evidence,
+            source_model=source_model,
+        )["valid"]
+        is True
+    )
+
+    changed_coefficients = source_model.coefficients.copy()
+    changed_coefficients[0, 0] += 1.0
+    changed = FittedArxModel(
+        source_model.layout,
+        source_model.intercept,
+        changed_coefficients,
+        source_model.scaling,
+        source_model.ridge_alpha,
+        "placeholder",
+        source_model.pmv_robust_margin,
+    )
+    changed = FittedArxModel(
+        changed.layout,
+        changed.intercept,
+        changed.coefficients,
+        changed.scaling,
+        changed.ridge_alpha,
+        expected_model_identity(changed),
+        changed.pmv_robust_margin,
+    )
+    changed.save(target / "model_coefficients.npz")
+    report["model_identity"] = changed.identity
+    card["model_identity"] = changed.identity
+    _write_json(target / "candidate_report.json", report)
+    _write_json(target / "model_card.json", card)
+
+    verification = refit._verify_candidate(
+        "Case",
+        target,
+        source_evidence=source_evidence,
+        source_model=source_model,
+    )
+    assert verification["valid"] is False
+    assert verification["checks"]["source_model_exact"] is False
+    assert verification["checks"]["source_coefficients"] is False
+    assert verification["checks"]["source_candidate_identity"] is False
+
+
 def test_source_evidence_recomputes_persistence_instead_of_reading_candidate_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source, _ = _source_bank(tmp_path)
     _patch_source_owners(monkeypatch, tmp_path)
-    model = _constant_model(ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos")))
     observed: dict[str, int] = {}
 
     def quality(_model: FittedArxModel, episodes: list[EpisodeData]) -> dict[str, Any]:
@@ -341,11 +515,14 @@ def test_source_evidence_recomputes_persistence_instead_of_reading_candidate_jso
     monkeypatch.setattr(
         refit,
         "_calibration_report",
-        lambda *_args, **_kwargs: {"owner": "recomputed"},
+        lambda *_args, **_kwargs: {
+            "owner": "recomputed",
+            "pmv_robust_margin": 0.1,
+        },
     )
     monkeypatch.setattr(refit, "_daily_outdoor_means", lambda _episode: {3: 20.0})
 
-    evidence = refit.recompute_candidate_source_evidence("Case", source, model)
+    evidence = refit.recompute_candidate_source_evidence("Case", source)
 
     assert observed["holdout_episode_count"] == 4
     assert evidence["prediction_quality"] == {

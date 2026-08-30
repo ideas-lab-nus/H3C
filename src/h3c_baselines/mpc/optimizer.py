@@ -574,9 +574,12 @@ class HierarchicalMpcController:
                 shifted[-1] = [terminal_reference[zone] for zone in zones]
                 for horizon_step in range(horizon):
                     for zone_index in range(len(zones)):
-                        bounds = self.control_support.for_occupancy(
-                            bool(float(occupancy[horizon_step, zone_index]) > 0)
+                        occupied = (
+                            float(terminal_occupancy[zones[zone_index]]) > 0
+                            if horizon_step == horizon - 1
+                            else bool(float(occupancy[horizon_step, zone_index]) > 0)
                         )
+                        bounds = self.control_support.for_occupancy(occupied)
                         shifted[horizon_step, zone_index] = np.clip(
                             shifted[horizon_step, zone_index], *bounds
                         )

@@ -34,6 +34,9 @@ registered checkpoint report.  Roles are assigned in the original checkpoint ord
 At least three zero-fallback validation episodes are required.  Every role set is disjoint and
 each source manifest and trajectory is hashed in the refit evidence.  The fit still constructs
 history inside one episode at a time, so no ARX row crosses an episode boundary.
+Source admission also requires exact registered timelines (672 actions for fit, holdout, and
+Basic RBC; 668 for validation), contiguous fit IDs, and the frozen four-lane assignment
+(`episode mod 4` for fit/holdout and lane 0 for Basic/validation).
 
 ## Calibration and controller semantics
 
@@ -47,6 +50,8 @@ temperatures.  Occupancy for each scored target is joined by timestamp to the co
 Basic-RBC reference; in particular, the terminal calibration score uses the real
 `occupancy(k+4)`, never the disturbance at `k+3` or the validation trajectory's duplicated
 terminal row.  This is a calibration audit source, not the runtime terminal-reference owner.
+All exogenous disturbance columns on shared non-terminal timestamps must exactly match the
+Basic-RBC reference before calibration is allowed.
 Each case receives its own robust-margin estimate from the same common formula: the empirical
 95th percentile (the deterministic `higher` order statistic) of that case's absolute occupied PMV
 residuals (`scope=case_specific_estimate_common_formula`).  A case fails offline eligibility
@@ -67,6 +72,10 @@ persistence predictor on the isolated whole-episode holdout for all registered o
 The workspace records source-file hashes, exact episode roles, row counts, disjointness checks,
 holdout quality, terminal-occupancy provenance, calibration residual statistics, robust margin,
 and model identity.
+
+Verification independently rebuilds the ridge fit and calibrated candidate from the immutable
+source bank, then compares the exact coefficients, scaling, alpha, fit report, margin, and model
+identity.  Coordinated edits to the staged model card, report, and coefficient file therefore fail.
 
 `completion.json` is written atomically only after all three cases pass and the workspace secret
 scan is clean.  Candidate files remain staged inside that refit workspace; no case is promoted to
