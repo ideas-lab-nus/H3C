@@ -500,15 +500,16 @@ def test_coordinated_candidate_artifact_tamper_cannot_bypass_source_rebuild(
     }
     _write_json(target / "candidate_report.json", report)
     _write_json(target / "model_card.json", card)
-    assert (
-        refit._verify_candidate(
-            "Case",
-            target,
-            source_evidence=source_evidence,
-            source_model=source_model,
-        )["valid"]
-        is True
+    pristine_verification = refit._verify_candidate(
+        "Case",
+        target,
+        source_evidence=source_evidence,
+        source_model=source_model,
     )
+    assert pristine_verification["valid"] is True
+    json.dumps(pristine_verification, allow_nan=False)
+    assert type(pristine_verification["valid"]) is bool
+    assert all(type(value) is bool for value in pristine_verification["checks"].values())
 
     changed_coefficients = source_model.coefficients.copy()
     changed_coefficients[0, 0] += 1.0

@@ -913,12 +913,13 @@ def _verify_candidate(
         == "pending_fresh_validation"
         and card.get("physical_validation") == "pending_fresh_validation",
     }
+    normalized_checks = {name: bool(value) for name, value in checks.items()}
     return {
         "case": case,
         "model_identity": model.identity,
         "pmv_robust_margin": model.pmv_robust_margin,
-        "checks": checks,
-        "valid": all(checks.values()),
+        "checks": normalized_checks,
+        "valid": all(normalized_checks.values()),
     }
 
 
