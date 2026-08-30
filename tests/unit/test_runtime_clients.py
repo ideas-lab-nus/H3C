@@ -406,17 +406,21 @@ def test_selected_test_id_is_reinitialized_with_full_warmup_and_stopped_once(
     monkeypatch: Any,
 ) -> None:
     requests: list[tuple[str, str, object]] = []
+    lifecycle: list[dict[str, Any]] = []
 
     def response(method: str, url: str, **kwargs: object) -> dict[str, object]:
         requests.append((method, url, kwargs.get("payload")))
         if url.endswith("/select"):
             return {"testid": "persistent-lane"}
+        if "/status/" in url:
+            return {"payload": "Running"}
         if "/initialize/" in url:
             return {"payload": {"time": kwargs["payload"]["start_time"]}}  # type: ignore[index]
         return {}
 
     monkeypatch.setattr("h3c.runtime.clients._request_json", response)
     client = BoptestHttpClient("http://physical.invalid")
+    client.set_lifecycle_sink(lambda row: lifecycle.append(dict(row)))
     assert client.select_testcase("example") == "persistent-lane"
     first = client.initialize_selected(100, 7 * 86400)
     second = client.initialize_selected(100, 7 * 86400)
@@ -429,6 +433,185 @@ def test_selected_test_id_is_reinitialized_with_full_warmup_and_stopped_once(
     assert len(initializes) == 2
     assert all(row[2] == {"start_time": 100, "warmup_period": 7 * 86400} for row in initializes)
     assert sum("/stop/" in url for _, url, _ in requests) == 1
+    assert lifecycle[-1]["event"] == "stopped"
+    assert lifecycle[-1]["test_id"] == "persistent-lane"
+
+
+def test_queued_selection_waits_for_running_before_scenario_and_step(
+    monkeypatch: Any,
+) -> None:
+    requests: list[tuple[str, str]] = []
+    statuses = iter(("Queued", "Queued", "Running"))
+    sleeps: list[float] = []
+    lifecycle: list[dict[str, Any]] = []
+
+    def response(method: str, url: str, **kwargs: object) -> dict[str, object]:
+        del kwargs
+        requests.append((method, url))
+        if url.endswith("/select"):
+            return {"testid": "queued-lane"}
+        if "/status/" in url:
+            return {"payload": next(statuses)}
+        return {}
+
+    monkeypatch.setattr("h3c.runtime.clients._request_json", response)
+    monkeypatch.setattr("h3c.runtime.clients.time.sleep", lambda seconds: sleeps.append(seconds))
+    client = BoptestHttpClient("http://physical.invalid", queue_poll_seconds=0.25)
+    client.set_lifecycle_sink(lambda row: lifecycle.append(dict(row)))
+
+    assert client.select_testcase("example") == "queued-lane"
+
+    assert sleeps == [0.25, 0.25]
+    status_indexes = [index for index, (_, url) in enumerate(requests) if "/status/" in url]
+    scenario_index = next(index for index, (_, url) in enumerate(requests) if "/scenario/" in url)
+    step_index = next(index for index, (_, url) in enumerate(requests) if "/step/" in url)
+    assert max(status_indexes) < scenario_index < step_index
+    assert [row["event"] for row in lifecycle] == [
+        "selected",
+        "status_changed",
+        "status_changed",
+        "configured",
+    ]
+    assert [row["status"] for row in lifecycle if row["event"] == "status_changed"] == [
+        "Queued",
+        "Running",
+    ]
+    assert all(row["dispatch_mode"] == "auto" for row in lifecycle)
+    assert all(row["test_id"] == "queued-lane" for row in lifecycle)
+
+
+def test_initialize_selected_rechecks_running_before_initialize(monkeypatch: Any) -> None:
+    requests: list[tuple[str, str]] = []
+    statuses = iter(("Running", "Queued", "Running"))
+    sleeps: list[float] = []
+    lifecycle: list[dict[str, Any]] = []
+
+    def response(method: str, url: str, **kwargs: object) -> dict[str, object]:
+        requests.append((method, url))
+        if url.endswith("/select"):
+            return {"testid": "changing-lane"}
+        if "/status/" in url:
+            return {"payload": next(statuses)}
+        if "/initialize/" in url:
+            payload = kwargs["payload"]
+            assert isinstance(payload, dict)
+            return {"payload": {"time": payload["start_time"]}}
+        return {}
+
+    monkeypatch.setattr("h3c.runtime.clients._request_json", response)
+    monkeypatch.setattr("h3c.runtime.clients.time.sleep", lambda seconds: sleeps.append(seconds))
+    client = BoptestHttpClient("http://physical.invalid", queue_poll_seconds=0.5)
+    client.set_lifecycle_sink(lambda row: lifecycle.append(dict(row)))
+
+    client.select_testcase("example")
+    assert client.initialize_selected(100, 7 * 86400) == {"time": 100}
+
+    assert sleeps == [0.5]
+    initialize_index = next(
+        index for index, (_, url) in enumerate(requests) if "/initialize/" in url
+    )
+    assert requests[initialize_index - 1][1].endswith("/status/changing-lane")
+    assert lifecycle[-1] == {
+        "phase": "physical_dispatch",
+        "event": "initialized",
+        "dispatch_mode": "auto",
+        "test_id": "changing-lane",
+        "testcase": "example",
+        "status": "Running",
+    }
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b'"Running"', "Running"),
+        (b'"Queued"', "Queued"),
+        (b'{"payload":"Running"}', "Running"),
+        (b'{"payload":"Queued"}', "Queued"),
+    ],
+)
+def test_boptest_status_accepts_only_registered_wire_forms(
+    monkeypatch: Any, body: bytes, expected: str
+) -> None:
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: _Response(body))
+    client = BoptestHttpClient("http://physical.invalid")
+    client.test_id = "example"
+
+    assert client.status() == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'"Stopped"',
+        b'"running"',
+        b"null",
+        b"true",
+        b"1",
+        b"[]",
+        b"{}",
+        b'{"payload":"Stopped"}',
+        b'{"payload":true}',
+        b'{"payload":{"status":"Running"}}',
+    ],
+)
+def test_boptest_status_rejects_unregistered_wire_forms(monkeypatch: Any, body: bytes) -> None:
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: _Response(body))
+    client = BoptestHttpClient("http://physical.invalid")
+    client.test_id = "example"
+
+    with pytest.raises(TransportError, match="status") as raised:
+        client.status()
+
+    assert raised.value.error_type in {"boptest_status_invalid", "response_json_non_object"}
+
+
+def test_illegal_status_fails_before_scenario_step_or_initialize(monkeypatch: Any) -> None:
+    requests: list[str] = []
+
+    def response(method: str, url: str, **kwargs: object) -> dict[str, object]:
+        del method, kwargs
+        requests.append(url)
+        if url.endswith("/select"):
+            return {"testid": "invalid-lane"}
+        if "/status/" in url:
+            return {"payload": "Stopped"}
+        raise AssertionError(f"illegal status reached a mutating endpoint: {url}")
+
+    monkeypatch.setattr("h3c.runtime.clients._request_json", response)
+    client = BoptestHttpClient("http://physical.invalid")
+
+    with pytest.raises(TransportError, match="status") as raised:
+        client.select_testcase("example")
+
+    assert raised.value.error_type == "boptest_status_invalid"
+    assert len(requests) == 2
+    assert all(
+        fragment not in url
+        for url in requests
+        for fragment in ("/scenario/", "/step/", "/initialize/")
+    )
+
+
+def test_non_status_endpoint_still_rejects_top_level_status_string(
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda request, timeout: _Response(b'"Running"'),
+    )
+
+    with pytest.raises(TransportError) as raised:
+        _request_json("GET", "http://physical.invalid/measurements/example")
+
+    assert raised.value.error_type == "response_json_non_object"
+
+
+@pytest.mark.parametrize("interval", [0.0, -1.0, float("nan"), float("inf")])
+def test_boptest_queue_poll_interval_must_be_positive_and_finite(interval: float) -> None:
+    with pytest.raises(ValueError, match="poll interval"):
+        BoptestHttpClient("http://physical.invalid", queue_poll_seconds=interval)
 
 
 @pytest.mark.parametrize("invalid", ["missing", float("nan"), float("inf"), True])

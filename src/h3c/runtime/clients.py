@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, overload
 
 from h3c.agents.prompts import Role
 
@@ -123,6 +123,7 @@ def _connection_failure(error: BaseException) -> tuple[bool, str]:
     return retryable, type(cause).__name__
 
 
+@overload
 def _request_json(
     method: str,
     url: str,
@@ -131,7 +132,33 @@ def _request_json(
     headers: Mapping[str, str] | None = None,
     timeout_seconds: float = 600.0,
     response_json_required: bool = True,
-) -> dict[str, Any]:
+    _boptest_status_response: Literal[False] = False,
+) -> dict[str, Any]: ...
+
+
+@overload
+def _request_json(
+    method: str,
+    url: str,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout_seconds: float = 600.0,
+    response_json_required: bool = True,
+    _boptest_status_response: Literal[True],
+) -> dict[str, Any] | str: ...
+
+
+def _request_json(
+    method: str,
+    url: str,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    headers: Mapping[str, str] | None = None,
+    timeout_seconds: float = 600.0,
+    response_json_required: bool = True,
+    _boptest_status_response: bool = False,
+) -> dict[str, Any] | str:
     body = None if payload is None else _request_body(payload)
     request_headers = dict(headers or {})
     if payload is not None:
@@ -181,6 +208,14 @@ def _request_json(
             error_type="response_json_invalid",
             provider_response_received=True,
         ) from error
+    if _boptest_status_response and isinstance(value, str):
+        if value in {"Running", "Queued"}:
+            return value
+        raise TransportError(
+            f"BOPTEST status response is invalid for {url}",
+            error_type="boptest_status_invalid",
+            provider_response_received=True,
+        )
     if not isinstance(value, dict):
         raise TransportError(
             f"endpoint returned a non-object for {url}",
@@ -190,11 +225,63 @@ def _request_json(
     return value
 
 
+LifecycleSink = Callable[[Mapping[str, Any]], None]
+
+
 class BoptestHttpClient:
-    def __init__(self, endpoint: str) -> None:
+    def __init__(self, endpoint: str, *, queue_poll_seconds: float = 1.0) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.test_id: str | None = None
         self.testcase: str | None = None
+        if not math.isfinite(queue_poll_seconds) or queue_poll_seconds <= 0:
+            raise ValueError("BOPTEST queue poll interval must be positive")
+        self.queue_poll_seconds = float(queue_poll_seconds)
+        self._lifecycle_sink: LifecycleSink | None = None
+
+    def set_lifecycle_sink(self, sink: LifecycleSink) -> None:
+        self._lifecycle_sink = sink
+
+    def _emit_lifecycle(self, *, event: str, status: str | None = None) -> None:
+        if self._lifecycle_sink is None:
+            return
+        row: dict[str, Any] = {
+            "phase": "physical_dispatch",
+            "event": event,
+            "dispatch_mode": "auto",
+            "test_id": self.test_id,
+            "testcase": self.testcase,
+        }
+        if status is not None:
+            row["status"] = status
+        self._lifecycle_sink(row)
+
+    def status(self) -> str:
+        if self.test_id is None:
+            raise TransportError("BOPTEST status requested before select")
+        response = _request_json(
+            "GET",
+            f"{self.endpoint}/status/{self.test_id}",
+            _boptest_status_response=True,
+        )
+        status = response if isinstance(response, str) else response.get("payload")
+        if not isinstance(status, str) or status not in {"Running", "Queued"}:
+            raise TransportError(
+                "BOPTEST status payload is invalid",
+                error_type="boptest_status_invalid",
+                provider_response_received=True,
+            )
+        return status
+
+    def _wait_until_running(self) -> None:
+        previous: str | None = None
+        while True:
+            status = self.status()
+            if status != previous:
+                self._emit_lifecycle(event="status_changed", status=status)
+                previous = status
+            if status == "Running":
+                return
+            time.sleep(self.queue_poll_seconds)
 
     def initialize(
         self, testcase: str, start_time_seconds: int, warmup_period_seconds: int
@@ -212,12 +299,15 @@ class BoptestHttpClient:
             raise TransportError("BOPTEST select did not return a test id")
         self.test_id = test_id
         self.testcase = testcase
+        self._emit_lifecycle(event="selected")
+        self._wait_until_running()
         _request_json(
             "PUT",
             f"{self.endpoint}/scenario/{test_id}",
             payload={"electricity_price": "dynamic"},
         )
         _request_json("PUT", f"{self.endpoint}/step/{test_id}", payload={"step": 900})
+        self._emit_lifecycle(event="configured", status="Running")
         return test_id
 
     def initialize_selected(
@@ -227,6 +317,7 @@ class BoptestHttpClient:
 
         if self.test_id is None:
             raise TransportError("BOPTEST initialize requested without a selected test id")
+        self._wait_until_running()
         initialized = _request_json(
             "PUT",
             f"{self.endpoint}/initialize/{self.test_id}",
@@ -238,6 +329,7 @@ class BoptestHttpClient:
         state = initialized.get("payload")
         if not isinstance(state, dict):
             raise TransportError("BOPTEST initialize payload is invalid")
+        self._emit_lifecycle(event="initialized", status="Running")
         return state
 
     def forecast(
@@ -308,6 +400,7 @@ class BoptestHttpClient:
             f"{self.endpoint}/stop/{self.test_id}",
             response_json_required=False,
         )
+        self._emit_lifecycle(event="stopped")
         self.test_id = None
 
 
