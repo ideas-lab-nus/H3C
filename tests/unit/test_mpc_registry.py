@@ -176,6 +176,40 @@ def _patch_owners(
     monkeypatch.setattr(registry, "secret_occurrences", lambda _path: 0)
 
 
+def _prepare_method_degraded_validation(
+    *,
+    root: Path,
+    refit: Path,
+    validation: Path,
+    verification: dict[str, Any],
+) -> dict[str, Any]:
+    cases = verification["cases"]
+    for row in cases:
+        row["evidence_valid"] = True
+        row["checks"] = {"lifecycle": True, "episode_artifacts": True}
+    cases[0]["fallback_count"] = 1
+    cases[0]["eligible"] = False
+    (validation / "completion.json").unlink()
+    _write_json(
+        validation / "failure.json",
+        {
+            "schema": "h3c_hierarchical_mpc_validation_failure",
+            "validation_source_commit": "a" * 40,
+            "cases": cases,
+            "candidate_promotion": False,
+        },
+    )
+    return {
+        "valid": True,
+        "workspace": str(validation),
+        "cases": cases,
+        "fallback_count": 1,
+        "validation_source_commit": "a" * 40,
+        "refit_verification_identity": "b" * 64,
+        "refit_workspace": refit.relative_to(root).as_posix(),
+    }
+
+
 def test_three_case_suite_is_published_by_exactly_one_directory_replace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -228,6 +262,68 @@ def test_three_case_suite_is_published_by_exactly_one_directory_replace(
         == manifest["source_bundles"][0]["robust_calibration_attestation"]
     )
     assert registry.verify_frozen_mpc_suite(target)["valid"] is True
+
+
+def test_method_degraded_admission_is_explicit_and_preserves_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refit, validation, verification = _workspaces(tmp_path)
+    degraded = _prepare_method_degraded_validation(
+        root=tmp_path,
+        refit=refit,
+        validation=validation,
+        verification=verification,
+    )
+    _patch_owners(monkeypatch, tmp_path, verification)
+    monkeypatch.setattr(
+        registry,
+        "verify_method_degraded_validation_workspace",
+        lambda _workspace: degraded,
+    )
+
+    plan = registry.resolved_method_degraded_freeze_plan(validation)
+    assert plan["execution"] is False
+    assert plan["validation_valid_for_admission"] is True
+    assert not (tmp_path / "models" / "mpc").exists()
+
+    result = registry.freeze_method_degraded_mpc_suite(validation)
+    target = Path(result["target"])
+    manifest = json.loads((target / "freeze_manifest.json").read_text(encoding="utf-8"))
+    sz_card = json.loads((target / "CaseA" / "model_card.json").read_text(encoding="utf-8"))
+
+    assert result["classification"] == "METHOD-DEGRADED"
+    assert manifest["admission_mode"] == "post_result_method_degraded"
+    assert manifest["validation_results"][0]["eligible"] is False
+    assert manifest["validation_results"][0]["fallback_count"] == 1
+    assert sz_card["physical_validation"] == "fresh_validation_method_degraded"
+    assert sz_card["validation_classification"] == "METHOD-DEGRADED-VALIDATION"
+    assert registry.verify_frozen_mpc_suite(target)["valid"] is True
+
+
+def test_strict_freeze_still_rejects_method_degraded_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    refit, validation, verification = _workspaces(tmp_path)
+    _prepare_method_degraded_validation(
+        root=tmp_path,
+        refit=refit,
+        validation=validation,
+        verification=verification,
+    )
+    _patch_owners(monkeypatch, tmp_path, verification)
+    _write_json(
+        validation / "completion.json",
+        {
+            "validation_source_commit": "a" * 40,
+            "refit_verification_identity": "b" * 64,
+            "refit_workspace": refit.relative_to(tmp_path).as_posix(),
+        },
+    )
+
+    with pytest.raises(ValueError, match="eligible before freeze"):
+        registry.freeze_validated_mpc_suite(validation)
+
+    assert not (tmp_path / "models" / "mpc").exists()
 
 
 def test_frozen_suite_is_self_contained_and_runtime_loadable(

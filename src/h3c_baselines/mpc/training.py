@@ -845,6 +845,8 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
     schema_version = manifest.get("schema_version")
     legacy_lanes = manifest.get("lane_lifecycle")
     fresh_validation = manifest.get("fresh_validation")
+    admission_mode = manifest.get("admission_mode", "strict_zero_fallback")
+    degraded_admission = admission_mode == "post_result_method_degraded"
     fresh_peak = (
         fresh_validation.get("occupied_peak_absolute_pmv")
         if isinstance(fresh_validation, Mapping)
@@ -873,7 +875,9 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
     ) or (
         schema_version == 2
         and card.get("schema_version") == 2
-        and card.get("physical_validation") == "fresh_validation_passed"
+        and card.get("physical_validation")
+        == ("fresh_validation_method_degraded" if degraded_admission else "fresh_validation_passed")
+        and card.get("admission_mode", "strict_zero_fallback") == admission_mode
         and card.get("freeze_identity") == manifest.get("freeze_identity")
         and isinstance(fresh_validation, dict)
         and isinstance(fresh_validation.get("test_id"), str)
@@ -883,10 +887,12 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
         and fresh_validation.get("stop_count") == 1
         and fresh_validation.get("warmup_days") == 7
         and fresh_validation.get("steps") == STEPS_PER_WEEK - 4
-        and fresh_validation.get("fallback_count") == 0
+        and isinstance(fresh_validation.get("fallback_count"), int)
+        and int(fresh_validation["fallback_count"]) >= 0
+        and (degraded_admission or fresh_validation.get("fallback_count") == 0)
         and fresh_comfort_target_valid
         and isinstance(card.get("validation"), dict)
-        and card["validation"].get("eligible") is True
+        and card["validation"].get("eligible") is (int(fresh_validation["fallback_count"]) == 0)
         and card["validation"].get("comfort_target_met")
         is fresh_validation.get("comfort_target_met")
         and card["validation"].get("model_identity") == model.identity
@@ -928,7 +934,15 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
 
 def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
     suite_target = repository_root() / "models" / "mpc"
-    result = _verify_mpc_model_directory(case, suite_target / case)
+    try:
+        result = _verify_mpc_model_directory(case, suite_target / case)
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        return {
+            "case": case,
+            "checks": {},
+            "error": f"{type(error).__name__}: {error}",
+            "valid": False,
+        }
     try:
         manifest = json.loads(
             (suite_target / case / "training_manifest.json").read_text(encoding="utf-8")
@@ -952,7 +966,14 @@ def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
         **result["checks"],
         "transactional_suite_registry": suite.get("valid") is True and suite_case_valid,
     }
-    return {**result, "checks": checks, "valid": all(checks.values())}
+    return {
+        **result,
+        "admission_mode": manifest.get("admission_mode", "strict_zero_fallback"),
+        "validation_classification": manifest.get("validation_classification", "BASELINE-READY"),
+        "freeze_identity": manifest.get("freeze_identity"),
+        "checks": checks,
+        "valid": all(checks.values()),
+    }
 
 
 def train_hierarchical_mpc(

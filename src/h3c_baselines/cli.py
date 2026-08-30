@@ -21,7 +21,12 @@ from h3c_baselines.mpc.refit import (
     resolved_refit_plan,
     verify_refit_workspace,
 )
-from h3c_baselines.mpc.registry import freeze_validated_mpc_suite, verify_frozen_mpc_suite
+from h3c_baselines.mpc.registry import (
+    freeze_method_degraded_mpc_suite,
+    freeze_validated_mpc_suite,
+    resolved_method_degraded_freeze_plan,
+    verify_frozen_mpc_suite,
+)
 from h3c_baselines.mpc.training import (
     resolved_training_plan,
     train_hierarchical_mpc,
@@ -78,6 +83,11 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--execute", action="store_true")
     verify_validation = mpc_commands.add_parser("verify-validation")
     verify_validation.add_argument("workspace", type=Path)
+    freeze_adverse = mpc_commands.add_parser(
+        "freeze-adverse", help="explicitly publish a fully evidenced method-degraded suite"
+    )
+    freeze_adverse.add_argument("--validation-workspace", type=Path, required=True)
+    freeze_adverse.add_argument("--execute", action="store_true")
     mpc_commands.add_parser("verify-frozen-suite")
     verify = commands.add_parser("verify")
     verify.add_argument("run_directory", type=Path)
@@ -112,6 +122,13 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_validation_workspace(arguments.workspace)
             _print(result)
             return 0 if result["valid"] else 1
+        if arguments.mpc_command == "freeze-adverse":
+            plan = resolved_method_degraded_freeze_plan(arguments.validation_workspace)
+            if not arguments.execute:
+                _print(plan)
+                return 0 if plan["validation_valid_for_admission"] else 1
+            _print(freeze_method_degraded_mpc_suite(arguments.validation_workspace))
+            return 0
         if arguments.mpc_command == "verify-frozen-suite":
             result = verify_frozen_mpc_suite()
             _print(result)
