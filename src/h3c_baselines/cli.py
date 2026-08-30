@@ -16,6 +16,11 @@ from h3c_baselines.configuration import (
     mpc_formal_evaluation_plans,
 )
 from h3c_baselines.models import verify_all_checkpoints
+from h3c_baselines.mpc.refit import (
+    refit_hierarchical_mpc,
+    resolved_refit_plan,
+    verify_refit_workspace,
+)
 from h3c_baselines.mpc.training import (
     resolved_training_plan,
     train_hierarchical_mpc,
@@ -55,8 +60,13 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--workers", type=int, default=4)
     train.add_argument("--max-fit-episodes", type=int, default=64)
     train.add_argument("--execute", action="store_true")
+    refit = mpc_commands.add_parser("refit", help="refit from one preserved failed data bank")
+    refit.add_argument("--source-run", type=Path, required=True)
+    refit.add_argument("--execute", action="store_true")
     verify_mpc = mpc_commands.add_parser("verify-model")
     verify_mpc.add_argument("--case", required=True, choices=("SZ_Air", "MZ_Hydro", "MZ_Air"))
+    verify_refit = mpc_commands.add_parser("verify-refit")
+    verify_refit.add_argument("workspace", type=Path)
     verify = commands.add_parser("verify")
     verify.add_argument("run_directory", type=Path)
     report = commands.add_parser("report")
@@ -82,6 +92,17 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_frozen_mpc_model(arguments.case)
             _print(result)
             return 0 if result["valid"] else 1
+        if arguments.mpc_command == "verify-refit":
+            result = verify_refit_workspace(arguments.workspace)
+            _print(result)
+            return 0 if result["valid"] else 1
+        if arguments.mpc_command == "refit":
+            refit_plan = resolved_refit_plan(arguments.source_run)
+            if not arguments.execute:
+                _print(refit_plan)
+                return 0
+            _print(refit_hierarchical_mpc(arguments.source_run))
+            return 0
         training_plan = resolved_training_plan(
             workers=arguments.workers,
             max_fit_episodes=arguments.max_fit_episodes,

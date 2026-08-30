@@ -50,6 +50,7 @@ class FittedArxModel:
     scaling: Scaling
     ridge_alpha: float
     identity: str
+    pmv_robust_margin: float = 0.0
 
     def predict_next(
         self,
@@ -155,6 +156,7 @@ class FittedArxModel:
             output_scale=self.scaling.output_scale,
             ridge_alpha=self.ridge_alpha,
             identity=self.identity,
+            pmv_robust_margin=self.pmv_robust_margin,
         )
 
     @classmethod
@@ -178,6 +180,11 @@ class FittedArxModel:
                 ),
                 float(source["ridge_alpha"]),
                 str(source["identity"]),
+                (
+                    float(source["pmv_robust_margin"])
+                    if "pmv_robust_margin" in source.files
+                    else 0.0
+                ),
             )
 
 
@@ -251,6 +258,74 @@ def _fit(
     return coefficients[0], coefficients[1:]
 
 
+def _identity(
+    layout: ArxLayout,
+    intercept: NDArray[np.float64],
+    coefficients: NDArray[np.float64],
+    scaling: Scaling,
+    ridge_alpha: float,
+    *,
+    pmv_robust_margin: float = 0.0,
+) -> str:
+    identity_payload: dict[str, Any] = {
+        "zones": layout.zones,
+        "disturbance_names": layout.disturbance_names,
+        "lag_count": layout.lag_count,
+        "horizon_steps": layout.horizon_steps,
+        "ridge_alpha": ridge_alpha,
+        "intercept": intercept.tolist(),
+        "coefficients": coefficients.tolist(),
+        "scaling": {
+            "feature_mean": scaling.feature_mean.tolist(),
+            "feature_scale": scaling.feature_scale.tolist(),
+            "output_mean": scaling.output_mean.tolist(),
+            "output_scale": scaling.output_scale.tolist(),
+        },
+    }
+    # Preserve every pre-refit model identity byte-for-byte.  A nonzero calibrated
+    # margin is part of the new candidate identity because it changes optimization.
+    if pmv_robust_margin != 0.0:
+        identity_payload["pmv_robust_margin"] = pmv_robust_margin
+    return hashlib.sha256(
+        json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def with_pmv_robust_margin(model: FittedArxModel, margin: float) -> FittedArxModel:
+    value = float(margin)
+    if not np.isfinite(value) or value < 0.0 or value >= 0.5:
+        raise ValueError("PMV robust margin must be finite and within [0, 0.5)")
+    identity = _identity(
+        model.layout,
+        model.intercept,
+        model.coefficients,
+        model.scaling,
+        model.ridge_alpha,
+        pmv_robust_margin=value,
+    )
+    return FittedArxModel(
+        model.layout,
+        model.intercept,
+        model.coefficients,
+        model.scaling,
+        model.ridge_alpha,
+        identity,
+        value,
+    )
+
+
+def expected_model_identity(model: FittedArxModel) -> str:
+    """Recompute the immutable bundle identity instead of trusting stored text."""
+    return _identity(
+        model.layout,
+        model.intercept,
+        model.coefficients,
+        model.scaling,
+        model.ridge_alpha,
+        pmv_robust_margin=model.pmv_robust_margin,
+    )
+
+
 def fit_vector_arx(
     layout: ArxLayout,
     fit_features: NDArray[np.float64],
@@ -284,24 +359,7 @@ def fit_vector_arx(
     best_score = min(scores.values())
     chosen = max(alpha for alpha, score in scores.items() if abs(score - best_score) <= 1e-12)
     intercept, coefficients = _fit(fit_features, fit_outputs, chosen, training_scaling)
-    identity_payload = {
-        "zones": layout.zones,
-        "disturbance_names": layout.disturbance_names,
-        "lag_count": layout.lag_count,
-        "horizon_steps": layout.horizon_steps,
-        "ridge_alpha": chosen,
-        "intercept": intercept.tolist(),
-        "coefficients": coefficients.tolist(),
-        "scaling": {
-            "feature_mean": training_scaling.feature_mean.tolist(),
-            "feature_scale": training_scaling.feature_scale.tolist(),
-            "output_mean": training_scaling.output_mean.tolist(),
-            "output_scale": training_scaling.output_scale.tolist(),
-        },
-    }
-    identity = hashlib.sha256(
-        json.dumps(identity_payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    identity = _identity(layout, intercept, coefficients, training_scaling, chosen)
     model = FittedArxModel(layout, intercept, coefficients, training_scaling, chosen, identity)
     report = {
         "schema": "h3c_vector_arx_fit",

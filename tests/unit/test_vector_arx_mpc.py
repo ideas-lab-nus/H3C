@@ -30,6 +30,7 @@ class _DecisionArguments(TypedDict):
     disturbances: NDArray[np.float64]
     prices: NDArray[np.float64]
     occupancy: NDArray[np.float64]
+    terminal_occupancy: dict[str, float]
     action_times: list[int]
     daily_outdoor_means_c: list[float]
     comfort: ComfortModel
@@ -313,6 +314,7 @@ def test_hierarchical_mpc_runs_upper_hourly_and_lower_each_step() -> None:
         "disturbances": np.zeros((4, 5)),
         "prices": np.full(4, 0.1),
         "occupancy": np.zeros((4, 1)),
+        "terminal_occupancy": {"z": 0.0},
         "action_times": [0, 900, 1800, 2700],
         "daily_outdoor_means_c": [20.0] * 4,
         "comfort": comfort,
@@ -449,6 +451,7 @@ def test_negative_power_is_clipped_without_making_the_qp_infeasible() -> None:
         "disturbances": np.zeros((4, 5)),
         "prices": np.full(4, 0.1),
         "occupancy": np.zeros((4, 1)),
+        "terminal_occupancy": {"z": 0.0},
         "action_times": [0, 900, 1800, 2700],
         "daily_outdoor_means_c": [20.0] * 4,
         "comfort": ComfortModel(
@@ -583,16 +586,22 @@ def test_shifted_hourly_reference_respects_new_terminal_occupancy() -> None:
         "previous_setpoints_c": {"z": 30.0},
         "enhanced_rbc_warm_start": {"z": 30.0},
     }
-    first = controller.decide(step=0, occupancy=np.zeros((4, 1)), **common)
+    first = controller.decide(
+        step=0,
+        occupancy=np.zeros((4, 1)),
+        terminal_occupancy={"z": 0.0},
+        **common,
+    )
     second = controller.decide(
         step=1,
-        occupancy=np.asarray([[0.0], [0.0], [0.0], [1.0]]),
+        occupancy=np.zeros((4, 1)),
+        terminal_occupancy={"z": 1.0},
         **common,
     )
 
     assert first.diagnostics["status"] == second.diagnostics["status"] == "optimized"
     terminal_reference = second.diagnostics["upper_reference_setpoints_c"][-1][0]
-    assert 23.5 <= terminal_reference <= 26.5
+    assert terminal_reference == 25.0
 
 
 def test_rollout_clamps_negative_power_before_recursive_use() -> None:

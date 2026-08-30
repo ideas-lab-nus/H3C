@@ -373,6 +373,7 @@ def _collect_episode(
                 disturbances=horizon[0],
                 prices=horizon[1],
                 occupancy=horizon[2],
+                terminal_occupancy={zone: future[zone][3] for zone in zones},
                 action_times=horizon[3],
                 daily_outdoor_means_c=horizon[4],
                 comfort=comfort,
@@ -489,6 +490,22 @@ def _episode_dataset(
     return np.vstack(feature_parts), np.vstack(target_parts)
 
 
+def _arx_layout(profile: Mapping[str, Any]) -> ArxLayout:
+    zones = tuple(profile["zones"])
+    return ArxLayout(
+        zones,
+        (
+            "outdoor_temperature_c",
+            "solar_irradiance_w_m2",
+            *[f"effective_occupancy_{zone}" for zone in zones],
+            "time_sine",
+            "time_cosine",
+        ),
+        lag_count=4,
+        horizon_steps=4,
+    )
+
+
 def open_loop_prediction_quality(
     model: FittedArxModel, episodes: Sequence[EpisodeData]
 ) -> dict[str, Any]:
@@ -587,19 +604,11 @@ def _fit_case(
     deadline: float,
 ) -> tuple[FittedArxModel, dict[str, Any]]:
     profile = load_profile(case)
-    zones = tuple(profile["zones"])
-    layout = ArxLayout(
-        zones,
-        (
-            "outdoor_temperature_c",
-            "solar_irradiance_w_m2",
-            *[f"effective_occupancy_{zone}" for zone in zones],
-            "time_sine",
-            "time_cosine",
-        ),
-        lag_count=int(config["model"]["lag_count"]),
-        horizon_steps=int(config["model"]["horizon_steps"]),
-    )
+    layout = _arx_layout(profile)
+    if layout.lag_count != int(config["model"]["lag_count"]) or layout.horizon_steps != int(
+        config["model"]["horizon_steps"]
+    ):
+        raise ValueError("hierarchical MPC ARX configuration is invalid")
     worker_count = len(lanes)
 
     def collect_batch(
@@ -738,6 +747,7 @@ def _freeze_model(
             "case": case,
             "controller": "hierarchical-mpc",
             "model_identity": model.identity,
+            "pmv_robust_margin": model.pmv_robust_margin,
             "source_commit": source_commit,
             "training_week_start_day": int(profile["evaluation_start_day"]) - 7,
             "training_week_days": 7,
@@ -798,6 +808,7 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
         == int(profile["evaluation_start_day"]) - 7
         and card.get("training_week_days") == 7,
         "control_support": card.get("control_support_bounds_c") == expected_support,
+        "pmv_robust_margin": card.get("pmv_robust_margin", 0.0) == model.pmv_robust_margin,
         "lane_lifecycle": len(manifest.get("lane_lifecycle", [])) == 4
         and all(
             row.get("select_count") == 1

@@ -426,6 +426,7 @@ def _execute_one(
                     disturbances=disturbances,
                     prices=prices,
                     occupancy=occupancy_horizon,
+                    terminal_occupancy={zone: future[zone][3] for zone in zones},
                     action_times=times,
                     daily_outdoor_means_c=daily_means,
                     comfort=boundary.comfort,

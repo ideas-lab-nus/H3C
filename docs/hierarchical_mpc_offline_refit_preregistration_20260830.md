@@ -26,8 +26,10 @@ registered checkpoint report.  Roles are assigned in the original checkpoint ord
 - the last validation episode with zero fallback is the sole residual-calibration episode;
 - every validation with a fallback is excluded;
 - any remaining zero-fallback validation is unused rather than silently reassigned;
-- all four whole-episode holdouts remain isolated from fit and calibration.  They are used only
-  for the existing ridge selection and the registered model-versus-persistence evaluation.
+- all four whole-episode holdouts remain isolated from coefficient/scaling fit and calibration.
+  They are used only for the existing finite ridge-alpha selection and the registered
+  model-versus-persistence open-loop gate (`holdout_use` is
+  `alpha_selection_and_persistence_gate_only`; `final_fit_includes_holdout` remains false).
 
 At least three zero-fallback validation episodes are required.  Every role set is disjoint and
 each source manifest and trajectory is hashed in the refit evidence.  The fit still constructs
@@ -41,18 +43,22 @@ unchanged.
 
 For every calibration origin, the saved real controls and disturbances produce a four-step model
 rollout.  PMV is recomputed with the shared comfort owner for both predicted and observed zone
-temperatures.  Occupancy for each scored target is read at the target timestamp; in particular,
-the terminal score uses the real saved `occupancy(k+4)`, never the disturbance at `k+3` or a
-duplicated occupancy.  The common robust margin is the empirical 95th percentile (the deterministic
-`higher` order statistic) of the absolute occupied PMV residuals.  A case fails offline eligibility
+temperatures.  Occupancy for each scored target is joined by timestamp to the complete saved
+Basic-RBC reference; in particular, the terminal calibration score uses the real
+`occupancy(k+4)`, never the disturbance at `k+3` or the validation trajectory's duplicated
+terminal row.  This is a calibration audit source, not the runtime terminal-reference owner.
+Each case receives its own robust-margin estimate from the same common formula: the empirical
+95th percentile (the deterministic `higher` order statistic) of that case's absolute occupied PMV
+residuals (`scope=case_specific_estimate_common_formula`).  A case fails offline eligibility
 if the residual set is empty or non-finite, or if the margin is not in `[0, 0.5)`.
 
 The margin does not change the public reward or add a hard PMV constraint.  It only tightens the
 MPC's internal soft-exceedance reference from `0.5` to `0.5 - margin`; physical validation keeps
 the unchanged zero-fallback and peak occupied absolute PMV `<= 0.70` gates.  Between hourly
-coordinator updates, the newly exposed terminal control reference is rebuilt from the actual
-terminal `occupancy(k+4)` using the existing Basic-RBC schedule before applying the unchanged
-identification-support bounds.
+coordinator updates, the newly appended fourth control reference is rebuilt from the actual
+effective-occupancy forecast at `k+4`, using the existing Basic-RBC 25/30 schedule, before applying
+the unchanged identification-support bounds.  The four-row ARX/QP horizon remains `k..k+3`;
+`occupancy(k+4)` is a separate terminal-reference input.
 
 ## Offline gates and transaction boundary
 

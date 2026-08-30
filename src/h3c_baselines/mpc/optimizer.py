@@ -13,6 +13,7 @@ from numpy.typing import NDArray
 from scipy import sparse  # type: ignore[import-untyped]
 
 from h3c.runtime.comfort import COMFORT_BAND, ComfortModel
+from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
 from h3c_baselines.mpc.vector_arx import FittedArxModel
 
 PMV_LIMIT = 0.70
@@ -172,6 +173,7 @@ def _add_comfort_constraints(
     temperature_offset: NDArray[np.float64],
     temperature_response: NDArray[np.float64],
     comfort_lines: Sequence[_ComfortLine],
+    comfort_band: float,
     rows: list[NDArray[np.float64]],
     lower: list[float],
     upper: list[float],
@@ -189,12 +191,12 @@ def _add_comfort_constraints(
         hot = excess_row.copy()
         hot[control_slice] -= pmv_response
         rows.append(hot)
-        lower.append(pmv_offset - COMFORT_BAND)
+        lower.append(pmv_offset - comfort_band)
         upper.append(np.inf)
         cold = excess_row.copy()
         cold[control_slice] += pmv_response
         rows.append(cold)
-        lower.append(-pmv_offset - COMFORT_BAND)
+        lower.append(-pmv_offset - comfort_band)
         upper.append(np.inf)
         rows.append(excess_row)
         lower.append(0.0)
@@ -213,6 +215,9 @@ class BuildingCoordinator:
         self.model = model
         self.objective = dict(objective)
         self.control_support = control_support
+        self.comfort_band = COMFORT_BAND - model.pmv_robust_margin
+        if not 0.0 < self.comfort_band <= COMFORT_BAND:
+            raise ValueError("MPC calibrated comfort band is invalid")
 
     def solve(
         self,
@@ -330,6 +335,7 @@ class BuildingCoordinator:
             temperature_offset=temperature_offset,
             temperature_response=temperature_response,
             comfort_lines=comfort_lines,
+            comfort_band=self.comfort_band,
             rows=rows,
             lower=lower,
             upper=upper,
@@ -342,7 +348,7 @@ class BuildingCoordinator:
         )
         warm_excess = np.asarray(
             [
-                max(0.0, abs(value) - COMFORT_BAND) if line.occupied else 0.0
+                max(0.0, abs(value) - self.comfort_band) if line.occupied else 0.0
                 for value, line in zip(warm_pmv, comfort_lines, strict=True)
             ]
         )
@@ -385,6 +391,9 @@ class ZoneMpcOptimizer:
         self.model = model
         self.objective = dict(objective)
         self.control_support = control_support
+        self.comfort_band = COMFORT_BAND - model.pmv_robust_margin
+        if not 0.0 < self.comfort_band <= COMFORT_BAND:
+            raise ValueError("MPC calibrated comfort band is invalid")
 
     def solve(
         self,
@@ -468,6 +477,7 @@ class ZoneMpcOptimizer:
             temperature_offset=temperature_offset,
             temperature_response=temperature_response,
             comfort_lines=zone_lines,
+            comfort_band=self.comfort_band,
             rows=rows,
             lower=lower,
             upper=upper,
@@ -482,7 +492,7 @@ class ZoneMpcOptimizer:
         )
         warm_excess = np.asarray(
             [
-                max(0.0, abs(value) - COMFORT_BAND) if line.occupied else 0.0
+                max(0.0, abs(value) - self.comfort_band) if line.occupied else 0.0
                 for value, line in zip(warm_pmv, zone_lines, strict=True)
             ]
         )
@@ -527,6 +537,7 @@ class HierarchicalMpcController:
         disturbances: NDArray[np.float64],
         prices: NDArray[np.float64],
         occupancy: NDArray[np.float64],
+        terminal_occupancy: Mapping[str, float] | None = None,
         action_times: Sequence[int],
         daily_outdoor_means_c: Sequence[float],
         comfort: ComfortModel,
@@ -557,6 +568,10 @@ class HierarchicalMpcController:
             else:
                 assert self._hourly_reference is not None
                 shifted = np.vstack((self._hourly_reference[1:], self._hourly_reference[-1]))
+                if terminal_occupancy is None or set(terminal_occupancy) != set(zones):
+                    raise ValueError("MPC terminal occupancy(k+4) is missing")
+                terminal_reference = basic_rbc_setpoints(zones, terminal_occupancy)
+                shifted[-1] = [terminal_reference[zone] for zone in zones]
                 for horizon_step in range(horizon):
                     for zone_index in range(len(zones)):
                         bounds = self.control_support.for_occupancy(
@@ -647,6 +662,8 @@ class HierarchicalMpcController:
                     upper_plan.negative_power_predictions_clipped
                 ),
                 "predicted_peak_absolute_pmv": predicted_peak_absolute_pmv,
+                "pmv_robust_margin": self.model.pmv_robust_margin,
+                "internal_comfort_band": COMFORT_BAND - self.model.pmv_robust_margin,
             },
         )
 
