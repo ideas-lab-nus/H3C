@@ -34,7 +34,7 @@ from h3c.runtime.source_identity import committed_source_identity
 from h3c_baselines.configuration import load_hierarchical_mpc_config
 from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
-from h3c_baselines.mpc.optimizer import HierarchicalMpcController
+from h3c_baselines.mpc.optimizer import HierarchicalMpcController, comfort_target_met
 from h3c_baselines.mpc.vector_arx import (
     ArxLayout,
     FittedArxModel,
@@ -845,6 +845,20 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
     schema_version = manifest.get("schema_version")
     legacy_lanes = manifest.get("lane_lifecycle")
     fresh_validation = manifest.get("fresh_validation")
+    fresh_peak = (
+        fresh_validation.get("occupied_peak_absolute_pmv")
+        if isinstance(fresh_validation, Mapping)
+        else None
+    )
+    fresh_comfort_target_valid = (
+        not isinstance(fresh_peak, bool)
+        and isinstance(fresh_peak, (int, float))
+        and math.isfinite(float(fresh_peak))
+        and isinstance(fresh_validation.get("comfort_target_met"), bool)
+        and fresh_validation["comfort_target_met"] is comfort_target_met(float(fresh_peak))
+        if isinstance(fresh_validation, Mapping)
+        else False
+    )
     lifecycle_valid = (
         schema_version == 1
         and isinstance(legacy_lanes, list)
@@ -870,9 +884,11 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
         and fresh_validation.get("warmup_days") == 7
         and fresh_validation.get("steps") == STEPS_PER_WEEK - 4
         and fresh_validation.get("fallback_count") == 0
-        and float(fresh_validation.get("occupied_peak_absolute_pmv", float("inf"))) <= 0.70
+        and fresh_comfort_target_valid
         and isinstance(card.get("validation"), dict)
         and card["validation"].get("eligible") is True
+        and card["validation"].get("comfort_target_met")
+        is fresh_validation.get("comfort_target_met")
         and card["validation"].get("model_identity") == model.identity
         and card["validation"].get("test_id") == fresh_validation.get("test_id")
         and isinstance(card.get("robust_calibration_attestation"), dict)

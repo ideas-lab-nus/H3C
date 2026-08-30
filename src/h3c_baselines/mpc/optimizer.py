@@ -62,6 +62,12 @@ class MpcSolverError(ValueError):
         self.dual_residual = dual_residual
 
 
+def comfort_target_met(peak_absolute_pmv: float) -> bool:
+    """Report the registered comfort target without making it a solver-validity gate."""
+
+    return bool(np.isfinite(peak_absolute_pmv) and peak_absolute_pmv <= PMV_LIMIT)
+
+
 @dataclass(frozen=True)
 class _ControlSupport:
     occupied: tuple[float, float]
@@ -570,15 +576,20 @@ class HierarchicalMpcController:
                 shifted = np.vstack((self._hourly_reference[1:], self._hourly_reference[-1]))
                 if terminal_occupancy is None or set(terminal_occupancy) != set(zones):
                     raise ValueError("MPC terminal occupancy(k+4) is missing")
-                terminal_reference = basic_rbc_setpoints(zones, terminal_occupancy)
-                shifted[-1] = [terminal_reference[zone] for zone in zones]
+                terminal_counts = np.asarray(
+                    [float(terminal_occupancy[zone]) for zone in zones], dtype=np.float64
+                )
+                if np.any(~np.isfinite(terminal_counts)) or np.any(terminal_counts < 0.0):
+                    raise ValueError("MPC terminal occupancy(k+4) is invalid")
+                last_action_occupancy = {
+                    zone: float(occupancy[horizon - 1, zone_index])
+                    for zone_index, zone in enumerate(zones)
+                }
+                last_action_reference = basic_rbc_setpoints(zones, last_action_occupancy)
+                shifted[-1] = [last_action_reference[zone] for zone in zones]
                 for horizon_step in range(horizon):
                     for zone_index in range(len(zones)):
-                        occupied = (
-                            float(terminal_occupancy[zones[zone_index]]) > 0
-                            if horizon_step == horizon - 1
-                            else bool(float(occupancy[horizon_step, zone_index]) > 0)
-                        )
+                        occupied = bool(float(occupancy[horizon_step, zone_index]) > 0)
                         bounds = self.control_support.for_occupancy(occupied)
                         shifted[horizon_step, zone_index] = np.clip(
                             shifted[horizon_step, zone_index], *bounds

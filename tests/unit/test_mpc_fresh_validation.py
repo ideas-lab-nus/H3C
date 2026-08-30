@@ -224,6 +224,7 @@ def test_arm_verifier_recomputes_timeline_reward_fallback_and_peak(
 
     assert result["evidence_valid"] is True
     assert result["eligible"] is True
+    assert result["comfort_target_met"] is True
     assert result["fallback_count"] == 0
     assert result["occupied_peak_absolute_pmv"] == pytest.approx(
         abs(ComfortModel(_profile()["comfort"]).pmv(24.8))
@@ -245,7 +246,7 @@ def test_arm_verifier_recomputes_timeline_reward_fallback_and_peak(
     assert tampered["eligible"] is False
 
 
-def test_completed_fallback_or_peak_failure_is_adverse_not_eligible(
+def test_completed_fallback_is_adverse_while_peak_is_reported_separately(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(validation, "VALIDATION_STEPS", 2)
@@ -265,6 +266,62 @@ def test_completed_fallback_or_peak_failure_is_adverse_not_eligible(
     assert result["evidence_valid"] is True
     assert result["fallback_count"] == 1
     assert result["occupied_peak_absolute_pmv"] > 0.70
+    assert result["comfort_target_met"] is False
+    assert result["eligible"] is False
+
+
+def test_peak_only_miss_is_performance_evidence_not_a_freeze_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(validation, "VALIDATION_STEPS", 2)
+    monkeypatch.setattr(validation, "load_profile", lambda _case: _profile())
+    _write_episode_artifacts(
+        tmp_path,
+        [_step_row(0), _step_row(1, outcome_temperature_c=28.0)],
+    )
+
+    result = validation._recompute_arm(
+        case="CaseA",
+        arm_dir=tmp_path,
+        model_identity="model-id",
+        expected_test_id="fresh-test",
+    )
+
+    assert result["evidence_valid"] is True
+    assert result["fallback_count"] == 0
+    assert result["occupied_peak_absolute_pmv"] > 0.70
+    assert result["comfort_target_met"] is False
+    assert result["eligible"] is True
+
+
+@pytest.mark.parametrize(
+    ("fallback_setpoint_c", "expected_evidence_valid"),
+    [(26.6, True), (30.1, False)],
+)
+def test_fallback_uses_physical_bounds_not_optimized_fit_support(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fallback_setpoint_c: float,
+    expected_evidence_valid: bool,
+) -> None:
+    monkeypatch.setattr(validation, "VALIDATION_STEPS", 2)
+    monkeypatch.setattr(validation, "load_profile", lambda _case: _profile())
+    monkeypatch.setattr(validation, "load_hierarchical_mpc_config", _configuration)
+    rows = [_step_row(0, degraded=True), _step_row(1)]
+    rows[0]["setpoints_c"]["zone"] = fallback_setpoint_c
+    _refresh_rewards(rows)
+    _write_episode_artifacts(tmp_path, rows)
+
+    result = validation._recompute_arm(
+        case="CaseA",
+        arm_dir=tmp_path,
+        model_identity="model-id",
+        expected_test_id="fresh-test",
+    )
+
+    assert result["evidence_valid"] is expected_evidence_valid
+    if expected_evidence_valid:
+        assert result["fallback_count"] == 1
     assert result["eligible"] is False
 
 

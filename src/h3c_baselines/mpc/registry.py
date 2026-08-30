@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import stat
@@ -14,6 +15,7 @@ from typing import Any
 
 from h3c.experiments.profiles import load_profile, repository_root
 from h3c_baselines.configuration import load_hierarchical_mpc_config
+from h3c_baselines.mpc.optimizer import comfort_target_met
 from h3c_baselines.mpc.validation import (
     _read_json,
     _sha256,
@@ -28,6 +30,20 @@ def _identity(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     ).hexdigest()
+
+
+def _comfort_target_attestation_valid(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    peak = value.get("occupied_peak_absolute_pmv")
+    if isinstance(peak, bool) or not isinstance(peak, (int, float)):
+        return False
+    peak_value = float(peak)
+    return bool(
+        math.isfinite(peak_value)
+        and isinstance(value.get("comfort_target_met"), bool)
+        and value["comfort_target_met"] is comfort_target_met(peak_value)
+    )
 
 
 def _resolve_validation(workspace: Path) -> tuple[Path, dict[str, Any]]:
@@ -238,6 +254,7 @@ def _frozen_training_manifest(
             "steps": validation_result["steps"],
             "fallback_count": validation_result["fallback_count"],
             "occupied_peak_absolute_pmv": validation_result["occupied_peak_absolute_pmv"],
+            "comfort_target_met": validation_result["comfort_target_met"],
         },
         "freeze_identity": freeze_identity,
         "validation_attestation": dict(validation_result),
@@ -420,9 +437,7 @@ def _verify_staged_suite(
                 and validated.get("fallback_count") == 0
                 and isinstance(validated.get("reward"), (int, float))
                 and not isinstance(validated.get("reward"), bool)
-                and isinstance(validated.get("occupied_peak_absolute_pmv"), (int, float))
-                and not isinstance(validated.get("occupied_peak_absolute_pmv"), bool)
-                and float(validated["occupied_peak_absolute_pmv"]) <= 0.70
+                and _comfort_target_attestation_valid(validated)
                 and row.get("model_identity") == model.identity
                 and row.get("coefficient_sha256") == _sha256(target / "model_coefficients.npz")
                 and row.get("model_card_sha256") == _sha256(target / "model_card.json")
@@ -464,7 +479,7 @@ def _verify_staged_suite(
                 and fresh_validation.get("test_id") == validated.get("test_id")
                 and fresh_validation.get("fallback_count") == 0
                 and fresh_validation.get("steps") == 668
-                and float(fresh_validation.get("occupied_peak_absolute_pmv", float("inf"))) <= 0.70
+                and _comfort_target_attestation_valid(fresh_validation)
                 and source_bundle.get("case") == case
                 and source_bundle.get("model_identity") == model.identity
             )
@@ -555,7 +570,10 @@ def freeze_validated_mpc_suite(validation_workspace: Path) -> dict[str, Any]:
         else {}
     )
     if set(by_case) != set(case_order) or not all(
-        row.get("eligible") is True for row in by_case.values()
+        row.get("eligible") is True
+        and row.get("fallback_count") == 0
+        and _comfort_target_attestation_valid(row)
+        for row in by_case.values()
     ):
         raise ValueError("all three validation cases must be eligible before freeze")
     source_bundles = [_source_bundle(refit_workspace, case) for case in case_order]

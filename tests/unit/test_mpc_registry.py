@@ -120,6 +120,7 @@ def _workspaces(root: Path) -> tuple[Path, Path, dict[str, Any]]:
             "reward": -1.0,
             "fallback_count": 0,
             "occupied_peak_absolute_pmv": 0.6,
+            "comfort_target_met": True,
             "eligible": True,
         }
         for case in CASES
@@ -248,6 +249,59 @@ def test_frozen_suite_is_self_contained_and_runtime_loadable(
     )
     monkeypatch.setattr(training, "load_hierarchical_mpc_config", _configuration)
     assert training.verify_frozen_mpc_model("CaseA")["valid"] is True
+
+
+def test_comfort_target_miss_is_preserved_and_does_not_block_atomic_freeze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, validation, verification = _workspaces(tmp_path)
+    for row in verification["cases"]:
+        row["occupied_peak_absolute_pmv"] = 0.9
+        row["comfort_target_met"] = False
+    completion_path = validation / "completion.json"
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    completion["cases"] = verification["cases"]
+    _write_json(completion_path, completion)
+    _patch_owners(monkeypatch, tmp_path, verification)
+
+    result = registry.freeze_validated_mpc_suite(validation)
+
+    target = Path(result["target"])
+    card = json.loads((target / "CaseA" / "model_card.json").read_text(encoding="utf-8"))
+    training_manifest = json.loads(
+        (target / "CaseA" / "training_manifest.json").read_text(encoding="utf-8")
+    )
+    assert result["valid"] is True
+    assert card["validation"]["occupied_peak_absolute_pmv"] == 0.9
+    assert card["validation"]["comfort_target_met"] is False
+    assert training_manifest["fresh_validation"]["comfort_target_met"] is False
+    assert registry.verify_frozen_mpc_suite(target)["valid"] is True
+    monkeypatch.setattr(training, "repository_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        training,
+        "load_profile",
+        lambda _case: {"evaluation_start_day": 10, "zones": {"zone": {}}},
+    )
+    monkeypatch.setattr(training, "load_hierarchical_mpc_config", _configuration)
+    assert training.verify_frozen_mpc_model("CaseA")["valid"] is True
+
+
+def test_inconsistent_comfort_target_attestation_never_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, validation, verification = _workspaces(tmp_path)
+    verification["cases"][0]["occupied_peak_absolute_pmv"] = 0.9
+    completion_path = validation / "completion.json"
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    completion["cases"] = verification["cases"]
+    _write_json(completion_path, completion)
+    _patch_owners(monkeypatch, tmp_path, verification)
+
+    with pytest.raises(ValueError, match="eligible before freeze"):
+        registry.freeze_validated_mpc_suite(validation)
+
+    assert not (tmp_path / "models" / "mpc").exists()
+    assert not list((tmp_path / "models").glob(".mpc-*.pending"))
 
 
 @pytest.mark.parametrize("tamper", ["missing_manifest", "coordinated_robust_change"])

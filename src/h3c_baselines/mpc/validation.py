@@ -20,6 +20,7 @@ from h3c.runtime.clients import BoptestHttpClient
 from h3c.runtime.comfort import ComfortModel, step_reward
 from h3c.runtime.source_identity import committed_source_identity
 from h3c_baselines.configuration import load_hierarchical_mpc_config
+from h3c_baselines.mpc.optimizer import PMV_LIMIT, comfort_target_met
 from h3c_baselines.mpc.refit import verify_refit_workspace
 from h3c_baselines.mpc.training import (
     STEPS_PER_WEEK,
@@ -259,8 +260,8 @@ def resolved_validation_plan(refit_workspace: Path) -> dict[str, Any]:
         "closed_loop_steps": VALIDATION_STEPS,
         "physical_gate": {
             "fallback_count": 0,
-            "occupied_peak_absolute_pmv_max": 0.70,
         },
+        "comfort_target": {"occupied_peak_absolute_pmv_max": PMV_LIMIT},
         "candidate_gates": gates,
         "promotion": "all_three_or_none_transactional_directory_replace",
         "model_api_calls": 0,
@@ -589,9 +590,10 @@ def _recompute_arm(
             if count < 0.0:
                 support_valid = False
                 continue
-            lower, upper = occupied_bounds if count > 0.0 else unoccupied_bounds
-            if not lower <= float(setpoints[zone]) <= upper:
-                support_valid = False
+            if controller["status"] == "optimized":
+                lower, upper = occupied_bounds if count > 0.0 else unoccupied_bounds
+                if not lower <= float(setpoints[zone]) <= upper:
+                    support_valid = False
         if not (
             support_valid
             and math.isclose(
@@ -699,9 +701,10 @@ def _recompute_arm(
         "reward": reward_total,
         "fallback_count": fallback_count,
         "occupied_peak_absolute_pmv": peak_pmv,
+        "comfort_target_met": comfort_target_met(peak_pmv),
         "checks": checks,
         "evidence_valid": all(checks.values()),
-        "eligible": all(checks.values()) and fallback_count == 0 and peak_pmv <= 0.70,
+        "eligible": all(checks.values()) and fallback_count == 0,
     }
 
 

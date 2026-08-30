@@ -537,13 +537,13 @@ def test_occupied_controls_stay_inside_identification_support() -> None:
 
 
 @pytest.mark.parametrize(
-    ("occupancy_k_plus_3", "occupancy_k_plus_4", "expected_terminal_reference"),
-    [(0.0, 1.0, 25.0), (1.0, 0.0, 30.0)],
+    ("occupancy_k_plus_3", "occupancy_k_plus_4", "expected_last_action_reference"),
+    [(0.0, 1.0, 30.0), (1.0, 0.0, 25.0)],
 )
-def test_shifted_hourly_reference_respects_new_terminal_occupancy(
+def test_shifted_hourly_reference_uses_k_plus_3_for_cached_last_action(
     occupancy_k_plus_3: float,
     occupancy_k_plus_4: float,
-    expected_terminal_reference: float,
+    expected_last_action_reference: float,
 ) -> None:
     layout = ArxLayout(("z",), ("outdoor", "solar", "occupancy", "sin", "cos"))
     model = FittedArxModel(
@@ -608,8 +608,8 @@ def test_shifted_hourly_reference_respects_new_terminal_occupancy(
     )
 
     assert first.diagnostics["status"] == second.diagnostics["status"] == "optimized"
-    terminal_reference = second.diagnostics["upper_reference_setpoints_c"][-1][0]
-    assert terminal_reference == expected_terminal_reference
+    last_action_reference = second.diagnostics["upper_reference_setpoints_c"][-1][0]
+    assert last_action_reference == expected_last_action_reference
 
 
 def test_rollout_clamps_negative_power_before_recursive_use() -> None:
