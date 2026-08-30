@@ -55,10 +55,22 @@ class BaselineArtifacts:
             else ()
         )
 
-    def create(self, resolved: Mapping[str, Any], manifest: Mapping[str, Any]) -> None:
-        if self.run_dir.exists():
-            raise ValueError("fresh baseline run directory already exists")
-        self.run_dir.mkdir(parents=True)
+    def create(
+        self,
+        resolved: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        *,
+        reserved_by_execution_lock: bool = False,
+    ) -> None:
+        if reserved_by_execution_lock:
+            if not self.run_dir.is_dir() or {path.name for path in self.run_dir.iterdir()} != {
+                ".execution.lock"
+            }:
+                raise ValueError("reserved baseline run directory has unexpected contents")
+        else:
+            if self.run_dir.exists():
+                raise ValueError("fresh baseline run directory already exists")
+            self.run_dir.mkdir(parents=True)
         self.write_new_json("resolved_config.json", resolved)
         self.write_new_json("manifest.json", manifest)
         for name in self.allowed_streams:
@@ -103,6 +115,17 @@ class BaselineArtifacts:
             raise ValueError("baseline completion already exists")
         with pending.open("x", encoding="utf-8", newline="\n") as file:
             file.write(_text(completion) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        pending.replace(target)
+
+    def publish_failure(self, failure: Mapping[str, Any]) -> None:
+        pending = self.run_dir / ".failure.pending"
+        target = self.run_dir / "failure.json"
+        if pending.exists() or target.exists() or (self.run_dir / "completion.json").exists():
+            raise ValueError("baseline failure already exists or the run is complete")
+        with pending.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(_text(failure) + "\n")
             file.flush()
             os.fsync(file.fileno())
         pending.replace(target)

@@ -8,6 +8,8 @@ import math
 import os
 import time
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,30 @@ from h3c_baselines.outputs.verification import verify_baseline_run
 from h3c_baselines.policies.observation_contracts import PolicyObservationBuilder
 
 PhysicalFactory = Callable[[str], PhysicalClient]
+
+
+@dataclass(frozen=True)
+class _PreparedBaselineRun:
+    plan: BaselineRunPlan
+    resolved: dict[str, Any]
+    drl: FrozenDrlController | None
+    observation_builder: PolicyObservationBuilder | None
+    drl_identity: dict[str, Any] | None
+    mpc_model: FittedArxModel | None
+    mpc_identity: dict[str, Any] | None
+    source_commit: str
+    execution_identity: dict[str, Any]
+    run_identity: str
+    run_id: str
+
+
+class ConcurrentBaselineExecutionError(RuntimeError):
+    """Raised only after every submitted independent baseline arm has finished."""
+
+    def __init__(self, summary: dict[str, Any]) -> None:
+        self.summary = summary
+        failed = summary.get("failed_runs", [])
+        super().__init__(f"{len(failed)} concurrent baseline arm(s) failed")
 
 
 def _source_commit() -> str:
@@ -186,20 +212,16 @@ def _native_kpis(physical: PhysicalClient) -> dict[str, Any]:
     return value
 
 
-def _execute_one(
+def _prepare_baseline_run(
     plan: BaselineRunPlan,
     *,
-    suite: str,
     endpoint: str,
-    output_root: Path,
-    physical_factory: PhysicalFactory,
-) -> dict[str, Any]:
+    source_commit: str,
+) -> _PreparedBaselineRun:
+    """Resolve one arm and load all optional dependencies before physical work."""
+
     resolved = plan.resolved()
     profile = resolved["case_profile"]
-
-    # Load every frozen-policy dependency and checkpoint before creating artifacts or
-    # touching BOPTEST. A missing optional baseline dependency is an environment
-    # preflight failure, not a reason to spend a fresh physical conditioning prefix.
     drl: FrozenDrlController | None = None
     observation_builder: PolicyObservationBuilder | None = None
     drl_identity: dict[str, Any] | None = None
@@ -219,7 +241,6 @@ def _execute_one(
             repository_root() / "models" / "mpc" / plan.case / "model_coefficients.npz"
         )
 
-    source_commit = _source_commit()
     execution_identity = {
         "plan_identity": resolved["plan_identity"],
         "source_commit": source_commit,
@@ -228,12 +249,60 @@ def _execute_one(
     }
     run_identity = _identity(execution_identity)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + run_identity[:12]
-    artifacts = BaselineArtifacts(output_root, suite, plan.case, run_id, plan.controller)
+    resolved["execution_identity"] = execution_identity
+    return _PreparedBaselineRun(
+        plan=plan,
+        resolved=resolved,
+        drl=drl,
+        observation_builder=observation_builder,
+        drl_identity=drl_identity,
+        mpc_model=mpc_model,
+        mpc_identity=mpc_identity,
+        source_commit=source_commit,
+        execution_identity=execution_identity,
+        run_identity=run_identity,
+        run_id=run_id,
+    )
+
+
+def _execute_one(
+    plan: BaselineRunPlan,
+    *,
+    suite: str,
+    endpoint: str,
+    output_root: Path,
+    physical_factory: PhysicalFactory,
+    prepared: _PreparedBaselineRun | None = None,
+    reserved_run_directory: bool = False,
+) -> dict[str, Any]:
+    prepared_run = prepared or _prepare_baseline_run(
+        plan,
+        endpoint=endpoint,
+        source_commit=_source_commit(),
+    )
+    if prepared_run.plan != plan:
+        raise ValueError("prepared baseline arm does not match the requested plan")
+    resolved = prepared_run.resolved
+    profile = resolved["case_profile"]
+    drl = prepared_run.drl
+    observation_builder = prepared_run.observation_builder
+    drl_identity = prepared_run.drl_identity
+    mpc_model = prepared_run.mpc_model
+    mpc_identity = prepared_run.mpc_identity
+    execution_identity = prepared_run.execution_identity
+    run_identity = prepared_run.run_identity
+    artifacts = BaselineArtifacts(
+        output_root,
+        suite,
+        plan.case,
+        prepared_run.run_id,
+        plan.controller,
+    )
     manifest: dict[str, Any] = {
         "manifest_schema": "h3c_baseline_manifest",
         "schema_version": 1,
         "run_identity": run_identity,
-        "source_commit": source_commit,
+        "source_commit": prepared_run.source_commit,
         "case": plan.case,
         "controller": plan.controller,
         "conditioning_prefix_identity": None,
@@ -250,13 +319,16 @@ def _execute_one(
             "test_id_changes": 0,
         },
     }
-    resolved["execution_identity"] = execution_identity
-    artifacts.create(resolved, manifest)
+    artifacts.create(
+        resolved,
+        manifest,
+        reserved_by_execution_lock=reserved_run_directory,
+    )
     if drl_identity is not None:
         artifacts.write_new_json("model_identity.json", drl_identity)
     if mpc_identity is not None:
         artifacts.write_new_json("mpc_model_identity.json", mpc_identity)
-    physical = physical_factory(endpoint)
+    physical: PhysicalClient | None = None
     initialized = False
     stop_attempted = False
     frozen_test_id: str | None = None
@@ -264,7 +336,13 @@ def _execute_one(
     evaluation_end = evaluation_start + plan.evaluation_hours * 3600
     last_physical_time = evaluation_start
     started = time.perf_counter()
+    primary_error: Exception | None = None
+    stop_error: Exception | None = None
     try:
+        physical = physical_factory(endpoint)
+        lifecycle_sink_setter = getattr(physical, "set_lifecycle_sink", None)
+        if callable(lifecycle_sink_setter):
+            lifecycle_sink_setter(lambda row: artifacts.append_jsonl("timing.jsonl", dict(row)))
         boundary = initialize_evaluation_boundary(
             physical,
             profile,
@@ -541,32 +619,82 @@ def _execute_one(
             },
         )
         artifacts.write_new_json("native_boptest_kpis.json", _native_kpis(physical))
+    except Exception as error:
+        primary_error = error
     finally:
-        if initialized or physical.test_id is not None:
+        if physical is not None and (initialized or physical.test_id is not None):
             stop_attempted = True
-            physical.stop()
-            manifest["lifecycle"]["stop_count"] += 1
-            artifacts.append_jsonl(
-                "timing.jsonl",
-                {
-                    "phase": "physical_lifecycle",
-                    "event": "stopped",
-                    "time_seconds": last_physical_time,
-                    "test_id": frozen_test_id or physical.test_id,
-                },
-            )
-        if artifacts.run_dir.is_dir() and not (artifacts.run_dir / "completion.json").exists():
-            manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
-            manifest["secret_scan_status"] = "completed"
-            artifacts.replace_json("manifest.json", manifest)
+            stopped_test_id = frozen_test_id or physical.test_id
+            try:
+                physical.stop()
+                manifest["lifecycle"]["stop_count"] += 1
+                artifacts.append_jsonl(
+                    "timing.jsonl",
+                    {
+                        "phase": "physical_lifecycle",
+                        "event": "stopped",
+                        "time_seconds": last_physical_time,
+                        "test_id": stopped_test_id,
+                    },
+                )
+            except Exception as error:
+                stop_error = error
+    if primary_error is not None or stop_error is not None:
+        artifacts.publish_failure(
+            {
+                "failure_schema": "h3c_baseline_failure",
+                "schema_version": 1,
+                "classification": "RUN-INVALID",
+                "run_identity": run_identity,
+                "primary_failure": (
+                    None
+                    if primary_error is None
+                    else {"type": type(primary_error).__name__, "message": str(primary_error)}
+                ),
+                "stop_failure": (
+                    None
+                    if stop_error is None
+                    else {"type": type(stop_error).__name__, "message": str(stop_error)}
+                ),
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
+        manifest["secret_scan_status"] = "completed"
+        artifacts.replace_json("manifest.json", manifest)
+        if primary_error is not None:
+            if stop_error is not None:
+                raise primary_error from stop_error
+            raise primary_error
+        assert stop_error is not None
+        raise stop_error
+    manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
+    manifest["secret_scan_status"] = "completed"
+    artifacts.replace_json("manifest.json", manifest)
     if not stop_attempted:
         raise AssertionError("baseline execution exited without stopping the physical test")
-    metrics = compute_baseline_metrics(artifacts.run_dir)
-    artifacts.write_new_json("metrics.json", metrics)
-    verification = verify_baseline_run(artifacts.run_dir, require_completion=False)
-    artifacts.write_new_json("verification.json", verification)
-    if verification["completion_eligible"] is not True:
-        raise ValueError(f"baseline verification failed: {verification['errors']}")
+    try:
+        metrics = compute_baseline_metrics(artifacts.run_dir)
+        artifacts.write_new_json("metrics.json", metrics)
+        verification = verify_baseline_run(artifacts.run_dir, require_completion=False)
+        artifacts.write_new_json("verification.json", verification)
+        if verification["completion_eligible"] is not True:
+            raise ValueError(f"baseline verification failed: {verification['errors']}")
+    except Exception as error:
+        artifacts.publish_failure(
+            {
+                "failure_schema": "h3c_baseline_failure",
+                "schema_version": 1,
+                "classification": "RUN-INVALID",
+                "run_identity": run_identity,
+                "primary_failure": {"type": type(error).__name__, "message": str(error)},
+                "stop_failure": None,
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        manifest["secret_exposure_count"] = secret_occurrences(artifacts.run_dir)
+        artifacts.replace_json("manifest.json", manifest)
+        raise
     completion = {
         "completion_schema": "h3c_baseline_completion",
         "schema_version": 1,
@@ -618,9 +746,163 @@ def execute_baseline_plans(
     return {"execution": "strictly_serial", "completed_runs": results}
 
 
+def _execute_prepared_concurrent_arm(
+    prepared: _PreparedBaselineRun,
+    *,
+    suite: str,
+    endpoint: str,
+    output_root: Path,
+    physical_factory: PhysicalFactory,
+) -> dict[str, Any]:
+    artifacts = BaselineArtifacts(
+        output_root,
+        suite,
+        prepared.plan.case,
+        prepared.run_id,
+        prepared.plan.controller,
+    )
+    with physical_execution_lock(artifacts.run_dir):
+        return _execute_one(
+            prepared.plan,
+            suite=suite,
+            endpoint=endpoint,
+            output_root=output_root,
+            physical_factory=physical_factory,
+            prepared=prepared,
+            reserved_run_directory=True,
+        )
+
+
+def _concurrent_failure(
+    prepared: _PreparedBaselineRun,
+    error: Exception,
+    *,
+    suite: str,
+    output_root: Path,
+) -> dict[str, Any]:
+    artifacts = BaselineArtifacts(
+        output_root,
+        suite,
+        prepared.plan.case,
+        prepared.run_id,
+        prepared.plan.controller,
+    )
+    return {
+        "case": prepared.plan.case,
+        "controller": prepared.plan.controller,
+        "classification": "RUN-INVALID",
+        "run_dir": str(artifacts.run_dir),
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+        "failure_evidence_present": (artifacts.run_dir / "failure.json").is_file(),
+    }
+
+
+def execute_baseline_plans_concurrently(
+    plans: Sequence[BaselineRunPlan],
+    *,
+    suite: str,
+    output_root: Path | None = None,
+    physical_factory: PhysicalFactory | None = None,
+    lock_root: Path | None = None,
+) -> dict[str, Any]:
+    """Execute independent arms once each with BOPTEST-owned dynamic admission."""
+
+    if not plans:
+        raise ValueError("baseline execution requires at least one plan")
+    runtime = load_runtime_contract()
+    endpoint_name = runtime["physical_service"]["endpoint_environment_variable"]
+    endpoint = os.environ.get(endpoint_name, "").rstrip("/")
+    if not endpoint:
+        raise ValueError(f"{endpoint_name} is required for baseline execution")
+    root = (output_root or repository_root() / "outputs" / "baselines" / "runs").resolve()
+    resolved_lock_root = (lock_root or repository_root() / "outputs" / "runs").resolve()
+
+    # Source identity and every optional dependency are resolved on the caller thread.
+    # No artifacts, workers, test ids, or physical requests exist before this completes.
+    source_commit = _source_commit()
+    prepared = [
+        _prepare_baseline_run(plan, endpoint=endpoint, source_commit=source_commit)
+        for plan in plans
+    ]
+    for item in prepared:
+        artifacts = BaselineArtifacts(
+            root,
+            suite,
+            item.plan.case,
+            item.run_id,
+            item.plan.controller,
+        )
+        if artifacts.run_dir.exists():
+            raise ValueError("fresh baseline run directory already exists")
+
+    suite_lock_identity = _identity(
+        {
+            "suite": suite,
+            "source_commit": source_commit,
+            "plans": [item.resolved["plan_identity"] for item in prepared],
+        }
+    )
+    suite_lock_root = resolved_lock_root / "concurrent-suites" / suite_lock_identity
+    factory = physical_factory or BoptestHttpClient
+    completed: list[dict[str, Any] | None] = [None] * len(prepared)
+    failures: list[dict[str, Any] | None] = [None] * len(prepared)
+    with (
+        physical_execution_lock(suite_lock_root),
+        # This is one local task per registered arm, not a physical worker limit.
+        # BOPTEST alone admits each selected test as Running or Queued.
+        ThreadPoolExecutor(
+            max_workers=len(prepared),
+            thread_name_prefix="h3c-baseline-arm",
+        ) as executor,
+    ):
+        futures: dict[Future[dict[str, Any]], int] = {
+            executor.submit(
+                _execute_prepared_concurrent_arm,
+                item,
+                suite=suite,
+                endpoint=endpoint,
+                output_root=root,
+                physical_factory=factory,
+            ): index
+            for index, item in enumerate(prepared)
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                completed[index] = future.result()
+            except Exception as error:
+                failures[index] = _concurrent_failure(
+                    prepared[index],
+                    error,
+                    suite=suite,
+                    output_root=root,
+                )
+
+    ordered_runs = [
+        completed[index] if completed[index] is not None else failures[index]
+        for index in range(len(prepared))
+    ]
+    summary = {
+        "execution": "dynamic_concurrent",
+        "dispatch_mode": "auto",
+        "source_commit": source_commit,
+        "submitted_runs": len(prepared),
+        "runs": ordered_runs,
+        "completed_runs": [row for row in completed if row is not None],
+        "failed_runs": [row for row in failures if row is not None],
+    }
+    if summary["failed_runs"]:
+        raise ConcurrentBaselineExecutionError(summary)
+    return summary
+
+
 def execute_formal_suite() -> dict[str, Any]:
     return execute_baseline_plans(formal_evaluation_plans(), suite="formal")
 
 
 def execute_mpc_formal_suite() -> dict[str, Any]:
-    return execute_baseline_plans(mpc_formal_evaluation_plans(), suite="mpc-formal")
+    return execute_baseline_plans_concurrently(
+        mpc_formal_evaluation_plans(),
+        suite="mpc-formal",
+    )
