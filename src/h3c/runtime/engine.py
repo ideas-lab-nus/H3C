@@ -15,6 +15,7 @@ from typing import Any
 
 from h3c.agents.roles import (
     Executor,
+    ModelCallContext,
     ModelClient,
     ModelContractError,
     Orchestrator,
@@ -79,6 +80,23 @@ class RunAcceptanceFailure(RuntimeError):
         self.verification = dict(verification)
 
 
+class ExecutorBatchTransportError(TransportError):
+    def __init__(self, failures: Sequence[tuple[str, TransportError]]) -> None:
+        if not failures:
+            raise ValueError("executor transport batch requires at least one failure")
+        primary_zone, primary = failures[0]
+        super().__init__(
+            f"Executor transport batch failed; primary zone {primary_zone}: {primary}",
+            retryable=primary.retryable,
+            error_type=primary.error_type,
+            provider_response_received=primary.provider_response_received,
+            retry_after_seconds=primary.retry_after_seconds,
+        )
+        self.primary_zone = primary_zone
+        self.failed_zones = tuple(zone for zone, _ in failures)
+        self.failure_count = len(failures)
+
+
 def _canonical(value: Any) -> str:
     return json.dumps(
         value,
@@ -134,10 +152,58 @@ def _real_physical_factory(endpoint: str) -> PhysicalClient:
     return BoptestHttpClient(endpoint)
 
 
-def _set_model_context(client: ModelClient, **context: Any) -> None:
-    setter = getattr(client, "set_context", None)
-    if callable(setter):
-        setter(**context)
+def _call_ordinal(
+    plan: RunPlan,
+    zones: Sequence[str],
+    *,
+    hour: int,
+    role: str,
+    zone: str | None = None,
+) -> int:
+    calls_per_hour = len(zones) + 1 + int(plan.coordination_enabled)
+    ordinal = hour * calls_per_hour
+    if role == "orchestrator":
+        if not plan.coordination_enabled or zone is not None:
+            raise ValueError("Orchestrator call context is invalid")
+        return ordinal
+    ordinal += int(plan.coordination_enabled)
+    if role == "executor":
+        if zone not in zones:
+            raise ValueError("Executor call context has an unknown zone")
+        return ordinal + list(zones).index(str(zone))
+    if role == "reflector" and zone is None:
+        return ordinal + len(zones)
+    raise ValueError("model call context role is invalid")
+
+
+def _model_context(
+    plan: RunPlan,
+    zones: Sequence[str],
+    *,
+    hour: int,
+    step: int,
+    role: str,
+    zone: str | None = None,
+) -> ModelCallContext:
+    return ModelCallContext(
+        hour=hour,
+        step=step,
+        call_ordinal=_call_ordinal(plan, zones, hour=hour, role=role, zone=zone),
+        zone=zone,
+    )
+
+
+def _recorded_retry_count(run_dir: Path) -> int:
+    attempts = run_dir / "model_request_attempts.jsonl"
+    if not attempts.is_file():
+        return 0
+    count = 0
+    for line in attempts.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        row = json.loads(line)
+        count += int(row.get("will_retry") is True)
+    return count
 
 
 def _graph_edges(graph: ConfirmedGraph | None) -> list[dict[str, Any]] | None:
@@ -325,7 +391,6 @@ async def _agent_hour(
     orchestrator_rationale_telemetry: dict[str, Any] | None = None
     resolved_site_cap = site_cap_max(zones)
     if plan.coordination_enabled:
-        _set_model_context(client, hour=hour, step=step)
         orchestrator = Orchestrator(client)
         user = orchestrator.build_user(
             hour=hour,
@@ -352,6 +417,13 @@ async def _agent_hour(
         )
         try:
             allocation = await orchestrator.allocate(
+                context=_model_context(
+                    plan,
+                    zones,
+                    hour=hour,
+                    step=step,
+                    role="orchestrator",
+                ),
                 zones=zones,
                 user=user,
                 causal_enabled=plan.causal_enabled,
@@ -382,10 +454,11 @@ async def _agent_hour(
 
     proposals: dict[str, dict[str, Any] | ModelContractError] = {}
     proposal_rationale_telemetry: dict[str, dict[str, Any] | None] = {}
-    executor = Executor(client)
-    # Production API calls remain strictly serial in frozen profile-zone order.
-    # No budget charge occurs until every zone has completed this proposal phase.
-    for zone in zones:
+
+    async def propose_for_zone(
+        zone: str,
+    ) -> tuple[dict[str, Any] | ModelContractError, dict[str, Any] | None]:
+        executor = Executor(client)
         allowance = None if ledger is None else ledger.snapshot(zone)
         user = executor.build_user(
             hour=hour,
@@ -408,18 +481,58 @@ async def _agent_hour(
             ),
             rejection_feedback=last_rejection_by_zone[zone],
         )
-        _set_model_context(client, hour=hour, step=step, zone=zone)
         try:
-            proposals[zone] = await executor.propose(
+            proposal = await executor.propose(
+                context=_model_context(
+                    plan,
+                    zones,
+                    hour=hour,
+                    step=step,
+                    role="executor",
+                    zone=zone,
+                ),
                 user=user,
                 causal_enabled=plan.causal_enabled,
                 coordination_enabled=plan.coordination_enabled,
                 thinking_mode=thinking_mode,
             )
-            proposal_rationale_telemetry[zone] = executor.last_rationale_telemetry
+            return proposal, executor.last_rationale_telemetry
         except ModelContractError as error:
-            proposals[zone] = error
-            proposal_rationale_telemetry[zone] = None
+            return error, None
+
+    # Every Executor receives an uncharged snapshot. All issued requests finish before any
+    # proposal is settled, so response timing cannot influence budget or program state.
+    proposal_results = await asyncio.gather(
+        *(propose_for_zone(zone) for zone in zones),
+        return_exceptions=True,
+    )
+    transport_failures: list[tuple[str, TransportError]] = []
+    other_failures: list[BaseException] = []
+    for zone, result in zip(zones, proposal_results, strict=True):
+        if isinstance(result, TransportError):
+            transport_failures.append((zone, result))
+        elif isinstance(result, BaseException):
+            other_failures.append(result)
+        else:
+            proposals[zone], proposal_rationale_telemetry[zone] = result
+    if transport_failures:
+        artifacts.append_jsonl(
+            "timing.jsonl",
+            {
+                "phase": "executor_batch",
+                "event": "terminal_transport_failure",
+                "hour": hour,
+                "step": step,
+                "issued_zones": list(zones),
+                "failed_zones": [zone for zone, _ in transport_failures],
+                "primary_failure_zone": transport_failures[0][0],
+                "settlement_performed": False,
+                "physical_advance_performed": False,
+            },
+        )
+        raise ExecutorBatchTransportError(transport_failures)
+    if other_failures:
+        raise other_failures[0]
 
     updates: list[dict[str, Any]] = []
     settlement_order = list(ledger.priority) if ledger is not None else list(zones)
@@ -544,9 +657,15 @@ async def _reflect_hour(
             zones=zones,
         ),
     )
-    _set_model_context(client, hour=hour, step=step)
     try:
         insights = await reflector.summarize(
+            context=_model_context(
+                plan,
+                zones,
+                hour=hour,
+                step=step,
+                role="reflector",
+            ),
             user=user,
             causal_enabled=plan.causal_enabled,
             thinking_mode=thinking_mode,
@@ -573,6 +692,7 @@ async def _evaluate(
     model: ModelClient | None,
     artifacts: RunArtifacts,
     boundary: EvaluationBoundaryState,
+    run_identity: str,
 ) -> tuple[dict[str, Any], bool, int, int]:
     step_seconds = int(profile["control_step_seconds"])
     evaluation_steps = plan.evaluation_hours * 4
@@ -819,6 +939,18 @@ async def _evaluate(
                 )
                 previous_utilisation = hourly["energy_budget"]
             artifacts.append_jsonl("hourly_decisions.jsonl", hourly)
+            artifacts.replace_completed_hour_checkpoint(
+                {
+                    "artifact_schema": "h3c_completed_hour_checkpoint",
+                    "schema_version": 1,
+                    "run_identity": run_identity,
+                    "test_id": boundary.test_id,
+                    "completed_hour": hour,
+                    "completed_step": step,
+                    "next_step": step + 1,
+                    "program_versions": {zone: programs[zone].version for zone in zones},
+                }
+            )
     replay_verified = all(bool(program.replay()) for program in programs.values())
     return metrics.resolved(), replay_verified, len(resolution_events), fallback_count
 
@@ -851,6 +983,7 @@ async def _execute_one(
         "source_commit": source_commit,
         "runtime_contract": runtime,
         "physical_endpoint_identity": _endpoint_identity(physical_endpoint),
+        "dispatch_mode": "auto",
         **(
             {"model_endpoint_identity": _endpoint_identity(model_endpoint)}
             if plan.controller == "h3c_agent"
@@ -864,10 +997,11 @@ async def _execute_one(
     resolved["execution_identity"] = execution_identity
     manifest: dict[str, Any] = {
         "manifest_schema": "h3c_run_manifest",
-        "schema_version": 3,
+        "schema_version": 4,
         "run_identity": run_identity,
         "source_commit": source_commit,
         "controller": plan.controller,
+        "dispatch_mode": "auto",
         "expected_agent_calls": plan.expected_agent_calls(len(profile["zones"])),
         "retry_count": 0,
         "transport_error_count": 0,
@@ -886,6 +1020,17 @@ async def _execute_one(
         },
     }
     artifacts.create(resolved, manifest)
+    artifacts.replace_dispatch_state(
+        {
+            "artifact_schema": "h3c_dispatch_state",
+            "schema_version": 1,
+            "run_identity": run_identity,
+            "dispatch_mode": "auto",
+            "status": "SELECT_PENDING",
+            "test_id": None,
+            "testcase": profile["testcase"],
+        }
+    )
     physical = physical_factory(physical_endpoint)
     model: ModelClient | None = None
     if plan.controller == "h3c_agent":
@@ -906,11 +1051,45 @@ async def _execute_one(
     stop_attempted = False
     terminal_transport_error: TransportError | None = None
 
-    def record_initialization(_test_id: str) -> None:
+    def record_dispatch(event: Mapping[str, Any]) -> None:
+        status = event.get("status")
+        if event.get("event") == "selected" and status is None:
+            status = "SELECTED"
+        elif event.get("event") == "stopped":
+            status = "STOPPED"
+        artifacts.replace_dispatch_state(
+            {
+                "artifact_schema": "h3c_dispatch_state",
+                "schema_version": 1,
+                "run_identity": run_identity,
+                "dispatch_mode": "auto",
+                "status": status,
+                "test_id": event.get("test_id"),
+                "testcase": event.get("testcase", profile["testcase"]),
+            }
+        )
+        artifacts.append_jsonl("timing.jsonl", dict(event))
+
+    lifecycle_setter = getattr(physical, "set_lifecycle_sink", None)
+    if callable(lifecycle_setter):
+        lifecycle_setter(record_dispatch)
+
+    def record_initialization(test_id: str) -> None:
         nonlocal initialized
         initialized = True
         manifest["lifecycle"]["initialize_count"] = 1
         artifacts.replace_manifest(manifest)
+        artifacts.replace_dispatch_state(
+            {
+                "artifact_schema": "h3c_dispatch_state",
+                "schema_version": 1,
+                "run_identity": run_identity,
+                "dispatch_mode": "auto",
+                "status": "Running",
+                "test_id": test_id,
+                "testcase": profile["testcase"],
+            }
+        )
 
     try:
         boundary = initialize_evaluation_boundary(
@@ -948,6 +1127,7 @@ async def _execute_one(
             model=model,
             artifacts=artifacts,
             boundary=boundary,
+            run_identity=run_identity,
         )
         manifest["occupancy_forecast_missing_value_resolution_count"] += evaluation_resolution_count
         artifacts.append_jsonl(
@@ -976,10 +1156,21 @@ async def _execute_one(
             },
         )
         initialized = False
+        artifacts.replace_dispatch_state(
+            {
+                "artifact_schema": "h3c_dispatch_state",
+                "schema_version": 1,
+                "run_identity": run_identity,
+                "dispatch_mode": "auto",
+                "status": "STOPPED",
+                "test_id": boundary.test_id,
+                "testcase": profile["testcase"],
+            }
+        )
         manifest["lifecycle"]["stop_count"] = 1
         manifest["program_replay_verified"] = replay_verified
         manifest["fallback_count"] = fallback_count
-        manifest["retry_count"] = int(getattr(model, "retry_count", 0))
+        manifest["retry_count"] = _recorded_retry_count(artifacts.run_dir)
         if plan.controller == "h3c_agent":
             secret_name = runtime["model"]["api_key_environment_variable"]
             manifest["secret_exposure_count"] = _secret_occurrences(
@@ -1012,15 +1203,27 @@ async def _execute_one(
             "metrics": metrics,
         }
     except TransportError as error:
-        manifest["retry_count"] = int(getattr(model, "retry_count", 0))
-        manifest["transport_error_count"] += 1
+        manifest["retry_count"] = _recorded_retry_count(artifacts.run_dir)
+        manifest["transport_error_count"] += int(getattr(error, "failure_count", 1))
         terminal_transport_error = error
     finally:
         try:
             if (initialized or physical.test_id is not None) and not stop_attempted:
                 stop_attempted = True
+                stopping_test_id = physical.test_id
                 physical.stop()
                 manifest["lifecycle"]["stop_count"] += 1
+                artifacts.replace_dispatch_state(
+                    {
+                        "artifact_schema": "h3c_dispatch_state",
+                        "schema_version": 1,
+                        "run_identity": run_identity,
+                        "dispatch_mode": "auto",
+                        "status": "STOPPED",
+                        "test_id": stopping_test_id,
+                        "testcase": profile["testcase"],
+                    }
+                )
         finally:
             if (
                 plan.controller == "h3c_agent"

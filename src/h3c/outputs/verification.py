@@ -74,6 +74,10 @@ def _finite_number(value: Any) -> bool:
     )
 
 
+def _nonnegative_finite_number(value: Any) -> bool:
+    return _finite_number(value) and float(value) >= 0
+
+
 def _same_number(left: Any, right: Any) -> bool:
     return (
         _finite_number(left)
@@ -781,6 +785,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "hour",
             "step",
             "zone",
+            "call_ordinal",
             "thinking_mode",
             "logical_call_identity",
             "request_identity",
@@ -795,6 +800,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         call_fields = {
             "hour",
             "step",
+            "call_ordinal",
             "role",
             "thinking_mode",
             "logical_call_identity",
@@ -815,22 +821,46 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "output",
             "request_parameters",
         }
-        call_alignment = all(
+        call_by_identity = {str(row.get("logical_call_identity")): row for row in calls}
+        raw_by_identity = {str(row.get("logical_call_identity")): row for row in raw_calls}
+        unique_call_identities = (
+            len(call_by_identity) == len(calls)
+            and len(raw_by_identity) == len(raw_calls)
+            and set(call_by_identity) == set(raw_by_identity)
+            and None not in {row.get("logical_call_identity") for row in calls}
+            and None not in {row.get("logical_call_identity") for row in raw_calls}
+        )
+        call_alignment = unique_call_identities and all(
             set(call) == call_fields | ({"zone"} if call.get("role") == "executor" else set())
             and set(raw) == raw_fields | ({"zone"} if raw.get("role") == "executor" else set())
             and all(call.get(key) == raw.get(key) for key in alignment_keys)
-            for call, raw in zip(calls, raw_calls, strict=True)
+            for identity, call in call_by_identity.items()
+            for raw in (raw_by_identity[identity],)
         )
-        expected_call_surface: list[tuple[str, int, int, str | None]] = []
+        expected_call_surface: list[tuple[int, str, int, int, str | None]] = []
         if method["controller"] == "h3c_agent":
+            call_ordinal = 0
             for hour in range(hours):
                 if method["coordination_enabled"]:
-                    expected_call_surface.append(("orchestrator", hour, hour * 4, None))
-                expected_call_surface.extend(("executor", hour, hour * 4, zone) for zone in zones)
-                expected_call_surface.append(("reflector", hour, hour * 4 + 3, None))
-        observed_surface = [
-            (row.get("role"), row.get("hour"), row.get("step"), row.get("zone")) for row in calls
-        ]
+                    expected_call_surface.append(
+                        (call_ordinal, "orchestrator", hour, hour * 4, None)
+                    )
+                    call_ordinal += 1
+                for zone in zones:
+                    expected_call_surface.append((call_ordinal, "executor", hour, hour * 4, zone))
+                    call_ordinal += 1
+                expected_call_surface.append((call_ordinal, "reflector", hour, hour * 4 + 3, None))
+                call_ordinal += 1
+        observed_surface = sorted(
+            (
+                row.get("call_ordinal"),
+                row.get("role"),
+                row.get("hour"),
+                row.get("step"),
+                row.get("zone"),
+            )
+            for row in calls
+        )
         checks["agent_call_alignment"] = (
             call_alignment and observed_surface == expected_call_surface
         )
@@ -869,6 +899,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "source_commit",
                 "runtime_contract",
                 "physical_endpoint_identity",
+                "dispatch_mode",
             }
             if plan.controller == "h3c_agent":
                 expected_execution_fields.add("model_endpoint_identity")
@@ -888,6 +919,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "run_identity",
                 "source_commit",
                 "controller",
+                "dispatch_mode",
                 "expected_agent_calls",
                 "retry_count",
                 "transport_error_count",
@@ -905,6 +937,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "plan_identity",
                 "source_commit",
                 "runtime_contract",
+                "dispatch_mode",
             }
             identity_ok = (
                 set(resolved) == expected_resolved_fields
@@ -919,6 +952,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 and set(execution_identity) == expected_execution_fields
                 and execution_identity["plan_identity"] == plan.identity(profile)
                 and execution_identity["runtime_contract"] == runtime
+                and execution_identity["dispatch_mode"] == "auto"
                 and isinstance(source_commit, str)
                 and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None
                 and all(
@@ -928,10 +962,11 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 )
                 and set(manifest) == expected_manifest_fields
                 and manifest["manifest_schema"] == "h3c_run_manifest"
-                and manifest["schema_version"] == 3
+                and manifest["schema_version"] == 4
                 and manifest["source_commit"] == source_commit
                 and manifest["run_identity"] == _identity(execution_identity)
                 and manifest["controller"] == plan.controller
+                and manifest["dispatch_mode"] == "auto"
                 and manifest["expected_agent_calls"] == plan.expected_agent_calls(len(zones))
                 and isinstance(manifest["retry_count"], int)
                 and not isinstance(manifest["retry_count"], bool)
@@ -942,7 +977,30 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 and re.fullmatch(r"[0-9a-f]{64}", str(manifest["evaluation_boundary_identity"]))
                 is not None
             )
-        except (KeyError, TypeError, ValueError):
+            dispatch_state = _object(directory / "dispatch_state.json")
+            completed_hour = _object(directory / "completed_hour_checkpoint.json")
+            identity_ok = identity_ok and (
+                dispatch_state
+                == {
+                    "artifact_schema": "h3c_dispatch_state",
+                    "schema_version": 1,
+                    "run_identity": manifest["run_identity"],
+                    "dispatch_mode": "auto",
+                    "status": "STOPPED",
+                    "test_id": boundary_events[0]["test_id"],
+                    "testcase": profile["testcase"],
+                }
+                and completed_hour.get("artifact_schema") == "h3c_completed_hour_checkpoint"
+                and completed_hour.get("schema_version") == 1
+                and completed_hour.get("run_identity") == manifest["run_identity"]
+                and completed_hour.get("test_id") == boundary_events[0]["test_id"]
+                and completed_hour.get("completed_hour") == hours - 1
+                and completed_hour.get("completed_step") == hours * 4 - 1
+                and completed_hour.get("next_step") == hours * 4
+                and completed_hour.get("program_versions")
+                == {zone: decisions[-1]["program_replay"][zone]["version"] for zone in zones}
+            )
+        except (IndexError, KeyError, OSError, TypeError, ValueError):
             identity_ok = False
         checks["manifest_identity"] = identity_ok
 
@@ -1006,11 +1064,13 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         )
         checks["metrics_recomputed"] = compute_run_metrics(directory) == recorded_metrics
         retry_accounting_ok = True
-        attempt_cursor = 0
-        recomputed_retry_count = 0
+        recomputed_retry_count = sum(
+            int(attempt.get("will_retry") is True) for attempt in model_attempts
+        )
         attempt_fields = {
             "hour",
             "step",
+            "call_ordinal",
             "role",
             "thinking_mode",
             "request_model",
@@ -1025,6 +1085,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "error_type",
             "provider_charge_status",
             "elapsed_seconds",
+            "provider_retry_after_seconds",
+            "retry_delay_seconds",
         }
         retryable_error_types = {
             "ConnectionResetError",
@@ -1035,187 +1097,262 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "IncompleteRead",
             "SSLEOFError",
             "SSLZeroReturnError",
+            "http_429",
+            "http_503",
         }
-        for call, raw in zip(calls, raw_calls, strict=True):
-            try:
-                context = {"hour": call["hour"], "step": call["step"]}
-                if call["role"] == "executor":
-                    context["zone"] = call["zone"]
-                request_contract = model_request_contract(
-                    model=str(raw["request_parameters"]["model"]),
-                    system=str(raw["system"]),
-                    user=str(raw["user"]),
-                    thinking_mode=str(raw["thinking_mode"]),
-                )
-                expected_request_identity = model_request_identity(request_contract)
-                expected_request_body = model_request_body(request_contract)
-                expected_logical_identity = model_logical_call_identity(
-                    context,
-                    str(call["role"]),
-                    str(call["thinking_mode"]),
-                    expected_request_identity,
-                )
-                attempt_count = call["attempt_count"]
-                if (
-                    not isinstance(attempt_count, int)
-                    or isinstance(attempt_count, bool)
-                    or not 1 <= attempt_count <= runtime["model"]["retry_count"] + 1
-                ):
-                    retry_accounting_ok = False
-                    continue
-                group = model_attempts[attempt_cursor : attempt_cursor + attempt_count]
-                attempt_cursor += attempt_count
-                recomputed_retry_count += attempt_count - 1
-                retry_accounting_ok = retry_accounting_ok and (
-                    len(group) == attempt_count
-                    and call["request_identity"]
-                    == raw["request_identity"]
-                    == expected_request_identity
-                    and call["logical_call_identity"]
-                    == raw["logical_call_identity"]
-                    == expected_logical_identity
-                    and call["transport_retry_count"]
-                    == raw["transport_retry_count"]
-                    == attempt_count - 1
-                )
-                for index, attempt in enumerate(group, 1):
-                    expected_fields = attempt_fields | (
-                        {"zone"} if call["role"] == "executor" else set()
-                    )
-                    is_final = index == attempt_count
-                    retry_accounting_ok = retry_accounting_ok and (
-                        set(attempt) == expected_fields
-                        and all(attempt.get(key) == value for key, value in context.items())
-                        and attempt.get("role") == call["role"]
-                        and attempt.get("thinking_mode") == call["thinking_mode"]
-                        and attempt.get("request_model") == model_name
-                        and attempt.get("logical_call_identity") == expected_logical_identity
-                        and attempt.get("request_identity") == expected_request_identity
-                        and attempt.get("request_body") == expected_request_body
-                        and attempt.get("attempt_number") == index
-                        and attempt.get("maximum_attempts") == runtime["model"]["retry_count"] + 1
-                        and _finite_number(attempt.get("elapsed_seconds"))
-                        and float(attempt["elapsed_seconds"]) >= 0
-                        and (
-                            (
-                                attempt.get("outcome") == "response_received"
-                                and attempt.get("retryable") is False
-                                and attempt.get("will_retry") is False
-                                and attempt.get("error_type") is None
-                                and attempt.get("provider_charge_status")
-                                == "confirmed_response_usage_recorded"
-                            )
-                            if is_final
-                            else (
-                                attempt.get("outcome") == "request_failed"
-                                and attempt.get("retryable") is True
-                                and attempt.get("will_retry") is True
-                                and attempt.get("error_type") in retryable_error_types
-                                and attempt.get("provider_charge_status")
-                                == "unknown_after_request_failure"
-                            )
-                        )
-                    )
-            except (KeyError, TypeError, ValueError):
+        attempts_by_identity: dict[str, list[dict[str, Any]]] = {}
+        for attempt in model_attempts:
+            identity = attempt.get("logical_call_identity")
+            if not isinstance(identity, str) or not identity:
                 retry_accounting_ok = False
-        terminal_attempts = model_attempts[attempt_cursor:]
-        if terminal_attempts:
+                continue
+            attempts_by_identity.setdefault(identity, []).append(attempt)
+
+        expected_by_ordinal = {surface[0]: surface for surface in expected_call_surface}
+        issued_surfaces: list[tuple[int, str, int, int, str | None]] = []
+        terminal_identities: set[str] = set(attempts_by_identity) - set(call_by_identity)
+        seen_ordinals: set[int] = set()
+        maximum_attempts = runtime["model"]["retry_count"] + 1
+        for identity, unsorted_group in attempts_by_identity.items():
             try:
-                first_terminal = terminal_attempts[0]
-                terminal_role = str(first_terminal["role"])
-                terminal_context = {
-                    "hour": first_terminal["hour"],
-                    "step": first_terminal["step"],
+                group = sorted(unsorted_group, key=lambda row: int(row["attempt_number"]))
+                first = group[0]
+                role = str(first["role"])
+                context: dict[str, Any] = {
+                    "hour": first["hour"],
+                    "step": first["step"],
+                    "call_ordinal": first["call_ordinal"],
                 }
-                if terminal_role == "executor":
-                    terminal_context["zone"] = first_terminal["zone"]
-                terminal_body_text = first_terminal["request_body"]
-                terminal_body = json.loads(terminal_body_text)
-                messages = terminal_body["messages"]
-                terminal_contract = model_request_contract(
-                    model=str(terminal_body["model"]),
+                if role == "executor":
+                    context["zone"] = first["zone"]
+                ordinal = context["call_ordinal"]
+                if not isinstance(ordinal, int) or isinstance(ordinal, bool):
+                    raise ValueError("call ordinal is not an integer")
+                surface = (
+                    ordinal,
+                    role,
+                    int(context["hour"]),
+                    int(context["step"]),
+                    context.get("zone"),
+                )
+                issued_surfaces.append(surface)
+                retry_accounting_ok = retry_accounting_ok and (
+                    ordinal not in seen_ordinals
+                    and expected_by_ordinal.get(ordinal) == surface
+                    and len(group) <= maximum_attempts
+                    and [row.get("attempt_number") for row in group]
+                    == list(range(1, len(group) + 1))
+                )
+                seen_ordinals.add(ordinal)
+
+                body_text = str(first["request_body"])
+                body = json.loads(body_text)
+                messages = body["messages"]
+                contract = model_request_contract(
+                    model=str(body["model"]),
                     system=str(messages[0]["content"]),
                     user=str(messages[1]["content"]),
-                    thinking_mode=str(first_terminal["thinking_mode"]),
+                    thinking_mode=str(first["thinking_mode"]),
                 )
-                terminal_request_identity = model_request_identity(terminal_contract)
-                terminal_logical_identity = model_logical_call_identity(
-                    terminal_context,
-                    terminal_role,
-                    str(first_terminal["thinking_mode"]),
-                    terminal_request_identity,
+                request_identity = model_request_identity(contract)
+                logical_identity = model_logical_call_identity(
+                    context,
+                    role,
+                    str(first["thinking_mode"]),
+                    request_identity,
                 )
-                maximum_attempts = runtime["model"]["retry_count"] + 1
                 retry_accounting_ok = retry_accounting_ok and (
-                    method["controller"] == "h3c_agent"
-                    and manifest.get("transport_error_count") == 1
-                    and 1 <= len(terminal_attempts) <= maximum_attempts
-                    and terminal_body_text == model_request_body(terminal_contract)
-                    and terminal_body["model"] == model_name
-                    and observed_surface == expected_call_surface[: len(calls)]
-                    and len(calls) < len(expected_call_surface)
-                    and (
-                        terminal_role,
-                        terminal_context["hour"],
-                        terminal_context["step"],
-                        terminal_context.get("zone"),
-                    )
-                    == expected_call_surface[len(calls)]
+                    identity == logical_identity
+                    and body_text == model_request_body(contract)
+                    and body["model"] == model_name
                 )
-                recomputed_retry_count += len(terminal_attempts) - 1
-                for index, attempt in enumerate(terminal_attempts, 1):
-                    expected_fields = attempt_fields | (
-                        {"zone"} if terminal_role == "executor" else set()
-                    )
-                    is_final = index == len(terminal_attempts)
-                    retryable = attempt.get("retryable") is True
+
+                successful = identity in call_by_identity
+                if successful:
+                    call = call_by_identity[identity]
+                    raw = raw_by_identity[identity]
                     retry_accounting_ok = retry_accounting_ok and (
-                        set(attempt) == expected_fields
-                        and all(
-                            attempt.get(key) == value for key, value in terminal_context.items()
-                        )
-                        and attempt.get("role") == terminal_role
-                        and attempt.get("thinking_mode") == first_terminal["thinking_mode"]
-                        and attempt.get("request_model") == model_name
-                        and attempt.get("logical_call_identity") == terminal_logical_identity
-                        and attempt.get("request_identity") == terminal_request_identity
-                        and attempt.get("request_body") == terminal_body_text
-                        and attempt.get("attempt_number") == index
-                        and attempt.get("maximum_attempts") == maximum_attempts
-                        and attempt.get("outcome") == "request_failed"
-                        and isinstance(attempt.get("error_type"), str)
-                        and bool(attempt["error_type"])
-                        and _finite_number(attempt.get("elapsed_seconds"))
-                        and float(attempt["elapsed_seconds"]) >= 0
-                        and (
-                            (
-                                retryable
-                                and attempt.get("error_type") in retryable_error_types
-                                and attempt.get("provider_charge_status")
-                                == "unknown_after_request_failure"
-                                and attempt.get("will_retry") == (not is_final)
-                                and isinstance(attempt.get("will_retry"), bool)
-                                and (not is_final or len(terminal_attempts) == maximum_attempts)
-                            )
-                            or (
-                                not retryable
-                                and is_final
-                                and attempt.get("will_retry") is False
-                                and attempt.get("provider_charge_status")
-                                in {
-                                    "unknown_after_request_failure",
-                                    "response_received_usage_unavailable",
-                                }
-                            )
-                        )
+                        call["request_identity"] == raw["request_identity"] == request_identity
+                        and all(call.get(key) == value for key, value in context.items())
+                        and all(raw.get(key) == value for key, value in context.items())
+                        and call["attempt_count"] == raw["attempt_count"] == len(group)
+                        and call["transport_retry_count"]
+                        == raw["transport_retry_count"]
+                        == len(group) - 1
                     )
-                attempt_cursor = len(model_attempts)
+                for index, attempt in enumerate(group, 1):
+                    is_final = index == len(group)
+                    expected_fields = attempt_fields | ({"zone"} if role == "executor" else set())
+                    retryable = attempt.get("retryable") is True
+                    provider_retry_after = attempt.get("provider_retry_after_seconds")
+                    retry_delay = attempt.get("retry_delay_seconds")
+                    common_ok = (
+                        set(attempt) == expected_fields
+                        and all(attempt.get(key) == value for key, value in context.items())
+                        and attempt.get("role") == role
+                        and attempt.get("thinking_mode") == first["thinking_mode"]
+                        and attempt.get("request_model") == model_name
+                        and attempt.get("logical_call_identity") == logical_identity
+                        and attempt.get("request_identity") == request_identity
+                        and attempt.get("request_body") == body_text
+                        and attempt.get("maximum_attempts") == maximum_attempts
+                        and _nonnegative_finite_number(attempt.get("elapsed_seconds"))
+                    )
+                    if attempt.get("outcome") == "request_failed":
+                        provider_status = attempt.get("provider_charge_status")
+                        failure_ok = (
+                            isinstance(attempt.get("error_type"), str)
+                            and bool(attempt["error_type"])
+                            and (
+                                (
+                                    retryable
+                                    and attempt.get("error_type") in {"http_429", "http_503"}
+                                    and provider_status == "response_received_usage_unavailable"
+                                )
+                                or (
+                                    retryable
+                                    and attempt.get("error_type")
+                                    in retryable_error_types - {"http_429", "http_503"}
+                                    and provider_status == "unknown_after_request_failure"
+                                )
+                                or (
+                                    not retryable
+                                    and provider_status
+                                    in {
+                                        "unknown_after_request_failure",
+                                        "response_received_usage_unavailable",
+                                    }
+                                )
+                            )
+                        )
+                        if attempt.get("will_retry") is True:
+                            delay_ok = (
+                                not is_final
+                                and retryable
+                                and _nonnegative_finite_number(retry_delay)
+                                and (
+                                    (
+                                        _finite_number(provider_retry_after)
+                                        and _same_number(retry_delay, provider_retry_after)
+                                    )
+                                    or (
+                                        provider_retry_after is None
+                                        and _same_number(
+                                            retry_delay,
+                                            runtime["model"]["retry_backoff_seconds"][index - 1],
+                                        )
+                                    )
+                                )
+                            )
+                        else:
+                            delay_ok = retry_delay is None
+                        retry_accounting_ok = (
+                            retry_accounting_ok and common_ok and failure_ok and delay_ok
+                        )
+                    else:
+                        retry_accounting_ok = retry_accounting_ok and (
+                            common_ok
+                            and successful
+                            and is_final
+                            and attempt.get("outcome") == "response_received"
+                            and attempt.get("retryable") is False
+                            and attempt.get("will_retry") is False
+                            and attempt.get("error_type") is None
+                            and attempt.get("provider_charge_status")
+                            == "confirmed_response_usage_recorded"
+                            and provider_retry_after is None
+                            and retry_delay is None
+                        )
+                final = group[-1]
+                if successful:
+                    retry_accounting_ok = retry_accounting_ok and (
+                        final.get("outcome") == "response_received"
+                    )
+                else:
+                    retry_accounting_ok = retry_accounting_ok and (
+                        final.get("outcome") == "request_failed"
+                        and final.get("will_retry") is False
+                        and (final.get("retryable") is not True or len(group) == maximum_attempts)
+                    )
             except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
                 retry_accounting_ok = False
+
+        terminal_attempts = [
+            attempt
+            for identity in terminal_identities
+            for attempt in attempts_by_identity[identity]
+        ]
+        issued_surfaces.sort()
+        expected_prefix_ok = False
+        failed_executor_hour: int | None = None
+        if not terminal_identities:
+            expected_prefix_ok = issued_surfaces == expected_call_surface
+        else:
+            terminal_surfaces = [
+                surface
+                for surface in issued_surfaces
+                if any(
+                    row.get("logical_call_identity") in terminal_identities
+                    and row.get("call_ordinal") == surface[0]
+                    for row in model_attempts
+                )
+            ]
+            terminal_roles = {surface[1] for surface in terminal_surfaces}
+            terminal_hours = {surface[2] for surface in terminal_surfaces}
+            if terminal_roles == {"executor"} and len(terminal_hours) == 1:
+                failed_executor_hour = next(iter(terminal_hours))
+                expected_issued = [
+                    surface
+                    for surface in expected_call_surface
+                    if surface[0]
+                    <= max(
+                        item[0]
+                        for item in expected_call_surface
+                        if item[1] == "executor" and item[2] == failed_executor_hour
+                    )
+                ]
+                expected_prefix_ok = issued_surfaces == expected_issued
+            elif len(terminal_surfaces) == 1:
+                cutoff = terminal_surfaces[0][0]
+                expected_prefix_ok = issued_surfaces == [
+                    surface for surface in expected_call_surface if surface[0] <= cutoff
+                ]
+
+        failed_batch_ok = True
+        if failed_executor_hour is not None:
+            batch_events = [
+                row
+                for row in streams["timing.jsonl"]
+                if row.get("phase") == "executor_batch" and row.get("hour") == failed_executor_hour
+            ]
+            failed_zones = [
+                zone
+                for zone in zones
+                if any(
+                    attempt.get("logical_call_identity") in terminal_identities
+                    and attempt.get("zone") == zone
+                    for attempt in model_attempts
+                )
+            ]
+            failed_batch_ok = (
+                len(batch_events) == 1
+                and batch_events[0].get("event") == "terminal_transport_failure"
+                and batch_events[0].get("issued_zones") == zones
+                and batch_events[0].get("failed_zones") == failed_zones
+                and batch_events[0].get("primary_failure_zone") == failed_zones[0]
+                and batch_events[0].get("settlement_performed") is False
+                and batch_events[0].get("physical_advance_performed") is False
+                and not any(row.get("hour") == failed_executor_hour for row in updates)
+                and not any(row.get("hour") == failed_executor_hour for row in zone_steps)
+            )
+
         checks["model_transport_retry_accounting"] = (
             retry_accounting_ok
-            and attempt_cursor == len(model_attempts)
+            and set(attempts_by_identity) == set(call_by_identity) | terminal_identities
+            and expected_prefix_ok
+            and failed_batch_ok
             and recomputed_retry_count == manifest.get("retry_count")
+            and manifest.get("transport_error_count") == len(terminal_identities)
             and (
                 bool(calls)
                 or bool(terminal_attempts)

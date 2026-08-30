@@ -6,7 +6,7 @@ import json
 import pytest
 
 from h3c.agents.prompts import Role
-from h3c.agents.roles import Reflector, clean_insight
+from h3c.agents.roles import ModelCallContext, ModelContractError, Reflector, clean_insight
 
 
 class StaticModelClient:
@@ -16,12 +16,13 @@ class StaticModelClient:
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         role: Role,
         system: str,
         user: str,
         thinking_mode: str,
     ) -> str:
-        del role, system, user, thinking_mode
+        del context, role, system, user, thinking_mode
         return self.output
 
 
@@ -68,6 +69,7 @@ def test_reflector_contract_accepts_decimal_insight_without_coercion() -> None:
     reflector = Reflector(StaticModelClient(output))
     insights = asyncio.run(
         reflector.summarize(
+            context=ModelCallContext(0, 3, 0),
             user="CURRENT HOUR RESULTS",
             causal_enabled=True,
             thinking_mode="disabled",
@@ -77,3 +79,43 @@ def test_reflector_contract_accepts_decimal_insight_without_coercion() -> None:
     assert insights == [
         {"zone": "zone1", "insight_text": "PMV 1.0125 and cost 0.0 remained stable."}
     ]
+def test_experimental_reflector_requires_one_card_for_every_zone_without_length_gate() -> None:
+    long_card = "Observed relation " + "x" * 1000
+    reflector = Reflector(
+        StaticModelClient(
+            json.dumps(
+                {
+                    "pairs": [
+                        {"zone": "zone1", "insight_text": long_card},
+                        {"zone": "zone2", "insight_text": "Stable relation"},
+                    ]
+                }
+            )
+        )
+    )
+    insights = asyncio.run(
+        reflector.summarize(
+            context=ModelCallContext(0, 3, 0),
+            user="CURRENT HOUR RESULTS",
+            causal_enabled=True,
+            thinking_mode="disabled",
+            zones=["zone1", "zone2"],
+            reflector_long_term_memory=True,
+        )
+    )
+    assert insights[0]["insight_text"] == long_card
+
+    incomplete = Reflector(
+        StaticModelClient(json.dumps({"pairs": [{"zone": "zone1", "insight_text": "Only one"}]}))
+    )
+    with pytest.raises(ModelContractError, match="exactly one card"):
+        asyncio.run(
+            incomplete.summarize(
+                context=ModelCallContext(0, 3, 0),
+                user="CURRENT HOUR RESULTS",
+                causal_enabled=True,
+                thinking_mode="disabled",
+                zones=["zone1", "zone2"],
+                reflector_long_term_memory=True,
+            )
+        )

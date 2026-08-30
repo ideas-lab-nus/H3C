@@ -27,10 +27,35 @@ from h3c.control.budget import validate_allocation
 from h3c.control.program import validate_patch_shape
 
 
+@dataclass(frozen=True)
+class ModelCallContext:
+    hour: int
+    step: int
+    call_ordinal: int
+    zone: str | None = None
+
+    def __post_init__(self) -> None:
+        if min(self.hour, self.step, self.call_ordinal) < 0:
+            raise ValueError("model call context indices must be nonnegative")
+        if self.zone is not None and not self.zone:
+            raise ValueError("model call context zone must be nonempty when present")
+
+    def as_mapping(self) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "hour": self.hour,
+            "step": self.step,
+            "call_ordinal": self.call_ordinal,
+        }
+        if self.zone is not None:
+            context["zone"] = self.zone
+        return context
+
+
 class ModelClient(Protocol):
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         role: Role,
         system: str,
         user: str,
@@ -181,6 +206,7 @@ class Orchestrator:
     async def allocate(
         self,
         *,
+        context: ModelCallContext,
         zones: Sequence[str],
         user: str,
         causal_enabled: bool,
@@ -190,6 +216,7 @@ class Orchestrator:
     ) -> dict[str, Any]:
         self.last_rationale_telemetry = None
         raw = await self.client.complete(
+            context=context,
             role="orchestrator",
             system=system_prompt("orchestrator", causal_enabled=causal_enabled),
             user=user,
@@ -260,12 +287,14 @@ class Executor:
     async def propose(
         self,
         *,
+        context: ModelCallContext,
         user: str,
         causal_enabled: bool,
         coordination_enabled: bool,
         thinking_mode: str,
     ) -> dict[str, Any]:
         raw = await self.client.complete(
+            context=context,
             role="executor",
             system=system_prompt(
                 "executor",
@@ -325,12 +354,14 @@ class Reflector:
     async def summarize(
         self,
         *,
+        context: ModelCallContext,
         user: str,
         causal_enabled: bool,
         thinking_mode: str,
         zones: Sequence[str],
     ) -> list[dict[str, str]]:
         raw = await self.client.complete(
+            context=context,
             role="reflector",
             system=system_prompt("reflector", causal_enabled=causal_enabled),
             user=user,

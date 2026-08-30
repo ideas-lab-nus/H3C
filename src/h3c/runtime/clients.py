@@ -13,10 +13,13 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass
 from typing import Any, Literal, overload
 
 from h3c.agents.prompts import Role
+from h3c.agents.roles import ModelCallContext
 
 
 class TransportError(RuntimeError):
@@ -27,11 +30,13 @@ class TransportError(RuntimeError):
         retryable: bool = False,
         error_type: str = "transport_contract_error",
         provider_response_received: bool = False,
+        retry_after_seconds: float | None = None,
     ) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.error_type = error_type
         self.provider_response_received = provider_response_received
+        self.retry_after_seconds = retry_after_seconds
 
 
 def _canonical(value: Any) -> str:
@@ -123,6 +128,25 @@ def _connection_failure(error: BaseException) -> tuple[bool, str]:
     return retryable, type(cause).__name__
 
 
+def _retry_after_seconds(value: str | None) -> float | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    try:
+        seconds = float(stripped)
+    except ValueError:
+        try:
+            target = parsedate_to_datetime(stripped)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=UTC)
+        seconds = (target - datetime.now(UTC)).total_seconds()
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
+
+
 @overload
 def _request_json(
     method: str,
@@ -180,16 +204,33 @@ def _request_json(
                     provider_response_received=True,
                 ) from error
             if response.status != 200:
+                retryable = response.status in {429, 503}
+                response_headers = getattr(response, "headers", None)
+                retry_after = (
+                    _retry_after_seconds(response_headers.get("Retry-After"))
+                    if retryable and response_headers is not None
+                    else None
+                )
                 raise TransportError(
                     f"HTTP {response.status} from {url}",
+                    retryable=retryable,
                     error_type=f"http_{response.status}",
                     provider_response_received=True,
+                    retry_after_seconds=retry_after,
                 )
     except urllib.error.HTTPError as error:
+        retryable = error.code in {429, 503}
+        response_headers = getattr(error, "headers", None)
         raise TransportError(
             f"HTTP {error.code} from {url}",
+            retryable=retryable,
             error_type=f"http_{error.code}",
             provider_response_received=True,
+            retry_after_seconds=(
+                _retry_after_seconds(response_headers.get("Retry-After"))
+                if retryable and response_headers is not None
+                else None
+            ),
         ) from error
     except (urllib.error.URLError, TimeoutError, OSError, http.client.IncompleteRead) as error:
         retryable, error_type = _connection_failure(error)
@@ -237,7 +278,6 @@ class BoptestHttpClient:
             raise ValueError("BOPTEST queue poll interval must be positive")
         self.queue_poll_seconds = float(queue_poll_seconds)
         self._lifecycle_sink: LifecycleSink | None = None
-
     def set_lifecycle_sink(self, sink: LifecycleSink) -> None:
         self._lifecycle_sink = sink
 
@@ -255,22 +295,29 @@ class BoptestHttpClient:
             row["status"] = status
         self._lifecycle_sink(row)
 
+    def select_testcase(self, testcase: str) -> str:
+        """Select one worker and freeze its test id for this client."""
+        if self.test_id is not None:
+            raise TransportError("BOPTEST client already owns a live test id")
+        selected = _request_json("POST", f"{self.endpoint}/testcases/{testcase}/select")
+        test_id = selected.get("testid")
+        if not isinstance(test_id, str) or not test_id:
+            raise TransportError("BOPTEST select did not return a test id")
+        self.test_id = test_id
+        self.testcase = testcase
+        self._emit_lifecycle(event="selected")
+        self._wait_until_running()
+        self._configure_selected()
+        return test_id
+
     def status(self) -> str:
         if self.test_id is None:
             raise TransportError("BOPTEST status requested before select")
-        response = _request_json(
-            "GET",
-            f"{self.endpoint}/status/{self.test_id}",
-            _boptest_status_response=True,
-        )
-        status = response if isinstance(response, str) else response.get("payload")
-        if not isinstance(status, str) or status not in {"Running", "Queued"}:
-            raise TransportError(
-                "BOPTEST status payload is invalid",
-                error_type="boptest_status_invalid",
-                provider_response_received=True,
-            )
-        return status
+        response = _request_json("GET", f"{self.endpoint}/status/{self.test_id}")
+        status = response.get("payload")
+        if status not in {"Running", "Queued"}:
+            raise TransportError("BOPTEST status payload is invalid")
+        return str(status)
 
     def _wait_until_running(self) -> None:
         previous: str | None = None
@@ -289,18 +336,10 @@ class BoptestHttpClient:
         self.select_testcase(testcase)
         return self.initialize_selected(start_time_seconds, warmup_period_seconds)
 
-    def select_testcase(self, testcase: str) -> str:
-        """Select one worker and freeze its test id for this client."""
-        if self.test_id is not None:
-            raise TransportError("BOPTEST client already owns a live test id")
-        selected = _request_json("POST", f"{self.endpoint}/testcases/{testcase}/select")
-        test_id = selected.get("testid")
-        if not isinstance(test_id, str) or not test_id:
-            raise TransportError("BOPTEST select did not return a test id")
-        self.test_id = test_id
-        self.testcase = testcase
-        self._emit_lifecycle(event="selected")
-        self._wait_until_running()
+    def _configure_selected(self) -> None:
+        if self.test_id is None:
+            raise TransportError("BOPTEST configure requested without a selected test id")
+        test_id = self.test_id
         _request_json(
             "PUT",
             f"{self.endpoint}/scenario/{test_id}",
@@ -308,7 +347,6 @@ class BoptestHttpClient:
         )
         _request_json("PUT", f"{self.endpoint}/step/{test_id}", payload={"step": 900})
         self._emit_lifecycle(event="configured", status="Running")
-        return test_id
 
     def initialize_selected(
         self, start_time_seconds: int, warmup_period_seconds: int
@@ -415,15 +453,12 @@ class OpenAICompatibleModelClient:
     sink: CallSink
     retry_count_limit: int
     retry_backoff_seconds: tuple[float, ...]
-    context: Mapping[str, Any] | None = None
     retry_count: int = 0
-
-    def set_context(self, **context: Any) -> None:
-        self.context = context
 
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         role: Role,
         system: str,
         user: str,
@@ -437,11 +472,11 @@ class OpenAICompatibleModelClient:
             user=user,
             thinking_mode=thinking_mode,
         )
-        context = dict(self.context or {})
+        context_fields = context.as_mapping()
         request_identity = model_request_identity(request_contract)
         request_body = model_request_body(request_contract)
         logical_call_identity = model_logical_call_identity(
-            context,
+            context_fields,
             role,
             thinking_mode,
             request_identity,
@@ -480,7 +515,7 @@ class OpenAICompatibleModelClient:
                     provider_response_received=True,
                 )
                 self._record_attempt(
-                    context=context,
+                    context=context_fields,
                     role=role,
                     thinking_mode=thinking_mode,
                     request_identity=request_identity,
@@ -494,12 +529,19 @@ class OpenAICompatibleModelClient:
                     error_type=failure.error_type,
                     provider_charge_status="response_received_usage_unavailable",
                     elapsed_seconds=time.perf_counter() - attempt_started,
+                    provider_retry_after_seconds=None,
+                    retry_delay_seconds=None,
                 )
                 raise failure from error
             except TransportError as error:
                 will_retry = error.retryable and attempt_number < maximum_attempts
+                retry_delay = (
+                    error.retry_after_seconds
+                    if will_retry and error.retry_after_seconds is not None
+                    else (self.retry_backoff_seconds[attempt_number - 1] if will_retry else None)
+                )
                 self._record_attempt(
-                    context=context,
+                    context=context_fields,
                     role=role,
                     thinking_mode=thinking_mode,
                     request_identity=request_identity,
@@ -517,14 +559,17 @@ class OpenAICompatibleModelClient:
                         else "unknown_after_request_failure"
                     ),
                     elapsed_seconds=time.perf_counter() - attempt_started,
+                    provider_retry_after_seconds=error.retry_after_seconds,
+                    retry_delay_seconds=retry_delay,
                 )
                 if not will_retry:
                     raise
                 self.retry_count += 1
-                await asyncio.sleep(self.retry_backoff_seconds[attempt_number - 1])
+                assert retry_delay is not None
+                await asyncio.sleep(retry_delay)
                 continue
             self._record_attempt(
-                context=context,
+                context=context_fields,
                 role=role,
                 thinking_mode=thinking_mode,
                 request_identity=request_identity,
@@ -538,6 +583,8 @@ class OpenAICompatibleModelClient:
                 error_type=None,
                 provider_charge_status="confirmed_response_usage_recorded",
                 elapsed_seconds=time.perf_counter() - attempt_started,
+                provider_retry_after_seconds=None,
+                retry_delay_seconds=None,
             )
             break
         if response is None or choice is None or content is None:
@@ -545,7 +592,7 @@ class OpenAICompatibleModelClient:
         elapsed = time.perf_counter() - logical_started
         usage = normalized_usage(response.get("usage"))
         common = {
-            **context,
+            **context_fields,
             "role": role,
             "thinking_mode": thinking_mode,
             "logical_call_identity": logical_call_identity,
@@ -591,6 +638,8 @@ class OpenAICompatibleModelClient:
         error_type: str | None,
         provider_charge_status: str,
         elapsed_seconds: float,
+        provider_retry_after_seconds: float | None,
+        retry_delay_seconds: float | None,
     ) -> None:
         self.sink(
             "model_request_attempts.jsonl",
@@ -610,6 +659,8 @@ class OpenAICompatibleModelClient:
                 "error_type": error_type,
                 "provider_charge_status": provider_charge_status,
                 "elapsed_seconds": elapsed_seconds,
+                "provider_retry_after_seconds": provider_retry_after_seconds,
+                "retry_delay_seconds": retry_delay_seconds,
             },
         )
 

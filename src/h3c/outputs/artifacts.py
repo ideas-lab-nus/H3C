@@ -112,6 +112,27 @@ class RunArtifacts:
             os.fsync(file.fileno())
         pending.replace(path)
 
+    def _replace_runtime_state(self, name: str, value: Mapping[str, Any]) -> None:
+        if name not in {"dispatch_state.json", "completed_hour_checkpoint.json"}:
+            raise ArtifactError("unknown runtime-state artifact")
+        if (self.run_dir / "completion.json").exists():
+            raise ArtifactError("runtime state cannot change after completion")
+        path = self.run_dir / name
+        pending = self.run_dir / f".{name}.pending"
+        if pending.exists():
+            raise ArtifactError("runtime-state publication is already pending")
+        with pending.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(_json_text(value) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        pending.replace(path)
+
+    def replace_dispatch_state(self, value: Mapping[str, Any]) -> None:
+        self._replace_runtime_state("dispatch_state.json", value)
+
+    def replace_completed_hour_checkpoint(self, value: Mapping[str, Any]) -> None:
+        self._replace_runtime_state("completed_hour_checkpoint.json", value)
+
     def write_metrics(self, metrics: Mapping[str, Any]) -> None:
         self._write_new_json("metrics.json", metrics)
 

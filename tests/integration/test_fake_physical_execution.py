@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from h3c.agents.prompts import Role
+from h3c.agents.roles import ModelCallContext
 from h3c.causal.graph import load_graph
 from h3c.experiments.matrix import RunPlan, plan_suite
 from h3c.experiments.profiles import repository_root
@@ -139,20 +140,18 @@ class FakeModelClient:
         self.zero_allocation = zero_allocation
         self.recover_first_call_transport = recover_first_call_transport
         self._transport_recovered = False
-        self.context: dict[str, Any] = {}
         self.retry_count = 0
-
-    def set_context(self, **context: Any) -> None:
-        self.context = context
 
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         role: Role,
         system: str,
         user: str,
         thinking_mode: str,
     ) -> str:
+        context_fields = context.as_mapping()
         if role == "orchestrator":
             if self.zero_allocation:
                 assert '"zones":["zone1"]' in user
@@ -234,7 +233,7 @@ class FakeModelClient:
         request_identity = model_request_identity(request_contract)
         request_body = model_request_body(request_contract)
         logical_call_identity = model_logical_call_identity(
-            self.context,
+            context_fields,
             role,
             thinking_mode,
             request_identity,
@@ -245,7 +244,7 @@ class FakeModelClient:
             self.artifacts.append_jsonl(
                 "model_request_attempts.jsonl",
                 {
-                    **self.context,
+                    **context_fields,
                     "role": role,
                     "thinking_mode": thinking_mode,
                     "request_model": self.model,
@@ -260,6 +259,8 @@ class FakeModelClient:
                     "error_type": "ConnectionResetError",
                     "provider_charge_status": "unknown_after_request_failure",
                     "elapsed_seconds": 0.0,
+                    "provider_retry_after_seconds": None,
+                    "retry_delay_seconds": 1.0,
                 },
             )
             self._transport_recovered = True
@@ -268,7 +269,7 @@ class FakeModelClient:
         self.artifacts.append_jsonl(
             "model_request_attempts.jsonl",
             {
-                **self.context,
+                **context_fields,
                 "role": role,
                 "thinking_mode": thinking_mode,
                 "request_model": self.model,
@@ -283,10 +284,12 @@ class FakeModelClient:
                 "error_type": None,
                 "provider_charge_status": "confirmed_response_usage_recorded",
                 "elapsed_seconds": 0.0,
+                "provider_retry_after_seconds": None,
+                "retry_delay_seconds": None,
             },
         )
         common = {
-            **self.context,
+            **context_fields,
             "role": role,
             "thinking_mode": thinking_mode,
             "logical_call_identity": logical_call_identity,
@@ -601,17 +604,49 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
     monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
     physical = FakePhysicalClient()
     causal_id = _shared_power_edge_id()
+    phase_events: list[tuple[int, Role, int]] = []
+
+    class PhaseTrackingModelClient(FakeModelClient):
+        async def complete(
+            self,
+            *,
+            context: ModelCallContext,
+            role: Role,
+            system: str,
+            user: str,
+            thinking_mode: str,
+        ) -> str:
+            phase_events.append((context.hour, role, physical.advance_count))
+            return await super().complete(
+                context=context,
+                role=role,
+                system=system,
+                user=user,
+                thinking_mode=thinking_mode,
+            )
+
     result = execute_serial(
         [_agent()],
         suite="fake-agent",
         output_root=tmp_path,
         physical_factory=lambda endpoint: physical,
-        model_factory=lambda artifacts, model: FakeModelClient(artifacts, model, causal_id),
+        model_factory=lambda artifacts, model: PhaseTrackingModelClient(
+            artifacts, model, causal_id
+        ),
     )
     run_dir = Path(result["completed_runs"][0]["completion"]).parent
     calls = (run_dir / "agent_calls.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(calls) == 18
     assert physical.initialize_count == physical.stop_count == 1
+    assert phase_events == [
+        event
+        for hour in range(6)
+        for event in (
+            (hour, "orchestrator", hour * 4),
+            (hour, "executor", hour * 4),
+            (hour, "reflector", (hour + 1) * 4),
+        )
+    ]
     verification = verify_run(run_dir)
     assert verification["passed"]
     assert verification["checks"]["deterministic_settlement"]
@@ -694,12 +729,85 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
         "estimated_cost_usd": pytest.approx(7.56e-06),
         "estimated_cost_cny": pytest.approx(5.4e-05),
     }
-
     updates_path = run_dir / "program_updates.jsonl"
     updates = updates_path.read_text(encoding="utf-8").splitlines()
     updates_path.write_text("\n".join(updates[:-1]) + "\n", encoding="utf-8")
     corrupted = verify_run(run_dir)
     assert corrupted["checks"]["deterministic_settlement"] is False
+
+
+def test_verifier_joins_parallel_model_evidence_by_identity_not_file_order(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
+    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    result = execute_serial(
+        [_agent()],
+        suite="fake-parallel-evidence-order",
+        output_root=tmp_path,
+        physical_factory=lambda endpoint: FakePhysicalClient(),
+        model_factory=lambda artifacts, model: FakeModelClient(
+            artifacts, model, _shared_power_edge_id()
+        ),
+    )
+    source = Path(result["completed_runs"][0]["completion"]).parent
+    reordered = tmp_path / "reordered-parallel-evidence"
+    shutil.copytree(source, reordered)
+    calls = _read_jsonl(reordered / "agent_calls.jsonl")
+    raw = _read_jsonl(reordered / "raw_model_io.jsonl")
+    attempts = _read_jsonl(reordered / "model_request_attempts.jsonl")
+    _write_jsonl(reordered / "agent_calls.jsonl", list(reversed(calls)))
+    _write_jsonl(reordered / "raw_model_io.jsonl", raw[5:] + raw[:5])
+    _write_jsonl(reordered / "model_request_attempts.jsonl", attempts[::2] + attempts[1::2])
+
+    verified = verify_run(reordered, require_completion=False)
+    assert verified["checks"]["agent_call_alignment"] is True
+    assert verified["checks"]["model_transport_retry_accounting"] is True
+
+    mutations: list[tuple[str, Callable[[Path], None]]] = []
+
+    def duplicate_identity(directory: Path) -> None:
+        values = _read_jsonl(directory / "agent_calls.jsonl")
+        values[1]["logical_call_identity"] = values[0]["logical_call_identity"]
+        _write_jsonl(directory / "agent_calls.jsonl", values)
+
+    mutations.append(("duplicate-logical-id", duplicate_identity))
+
+    def wrong_zone(directory: Path) -> None:
+        values = _read_jsonl(directory / "model_request_attempts.jsonl")
+        row = next(value for value in values if value["role"] == "executor")
+        row["zone"] = "wrong-zone"
+        _write_jsonl(directory / "model_request_attempts.jsonl", values)
+
+    mutations.append(("wrong-zone", wrong_zone))
+
+    def missing_attempt(directory: Path) -> None:
+        values = _read_jsonl(directory / "model_request_attempts.jsonl")
+        values.pop()
+        _write_jsonl(directory / "model_request_attempts.jsonl", values)
+
+    mutations.append(("missing-attempt", missing_attempt))
+
+    def duplicate_ordinal(directory: Path) -> None:
+        call_values = _read_jsonl(directory / "agent_calls.jsonl")
+        raw_values = _read_jsonl(directory / "raw_model_io.jsonl")
+        target_identity = call_values[1]["logical_call_identity"]
+        call_values[1]["call_ordinal"] = call_values[0]["call_ordinal"]
+        next(row for row in raw_values if row["logical_call_identity"] == target_identity)[
+            "call_ordinal"
+        ] = call_values[0]["call_ordinal"]
+        _write_jsonl(directory / "agent_calls.jsonl", call_values)
+        _write_jsonl(directory / "raw_model_io.jsonl", raw_values)
+
+    mutations.append(("duplicate-ordinal", duplicate_ordinal))
+
+    for name, mutate in mutations:
+        candidate = tmp_path / name
+        shutil.copytree(reordered, candidate)
+        mutate(candidate)
+        tampered = verify_run(candidate, require_completion=False)
+        assert tampered["checks"]["model_transport_retry_accounting"] is False, name
 
 
 def test_recovered_transient_model_request_is_audited_and_release_passes(
@@ -828,12 +936,10 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
         def retry_count(self) -> int:
             return self.inner.retry_count
 
-        def set_context(self, **context: Any) -> None:
-            self.inner.set_context(**context)
-
         async def complete(
             self,
             *,
+            context: ModelCallContext,
             role: Role,
             system: str,
             user: str,
@@ -842,6 +948,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
             active_role[0] = role
             before = physical.advance_count
             output = await self.inner.complete(
+                context=context,
                 role=role,
                 system=system,
                 user=user,

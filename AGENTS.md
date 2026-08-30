@@ -41,7 +41,8 @@ Before any check, state the live uncertainty, the concrete failure it can expose
 ## Runtime and evidence discipline
 
 - `h3c run` and `h3c suite` are dry plans unless `--execute` is explicit.
-- Physical/API experiments are strictly serial. Every arm uses a fresh test identity and keeps conditioning separate from evaluation KPI and Agent memory.
+- Logical dependencies remain serial, but independent physical arms and model requests may overlap. Every physical arm uses a fresh test identity, checkout, output owner, and execution lock. BOPTEST `Running`/`Queued` status owns capacity; queued arms do not initialize or call the model, and the client does not impose a fixed worker count.
+- Within an H3C hour, Orchestrator completes before all zone Executors are issued concurrently; all issued Executors finish before deterministic priority/zone-order settlement, four physical steps, and Reflector. Response arrival order never controls settlement.
 - One physical arm is launched once: no resume or lucky rerun. Only the configured bounded, identical-payload retry for whitelisted transient model transport errors is allowed. Do not advance BOPTEST between wire attempts; record each attempt and uncertain provider charge. Do not retry model/schema/method rejection or BOPTEST errors.
 - Keep raw model I/O, program updates, actions, physical trajectory, metrics, and source/config identity. Generated data belongs under `outputs/`; do not disguise it as source code.
 - Keep API keys and endpoint secrets out of configs, prompts, logs, evidence, commits, and terminal output. Scan only new/generated or staged files unless a live reason requires wider scope.

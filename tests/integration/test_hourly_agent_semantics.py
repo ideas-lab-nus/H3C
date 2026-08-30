@@ -8,13 +8,15 @@ from typing import Any
 import pytest
 
 from h3c.agents.prompts import Role
+from h3c.agents.roles import ModelCallContext
 from h3c.control.budget import validated_fallback_allocation
 from h3c.control.program import load_program
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import repository_root
 from h3c.memory.ledger import ProgramLedger
 from h3c.outputs.artifacts import RunArtifacts
-from h3c.runtime.engine import _agent_hour
+from h3c.runtime.clients import TransportError
+from h3c.runtime.engine import ExecutorBatchTransportError, _agent_hour
 
 
 def _plan() -> RunPlan:
@@ -61,22 +63,18 @@ class PriorityModel:
     def __init__(self, priority: list[str]) -> None:
         self.priority = priority
         self.calls: list[tuple[Role, str | None, str]] = []
-        self.zone: str | None = None
-
-    def set_context(self, **context: Any) -> None:
-        zone = context.get("zone")
-        self.zone = str(zone) if zone is not None else None
 
     async def complete(
         self,
         *,
+        context: ModelCallContext,
         role: Role,
         system: str,
         user: str,
         thinking_mode: str,
     ) -> str:
         del system, thinking_mode
-        self.calls.append((role, self.zone, user))
+        self.calls.append((role, context.zone, user))
         if role == "orchestrator":
             return json.dumps(
                 {
@@ -152,17 +150,179 @@ def test_two_phase_proposals_use_uncharged_snapshots_then_priority_settlement(
     assert {row["zone"] for row in updates} == set(zones)
 
 
-class SequencedModel:
+class DelayedPriorityModel(PriorityModel):
     def __init__(self) -> None:
-        self.hour = 0
-        self.users: list[str] = []
-
-    def set_context(self, **context: Any) -> None:
-        self.hour = int(context["hour"])
+        super().__init__(["zoneB", "zoneA"])
+        self.active_executors = 0
+        self.maximum_active_executors = 0
+        self.executor_completion_order: list[str] = []
 
     async def complete(
         self,
         *,
+        context: ModelCallContext,
+        role: Role,
+        system: str,
+        user: str,
+        thinking_mode: str,
+    ) -> str:
+        if role != "executor":
+            return await super().complete(
+                context=context,
+                role=role,
+                system=system,
+                user=user,
+                thinking_mode=thinking_mode,
+            )
+        assert context.zone is not None
+        self.calls.append((role, context.zone, user))
+        self.active_executors += 1
+        self.maximum_active_executors = max(self.maximum_active_executors, self.active_executors)
+        await asyncio.sleep(0.02 if context.zone == "zoneA" else 0.001)
+        self.executor_completion_order.append(context.zone)
+        self.active_executors -= 1
+        return json.dumps(
+            {
+                "patch": [
+                    {
+                        "op": "set_param",
+                        "param": "pmv_step_c",
+                        "to": 3.3,
+                        "rationale": "shared residual candidate",
+                    }
+                ]
+            }
+        )
+
+
+def test_executor_requests_overlap_and_completion_order_does_not_change_settlement(
+    tmp_path: Path,
+) -> None:
+    zones = ["zoneA", "zoneB"]
+    model = DelayedPriorityModel()
+    _, _, audit, updates, _ = asyncio.run(
+        _agent_hour(
+            plan=_plan(),
+            hour=0,
+            step=0,
+            zones=zones,
+            observations={zone: _observation() for zone in zones},
+            site_state={},
+            route={"thinking_mode": "disabled"},
+            graph=None,
+            programs=_programs(zones),
+            frames=[],
+            executor_records=[],
+            client=model,
+            artifacts=_artifacts(tmp_path, "delayed-priority"),
+            previous_allocation=None,
+            previous_utilisation=None,
+            previous_ledger=None,
+            last_rejection_by_zone={zone: None for zone in zones},
+        )
+    )
+
+    assert model.maximum_active_executors == 2
+    assert model.executor_completion_order == ["zoneB", "zoneA"]
+    assert audit is not None and audit["settlement_order"] == ["zoneB", "zoneA"]
+    assert [row["zone"] for row in updates] == ["zoneB", "zoneA"]
+
+
+class FailingExecutorBatchModel(PriorityModel):
+    def __init__(self, failed_zones: set[str]) -> None:
+        super().__init__(["zoneA", "zoneB"])
+        self.failed_zones = failed_zones
+
+    async def complete(
+        self,
+        *,
+        context: ModelCallContext,
+        role: Role,
+        system: str,
+        user: str,
+        thinking_mode: str,
+    ) -> str:
+        if role != "executor":
+            return await super().complete(
+                context=context,
+                role=role,
+                system=system,
+                user=user,
+                thinking_mode=thinking_mode,
+            )
+        assert context.zone is not None
+        await asyncio.sleep(0.02 if context.zone == "zoneA" else 0.001)
+        if context.zone in self.failed_zones:
+            raise TransportError(
+                f"terminal transport for {context.zone}",
+                error_type="TimeoutError",
+            )
+        return json.dumps({"patch": [{"op": "no_change", "rationale": "hold"}]})
+
+
+@pytest.mark.parametrize("failed_zones", [{"zoneA"}, {"zoneA", "zoneB"}])
+def test_terminal_executor_batch_waits_for_all_and_never_settles(
+    tmp_path: Path, failed_zones: set[str]
+) -> None:
+    zones = ["zoneA", "zoneB"]
+    artifacts = _artifacts(tmp_path, "failed-" + "-".join(sorted(failed_zones)))
+    programs = _programs(zones)
+
+    with pytest.raises(ExecutorBatchTransportError) as raised:
+        asyncio.run(
+            _agent_hour(
+                plan=_plan(),
+                hour=0,
+                step=0,
+                zones=zones,
+                observations={zone: _observation() for zone in zones},
+                site_state={},
+                route={"thinking_mode": "disabled"},
+                graph=None,
+                programs=programs,
+                frames=[],
+                executor_records=[],
+                client=FailingExecutorBatchModel(failed_zones),
+                artifacts=artifacts,
+                previous_allocation=None,
+                previous_utilisation=None,
+                previous_ledger=None,
+                last_rejection_by_zone={zone: None for zone in zones},
+            )
+        )
+
+    expected_failures = tuple(zone for zone in zones if zone in failed_zones)
+    assert raised.value.failed_zones == expected_failures
+    assert raised.value.primary_zone == expected_failures[0]
+    assert all(program.version == 0 for program in programs.values())
+    assert (artifacts.run_dir / "program_updates.jsonl").read_text(encoding="utf-8") == ""
+    timing = [
+        json.loads(line)
+        for line in (artifacts.run_dir / "timing.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert timing == [
+        {
+            "event": "terminal_transport_failure",
+            "failed_zones": list(expected_failures),
+            "hour": 0,
+            "issued_zones": zones,
+            "phase": "executor_batch",
+            "physical_advance_performed": False,
+            "primary_failure_zone": expected_failures[0],
+            "settlement_performed": False,
+            "step": 0,
+        }
+    ]
+
+
+class SequencedModel:
+    def __init__(self) -> None:
+        self.users: list[str] = []
+
+    async def complete(
+        self,
+        *,
+        context: ModelCallContext,
         role: Role,
         system: str,
         user: str,
@@ -181,9 +341,9 @@ class SequencedModel:
         if role != "executor":
             raise AssertionError("Reflector is outside _agent_hour")
         self.users.append(user)
-        if self.hour == 0:
+        if context.hour == 0:
             return json.dumps({"patch": [], "unknown": True})
-        if self.hour == 1:
+        if context.hour == 1:
             return json.dumps(
                 {
                     "patch": [

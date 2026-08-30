@@ -5,11 +5,13 @@ import http.client
 import json
 import socket
 import ssl
+import urllib.error
 import urllib.request
 from typing import Any
 
 import pytest
 
+from h3c.agents.roles import ModelCallContext
 from h3c.runtime.clients import (
     BoptestHttpClient,
     OpenAICompatibleModelClient,
@@ -53,6 +55,33 @@ def test_no_payload_request_does_not_claim_to_contain_json(monkeypatch: Any) -> 
     assert empty.get_header("Content-type") is None
     assert json_request.data == b'{"step": 900}'
     assert json_request.get_header("Content-type") == "application/json"
+
+
+@pytest.mark.parametrize(
+    ("status", "retryable", "retry_after"),
+    [(429, True, 2.5), (503, True, 2.5), (500, False, None)],
+)
+def test_http_retry_registration_is_limited_to_429_and_503(
+    monkeypatch: Any, status: int, retryable: bool, retry_after: float | None
+) -> None:
+    def fail(request: urllib.request.Request, timeout: float) -> _Response:
+        del request, timeout
+        raise urllib.error.HTTPError(
+            "https://model.invalid",
+            status,
+            "registered failure",
+            {"Retry-After": "2.5"},
+            None,
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+
+    with pytest.raises(TransportError) as raised:
+        _request_json("POST", "https://model.invalid", payload={"x": 1})
+
+    assert raised.value.retryable is retryable
+    assert raised.value.error_type == f"http_{status}"
+    assert raised.value.retry_after_seconds == retry_after
 
 
 def test_non_json_response_is_allowed_only_for_explicit_no_json_contract(
@@ -173,11 +202,10 @@ def test_model_request_retries_one_reset_with_identical_payload(
         retry_count_limit=2,
         retry_backoff_seconds=(1.0, 2.0),
     )
-    client.set_context(hour=0, step=0, zone="zone1")
-
     assert (
         asyncio.run(
             client.complete(
+                context=ModelCallContext(0, 0, 0, "zone1"),
                 role="executor",
                 system="system",
                 user="user",
@@ -236,6 +264,7 @@ def test_model_request_exhausts_only_the_registered_transient_retries(
     with pytest.raises(TransportError, match="timeout"):
         asyncio.run(
             client.complete(
+                context=ModelCallContext(0, 0, 0),
                 role="orchestrator",
                 system="system",
                 user="user",
@@ -250,6 +279,56 @@ def test_model_request_exhausts_only_the_registered_transient_retries(
     assert client.retry_count == 2
     assert not [row for name, row in rows if name == "agent_calls.jsonl"]
     assert not [row for name, row in rows if name == "raw_model_io.jsonl"]
+
+
+def test_registered_503_retry_after_precedes_local_backoff(monkeypatch: Any) -> None:
+    rows: list[tuple[str, dict[str, Any]]] = []
+    sleeps: list[float] = []
+    calls = 0
+
+    def request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TransportError(
+                "HTTP 503",
+                retryable=True,
+                error_type="http_503",
+                provider_response_received=True,
+                retry_after_seconds=7.5,
+            )
+        return _model_response()
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("h3c.runtime.clients._request_json", request)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    client = OpenAICompatibleModelClient(
+        endpoint="https://model.invalid",
+        api_key="secret",
+        model="deepseek-v4-flash",
+        sink=lambda name, row: rows.append((name, dict(row))),
+        retry_count_limit=2,
+        retry_backoff_seconds=(1.0, 2.0),
+    )
+
+    asyncio.run(
+        client.complete(
+            context=ModelCallContext(0, 0, 0),
+            role="orchestrator",
+            system="system",
+            user="user",
+            thinking_mode="low",
+        )
+    )
+
+    attempts = [row for name, row in rows if name == "model_request_attempts.jsonl"]
+    assert sleeps == [7.5]
+    assert attempts[0]["error_type"] == "http_503"
+    assert attempts[0]["provider_retry_after_seconds"] == 7.5
+    assert attempts[0]["retry_delay_seconds"] == 7.5
+    assert attempts[0]["provider_charge_status"] == "response_received_usage_unavailable"
 
 
 def test_model_request_does_not_retry_a_nonretryable_response_error(
@@ -280,6 +359,7 @@ def test_model_request_does_not_retry_a_nonretryable_response_error(
     with pytest.raises(TransportError, match="HTTP 401"):
         asyncio.run(
             client.complete(
+                context=ModelCallContext(0, 3, 0),
                 role="reflector",
                 system="system",
                 user="user",
@@ -320,6 +400,7 @@ def test_model_request_does_not_retry_an_invalid_provider_response_contract(
     with pytest.raises(TransportError, match="response contract") as raised:
         asyncio.run(
             client.complete(
+                context=ModelCallContext(0, 3, 0),
                 role="reflector",
                 system="system",
                 user="user",
@@ -361,6 +442,7 @@ def test_non_utf8_provider_response_is_one_audited_nonretryable_attempt(
     with pytest.raises(TransportError, match="non-UTF-8") as raised:
         asyncio.run(
             client.complete(
+                context=ModelCallContext(0, 3, 0),
                 role="reflector",
                 system="system",
                 user="user",
