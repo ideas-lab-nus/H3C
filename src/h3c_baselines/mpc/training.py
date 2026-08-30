@@ -39,6 +39,7 @@ from h3c_baselines.mpc.vector_arx import (
     ArxLayout,
     FittedArxModel,
     build_dataset,
+    expected_model_identity,
     fit_vector_arx,
 )
 from h3c_baselines.outputs.integrity import secret_occurrences
@@ -66,6 +67,7 @@ class TrainingPhysicalClient(Protocol):
 
 
 PhysicalFactory = Callable[[str], TrainingPhysicalClient]
+DiagnosticSink = Callable[[Mapping[str, Any]], None]
 
 
 @dataclass(frozen=True)
@@ -285,13 +287,19 @@ def _collect_episode(
     output_dir: Path,
     model: FittedArxModel | None = None,
     cancel_event: Event | None = None,
+    diagnostic_sink: DiagnosticSink | None = None,
+    forecast_phase: str = "mpc_training",
 ) -> EpisodeData:
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("parallel MPC episode batch was cancelled")
+    if diagnostic_sink is not None and (role != "validation" or model is None):
+        raise ValueError("MPC diagnostic sink is only valid for a modeled validation episode")
     zones = tuple(profile["zones"])
     start_time = (int(profile["evaluation_start_day"]) - 7) * 86400
     state = lane.client.initialize_selected(start_time, 7 * 86400)
     lane.initialize_count += 1
+    if lane.client.test_id != lane.test_id:
+        raise ValueError("BOPTEST test identity changed during MPC episode initialize")
     require_time(state, start_time)
     steps = STEPS_PER_WEEK - (4 if role == "validation" else 0)
     points = forecast_points(profile)
@@ -301,7 +309,7 @@ def _collect_episode(
         raw_forecast,
         points,
         STEPS_PER_WEEK + 1,
-        forecast_phase="mpc_training",
+        forecast_phase=forecast_phase,
         start_time_seconds=start_time,
         step_seconds=STEP_SECONDS,
     )
@@ -344,7 +352,8 @@ def _collect_episode(
         action_time = start_time + step * STEP_SECONDS
         require_time(state, action_time)
         disturbance, occupancy = _disturbance(profile, forecast, zones, step, action_time)
-        comfort.update_clothing(action_time, _daily_outdoor_mean(profile, forecast, step))
+        daily_outdoor_mean = _daily_outdoor_mean(profile, forecast, step)
+        comfort.update_clothing(action_time, daily_outdoor_mean)
         current_temperatures = {zone: zone_temperature_c(profile, state, zone) for zone in zones}
         current_pmv = {zone: comfort.pmv(current_temperatures[zone]) for zone in zones}
         future = _future_occupancy(profile, forecast, zones, step, action_time, STEPS_PER_WEEK)
@@ -355,6 +364,7 @@ def _collect_episode(
             last_pmv=last_pmv,
             last_occupancy=last_occupancy,
         )
+        decision_diagnostics: Mapping[str, Any] | None = None
         if role in {"fit", "holdout"}:
             setpoints, recovery_steps = excitation.decide(
                 occupancy=occupancy,
@@ -381,6 +391,7 @@ def _collect_episode(
                 enhanced_rbc_warm_start=recovery_setpoints,
             )
             setpoints = decision.setpoints_c
+            decision_diagnostics = decision.diagnostics
             fallback_count += int(decision.diagnostics["method_degraded"] is True)
         else:
             raise ValueError("unknown MPC training episode role")
@@ -393,13 +404,15 @@ def _collect_episode(
         controls.append(np.asarray([setpoints[zone] for zone in zones], dtype=np.float64))
         disturbances.append(disturbance)
         next_state = lane.client.advance(control_input(profile, setpoints))
+        if lane.client.test_id != lane.test_id:
+            raise ValueError("BOPTEST test identity changed after MPC episode advance")
         require_time(next_state, action_time + STEP_SECONDS)
         next_temperatures = {zone: zone_temperature_c(profile, next_state, zone) for zone in zones}
         pmv = {zone: comfort.pmv(next_temperatures[zone]) for zone in zones}
         power = site_power(profile, next_state)
         price = float(forecast[profile["global_inputs"]["electricity_price"]][step])
         cost = power * 0.25 / 1000 * price
-        reward_total += step_reward(
+        reward = step_reward(
             cost=cost,
             pmv=[pmv[zone] for zone in zones],
             occupancy=[occupancy[zone] for zone in zones],
@@ -407,6 +420,38 @@ def _collect_episode(
             previous_setpoints_c=[last_setpoints[zone] for zone in zones],
             objective=profile["objective"],
         )
+        reward_total += reward
+        if diagnostic_sink is not None:
+            assert (
+                model is not None
+                and role == "validation"
+                and hierarchical is not None
+                and decision_diagnostics is not None
+            )
+            diagnostic_sink(
+                {
+                    "schema": "h3c_hierarchical_mpc_validation_step",
+                    "schema_version": 1,
+                    "step": step,
+                    "test_id": lane.test_id,
+                    "model_identity": model.identity,
+                    "action_time_seconds": action_time,
+                    "outcome_time_seconds": action_time + STEP_SECONDS,
+                    "occupancy": occupancy,
+                    "daily_outdoor_mean_c": daily_outdoor_mean,
+                    "clothing_insulation": comfort.clothing_insulation,
+                    "action_zone_temperature_c": current_temperatures,
+                    "action_pmv": current_pmv,
+                    "setpoints_c": setpoints,
+                    "electricity_price": price,
+                    "outcome_site_power_w": power,
+                    "step_cost": cost,
+                    "outcome_zone_temperature_c": next_temperatures,
+                    "outcome_pmv": pmv,
+                    "step_reward": reward,
+                    "controller_diagnostics": decision_diagnostics,
+                }
+            )
         occupied_values = [abs(pmv[zone]) for zone in zones if occupancy[zone] > 0]
         peak_pmv = max([peak_pmv, *occupied_values])
         output_history = np.vstack(
@@ -453,22 +498,23 @@ def _collect_episode(
         controls=result.controls,
         disturbances=result.disturbances,
     )
-    _write_json(
-        path / "manifest.json",
-        {
-            "role": role,
-            "episode": episode,
-            "lane": lane.index,
-            "test_id": lane.test_id,
-            "start_time_seconds": start_time,
-            "warmup_period_seconds": 7 * 86400,
-            "steps": steps,
-            "reward": reward_total,
-            "peak_occupied_absolute_pmv": peak_pmv,
-            "fallback_count": fallback_count,
-            "recovery_step_count": recovery_count,
-        },
-    )
+    manifest = {
+        "role": role,
+        "episode": episode,
+        "lane": lane.index,
+        "test_id": lane.test_id,
+        "start_time_seconds": start_time,
+        "warmup_period_seconds": 7 * 86400,
+        "steps": steps,
+        "reward": reward_total,
+        "peak_occupied_absolute_pmv": peak_pmv,
+        "fallback_count": fallback_count,
+        "recovery_step_count": recovery_count,
+        "forecast_phase": forecast_phase,
+    }
+    if model is not None:
+        manifest["model_identity"] = model.identity
+    _write_json(path / "manifest.json", manifest)
     return result
 
 
@@ -796,11 +842,56 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
     manifest = json.loads((target / "training_manifest.json").read_text(encoding="utf-8"))
     model = FittedArxModel.load(target / "model_coefficients.npz")
     zones = tuple(profile["zones"])
+    schema_version = manifest.get("schema_version")
+    legacy_lanes = manifest.get("lane_lifecycle")
+    fresh_validation = manifest.get("fresh_validation")
+    lifecycle_valid = (
+        schema_version == 1
+        and isinstance(legacy_lanes, list)
+        and len(legacy_lanes) == 4
+        and all(
+            row.get("select_count") == 1
+            and row.get("stop_count") == 1
+            and row.get("initialize_count", 0) > 0
+            and row.get("warmup_days_per_initialize") == 7
+            for row in legacy_lanes
+        )
+    ) or (
+        schema_version == 2
+        and card.get("schema_version") == 2
+        and card.get("physical_validation") == "fresh_validation_passed"
+        and card.get("freeze_identity") == manifest.get("freeze_identity")
+        and isinstance(fresh_validation, dict)
+        and isinstance(fresh_validation.get("test_id"), str)
+        and bool(fresh_validation.get("test_id"))
+        and fresh_validation.get("select_count") == 1
+        and fresh_validation.get("initialize_count") == 1
+        and fresh_validation.get("stop_count") == 1
+        and fresh_validation.get("warmup_days") == 7
+        and fresh_validation.get("steps") == STEPS_PER_WEEK - 4
+        and fresh_validation.get("fallback_count") == 0
+        and float(fresh_validation.get("occupied_peak_absolute_pmv", float("inf"))) <= 0.70
+        and isinstance(card.get("validation"), dict)
+        and card["validation"].get("eligible") is True
+        and card["validation"].get("model_identity") == model.identity
+        and card["validation"].get("test_id") == fresh_validation.get("test_id")
+        and isinstance(card.get("robust_calibration_attestation"), dict)
+        and card.get("robust_calibration_attestation")
+        == manifest.get("robust_calibration_attestation")
+    )
     checks = {
+        "schemas": card.get("schema") == "h3c_hierarchical_mpc_model_card"
+        and manifest.get("schema") == "h3c_hierarchical_mpc_training_manifest"
+        and schema_version in {1, 2},
         "case_identity": card.get("case") == case == manifest.get("case"),
         "model_identity": card.get("model_identity")
         == model.identity
-        == manifest.get("model_identity"),
+        == manifest.get("model_identity")
+        and (schema_version == 1 or model.identity == expected_model_identity(model)),
+        "source_identity": isinstance(card.get("source_commit"), str)
+        and bool(card["source_commit"])
+        and card.get("source_commit") == manifest.get("source_commit")
+        and (schema_version == 1 or len(card["source_commit"]) == 40),
         "layout": model.layout.zones == zones
         and model.layout.lag_count == 4
         and model.layout.horizon_steps == 4,
@@ -809,14 +900,7 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
         and card.get("training_week_days") == 7,
         "control_support": card.get("control_support_bounds_c") == expected_support,
         "pmv_robust_margin": card.get("pmv_robust_margin", 0.0) == model.pmv_robust_margin,
-        "lane_lifecycle": len(manifest.get("lane_lifecycle", [])) == 4
-        and all(
-            row.get("select_count") == 1
-            and row.get("stop_count") == 1
-            and row.get("initialize_count", 0) > 0
-            and row.get("warmup_days_per_initialize") == 7
-            for row in manifest.get("lane_lifecycle", [])
-        ),
+        "lifecycle": lifecycle_valid,
     }
     return {
         "case": case,
@@ -827,7 +911,32 @@ def _verify_mpc_model_directory(case: str, target: Path) -> dict[str, Any]:
 
 
 def verify_frozen_mpc_model(case: str) -> dict[str, Any]:
-    return _verify_mpc_model_directory(case, repository_root() / "models" / "mpc" / case)
+    suite_target = repository_root() / "models" / "mpc"
+    result = _verify_mpc_model_directory(case, suite_target / case)
+    try:
+        manifest = json.loads(
+            (suite_target / case / "training_manifest.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return result
+    if manifest.get("schema_version") != 2:
+        return result
+
+    # Schema 2 is an atomic three-case registry, not a standalone case bundle.
+    # Import locally to avoid a module cycle: registry uses the private directory
+    # verifier while this public runtime entry point binds the case to its parent.
+    from h3c_baselines.mpc.registry import verify_frozen_mpc_suite
+
+    suite = verify_frozen_mpc_suite(suite_target)
+    suite_case_checks = suite.get("case_checks")
+    suite_case_valid = bool(
+        isinstance(suite_case_checks, Mapping) and suite_case_checks.get(case) is True
+    )
+    checks = {
+        **result["checks"],
+        "transactional_suite_registry": suite.get("valid") is True and suite_case_valid,
+    }
+    return {**result, "checks": checks, "valid": all(checks.values())}
 
 
 def train_hierarchical_mpc(

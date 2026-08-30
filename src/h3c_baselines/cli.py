@@ -21,10 +21,16 @@ from h3c_baselines.mpc.refit import (
     resolved_refit_plan,
     verify_refit_workspace,
 )
+from h3c_baselines.mpc.registry import freeze_validated_mpc_suite, verify_frozen_mpc_suite
 from h3c_baselines.mpc.training import (
     resolved_training_plan,
     train_hierarchical_mpc,
     verify_frozen_mpc_model,
+)
+from h3c_baselines.mpc.validation import (
+    execute_fresh_validation,
+    resolved_validation_plan,
+    verify_validation_workspace,
 )
 from h3c_baselines.outputs.reporting import generate_report
 from h3c_baselines.outputs.verification import verify_baseline_run
@@ -67,6 +73,12 @@ def _parser() -> argparse.ArgumentParser:
     verify_mpc.add_argument("--case", required=True, choices=("SZ_Air", "MZ_Hydro", "MZ_Air"))
     verify_refit = mpc_commands.add_parser("verify-refit")
     verify_refit.add_argument("workspace", type=Path)
+    validate = mpc_commands.add_parser("validate", help="fresh-validate and freeze refit models")
+    validate.add_argument("--refit-workspace", type=Path, required=True)
+    validate.add_argument("--execute", action="store_true")
+    verify_validation = mpc_commands.add_parser("verify-validation")
+    verify_validation.add_argument("workspace", type=Path)
+    mpc_commands.add_parser("verify-frozen-suite")
     verify = commands.add_parser("verify")
     verify.add_argument("run_directory", type=Path)
     report = commands.add_parser("report")
@@ -96,6 +108,31 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_refit_workspace(arguments.workspace)
             _print(result)
             return 0 if result["valid"] else 1
+        if arguments.mpc_command == "verify-validation":
+            result = verify_validation_workspace(arguments.workspace)
+            _print(result)
+            return 0 if result["valid"] else 1
+        if arguments.mpc_command == "verify-frozen-suite":
+            result = verify_frozen_mpc_suite()
+            _print(result)
+            return 0 if result["valid"] else 1
+        if arguments.mpc_command == "validate":
+            validation_plan = resolved_validation_plan(arguments.refit_workspace)
+            if not arguments.execute:
+                _print(validation_plan)
+                return 0
+            runtime = load_runtime_contract()
+            endpoint_name = runtime["physical_service"]["endpoint_environment_variable"]
+            endpoint = os.environ.get(endpoint_name, "").rstrip("/")
+            if not endpoint:
+                raise ValueError(f"{endpoint_name} is required for fresh MPC validation")
+            validation = execute_fresh_validation(
+                arguments.refit_workspace,
+                endpoint=endpoint,
+            )
+            frozen = freeze_validated_mpc_suite(Path(validation["run_dir"]))
+            _print({"validation": validation, "freeze": frozen})
+            return 0
         if arguments.mpc_command == "refit":
             refit_plan = resolved_refit_plan(arguments.source_run)
             if not arguments.execute:
