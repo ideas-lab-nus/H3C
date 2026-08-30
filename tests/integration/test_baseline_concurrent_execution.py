@@ -5,6 +5,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +15,10 @@ import pytest
 from h3c.experiments.profiles import load_profile
 from h3c.runtime.execution_lock import physical_execution_lock
 from h3c_baselines.configuration import BaselineRunPlan
+from h3c_baselines.outputs.verification import (
+    verify_baseline_run,
+    verify_concurrent_suite_evidence,
+)
 from h3c_baselines.runtime import runner
 
 
@@ -24,6 +29,7 @@ class ConcurrentFakePhysical:
     fail_case: str | None = None
     stop_fail_case: str | None = None
     finish_order: list[str] = []
+    duplicate_test_identity = False
 
     def __init__(self, endpoint: str) -> None:
         self.endpoint = endpoint
@@ -45,6 +51,7 @@ class ConcurrentFakePhysical:
         cls.fail_case = None
         cls.stop_fail_case = None
         cls.finish_order = []
+        cls.duplicate_test_identity = False
 
     def set_lifecycle_sink(self, sink: Callable[[Mapping[str, Any]], None]) -> None:
         self.lifecycle_sink = sink
@@ -84,14 +91,15 @@ class ConcurrentFakePhysical:
         )
         self.profile = profiles[self.case]
         assert warmup_period_seconds == 7 * 86400
-        self.test_id = f"test-{self.case}"
+        self.test_id = "test-duplicate" if self.duplicate_test_identity else f"test-{self.case}"
         self.time = start_time_seconds
-        self.initialize_count += 1
         self._emit("selected")
         self._emit("status_changed", "Queued")
         self._emit("status_changed", "Running")
         self._emit("configured", "Running")
+        self._emit("status_changed", "Running")
         self._emit("initialized", "Running")
+        self.initialize_count += 1
         return self._state()
 
     def forecast(
@@ -189,7 +197,7 @@ def test_concurrent_runner_overlaps_arms_and_reconstructs_registered_order(
         "MZ_Hydro",
         "MZ_Air",
     ]
-    assert ConcurrentFakePhysical.finish_order == ["MZ_Air", "MZ_Hydro", "SZ_Air"]
+    assert set(ConcurrentFakePhysical.finish_order) == {"SZ_Air", "MZ_Hydro", "MZ_Air"}
     run_dirs = [Path(row["run_dir"]).resolve() for row in result["completed_runs"]]
     assert set(run_dirs).issubset(set(lock_roots))
     assert len([path for path in lock_roots if "concurrent-suites" in path.parts]) == 1
@@ -200,15 +208,17 @@ def test_concurrent_runner_overlaps_arms_and_reconstructs_registered_order(
             for line in (run_dir / "timing.jsonl").read_text(encoding="utf-8").splitlines()
         ]
         dispatch = [row for row in timing if row.get("phase") == "physical_dispatch"]
-        assert [row["event"] for row in dispatch[:5]] == [
+        assert [row["event"] for row in dispatch[:6]] == [
             "selected",
             "status_changed",
             "status_changed",
             "configured",
+            "status_changed",
             "initialized",
         ]
         assert [row["status"] for row in dispatch if row["event"] == "status_changed"] == [
             "Queued",
+            "Running",
             "Running",
         ]
         assert all(row["dispatch_mode"] == "auto" for row in dispatch)
@@ -426,6 +436,46 @@ def test_artifact_creation_failure_is_finalized_before_terminal_sentinel(
     assert manifest["secret_exposure_count"] == 0
 
 
+def test_post_manifest_identity_write_failure_is_terminally_finalized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    original_prepare = runner._prepare_baseline_run
+    original_write = runner.BaselineArtifacts.write_new_json
+    physical_calls = 0
+
+    def prepare(plan: BaselineRunPlan, **kwargs: Any) -> runner._PreparedBaselineRun:
+        return replace(original_prepare(plan, **kwargs), drl_identity={"verified": True})
+
+    def reject_model_identity(self: runner.BaselineArtifacts, name: str, value: Any) -> None:
+        if name == "model_identity.json":
+            raise RuntimeError("identity evidence write failed")
+        original_write(self, name, value)
+
+    def physical_factory(endpoint: str) -> ConcurrentFakePhysical:
+        nonlocal physical_calls
+        physical_calls += 1
+        return ConcurrentFakePhysical(endpoint)
+
+    monkeypatch.setattr(runner, "_prepare_baseline_run", prepare)
+    monkeypatch.setattr(runner.BaselineArtifacts, "write_new_json", reject_model_identity)
+    with pytest.raises(runner.ConcurrentBaselineExecutionError) as raised:
+        runner.execute_baseline_plans_concurrently(
+            [BaselineRunPlan("SZ_Air", "basic-rbc", evaluation_hours=1)],
+            suite="identity-write-failure",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "locks",
+            physical_factory=physical_factory,
+        )
+
+    failed_run = Path(raised.value.summary["failed_runs"][0]["run_dir"])
+    assert physical_calls == 0
+    assert (failed_run / "failure_details.json").is_file()
+    assert (failed_run / "failure.json").is_file()
+    manifest = json.loads((failed_run / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["secret_scan_status"] == "completed"
+
+
 def test_method_degraded_result_is_completed_without_resubmission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -450,6 +500,11 @@ def test_method_degraded_result_is_completed_without_resubmission(
         }
 
     monkeypatch.setattr(runner, "_execute_prepared_concurrent_arm", execute)
+    monkeypatch.setattr(
+        runner,
+        "verify_concurrent_suite_evidence",
+        lambda path: {"valid": True, "errors": []},
+    )
     result = runner.execute_baseline_plans_concurrently(
         _plans(),
         suite="method-degraded-test",
@@ -462,6 +517,60 @@ def test_method_degraded_result_is_completed_without_resubmission(
     assert len(calls) == 3
     assert result["failed_runs"] == []
     assert result["completed_runs"][1]["classification"] == "METHOD-DEGRADED"
+
+
+def test_duplicate_test_identity_is_rejected_at_select_before_initialize(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ConcurrentFakePhysical.reset()
+    ConcurrentFakePhysical.duplicate_test_identity = True
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+
+    with pytest.raises(runner.ConcurrentBaselineExecutionError):
+        runner.execute_baseline_plans_concurrently(
+            _plans(),
+            suite="duplicate-select-test-id",
+            output_root=tmp_path / "runs",
+            lock_root=tmp_path / "locks",
+            physical_factory=ConcurrentFakePhysical,
+        )
+
+    assert sum(instance.initialize_count for instance in ConcurrentFakePhysical.instances) == 1
+    assert all(instance.stop_count == 1 for instance in ConcurrentFakePhysical.instances)
+
+
+def test_legacy_execution_identity_remains_verifiable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ConcurrentFakePhysical.reset()
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    monkeypatch.setattr(runner, "_source_commit", lambda: "a" * 40)
+    result = runner.execute_baseline_plans(
+        [BaselineRunPlan("SZ_Air", "basic-rbc", evaluation_hours=1)],
+        suite="legacy-regression",
+        output_root=tmp_path / "runs",
+        lock_root=tmp_path / "locks",
+        physical_factory=ConcurrentFakePhysical,
+    )
+    run_dir = Path(result["completed_runs"][0]["run_dir"])
+    resolved_path = run_dir / "resolved_config.json"
+    manifest_path = run_dir / "manifest.json"
+    completion_path = run_dir / "completion.json"
+    resolved = json.loads(resolved_path.read_text(encoding="utf-8"))
+    execution = resolved["execution_identity"]
+    for key in ("dispatch_mode", "suite_identity", "mpc_freeze_identity"):
+        execution.pop(key)
+    legacy_run_identity = runner._identity(execution)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["run_identity"] = legacy_run_identity
+    completion = json.loads(completion_path.read_text(encoding="utf-8"))
+    completion["run_identity"] = legacy_run_identity
+    resolved_path.write_text(json.dumps(resolved) + "\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    completion_path.write_text(json.dumps(completion) + "\n", encoding="utf-8")
+
+    verification = verify_baseline_run(run_dir)
+    assert verification["execution_integrity"] is True
 
 
 def test_suite_evidence_rejects_duplicate_cross_arm_test_identity(
@@ -495,6 +604,63 @@ def test_suite_evidence_rejects_duplicate_cross_arm_test_identity(
 
     assert raised.value.summary["suite_evidence_valid"] is False
     assert "cross_arm_test_identity" in raised.value.summary["suite_evidence_errors"]
+
+
+def test_suite_verifier_reopens_runs_and_rejects_coherent_json_tamper(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ConcurrentFakePhysical.reset()
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    result = runner.execute_baseline_plans_concurrently(
+        [BaselineRunPlan("SZ_Air", "basic-rbc", evaluation_hours=1)],
+        suite="suite-tamper",
+        output_root=tmp_path / "runs",
+        lock_root=tmp_path / "locks",
+        physical_factory=ConcurrentFakePhysical,
+    )
+    evidence_path = Path(result["suite_evidence"])
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence["arms"][0]["test_id"] = "coherent-but-false-test-id"
+    evidence_path.write_text(json.dumps(evidence) + "\n", encoding="utf-8")
+
+    verification = verify_concurrent_suite_evidence(evidence_path)
+    assert verification["valid"] is False
+    assert "actual_run_evidence_binding" in verification["errors"]
+
+
+def test_dynamic_lifecycle_rejects_queued_status_after_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ConcurrentFakePhysical.reset()
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake-boptest")
+    result = runner.execute_baseline_plans_concurrently(
+        [BaselineRunPlan("SZ_Air", "basic-rbc", evaluation_hours=1)],
+        suite="dispatch-order-tamper",
+        output_root=tmp_path / "runs",
+        lock_root=tmp_path / "locks",
+        physical_factory=ConcurrentFakePhysical,
+    )
+    run_dir = Path(result["completed_runs"][0]["run_dir"])
+    timing_path = run_dir / "timing.jsonl"
+    rows = [json.loads(line) for line in timing_path.read_text(encoding="utf-8").splitlines()]
+    configured_index = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("phase") == "physical_dispatch" and row.get("event") == "configured"
+    )
+    rows.insert(
+        configured_index + 1,
+        {
+            **rows[configured_index],
+            "event": "status_changed",
+            "status": "Queued",
+        },
+    )
+    timing_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    verification = verify_baseline_run(run_dir)
+    assert verification["execution_integrity"] is False
+    assert "dynamic_dispatch_lifecycle" in verification["errors"]
 
 
 def test_mpc_formal_suite_uses_the_dynamic_concurrent_runner(

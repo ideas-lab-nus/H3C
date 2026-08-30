@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -85,6 +86,23 @@ class ConcurrentBaselineExecutionError(RuntimeError):
         self.summary = summary
         failed = summary.get("failed_runs", [])
         super().__init__(f"{len(failed)} concurrent baseline arm(s) failed")
+
+
+class _SelectedTestIdentityRegistry:
+    """Claim each physical identity at select time, before initialization."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._owners: dict[str, str] = {}
+
+    def claim(self, test_id: str, run_identity: str) -> None:
+        if not test_id:
+            raise ValueError("selected physical test identity is empty")
+        with self._lock:
+            owner = self._owners.get(test_id)
+            if owner is not None:
+                raise ValueError(f"selected physical test identity is already owned by run {owner}")
+            self._owners[test_id] = run_identity
 
 
 def _source_commit() -> str:
@@ -345,6 +363,7 @@ def _execute_one(
     physical_factory: PhysicalFactory,
     prepared: _PreparedBaselineRun | None = None,
     reserved_run_directory: bool = False,
+    selected_test_registry: _SelectedTestIdentityRegistry | None = None,
 ) -> dict[str, Any]:
     prepared_run = prepared or _prepare_baseline_run(
         plan,
@@ -421,10 +440,26 @@ def _execute_one(
                 },
             )
         raise
-    if drl_identity is not None:
-        artifacts.write_new_json("model_identity.json", drl_identity)
-    if mpc_identity is not None:
-        artifacts.write_new_json("mpc_model_identity.json", mpc_identity)
+    try:
+        if drl_identity is not None:
+            artifacts.write_new_json("model_identity.json", drl_identity)
+        if mpc_identity is not None:
+            artifacts.write_new_json("mpc_model_identity.json", mpc_identity)
+    except Exception as error:
+        _publish_finalized_failure(
+            artifacts,
+            manifest,
+            {
+                "failure_details_schema": "h3c_baseline_failure_details",
+                "schema_version": 1,
+                "classification": "RUN-INVALID",
+                "run_identity": run_identity,
+                "primary_failure": {"type": type(error).__name__, "message": str(error)},
+                "stop_failure": None,
+                "elapsed_seconds": 0.0,
+            },
+        )
+        raise
     physical: PhysicalClient | None = None
     initialized = False
     stop_attempted = False
@@ -438,8 +473,19 @@ def _execute_one(
     try:
         physical = physical_factory(endpoint)
         lifecycle_sink_setter = getattr(physical, "set_lifecycle_sink", None)
+        if selected_test_registry is not None and not callable(lifecycle_sink_setter):
+            raise ValueError("concurrent physical client lacks lifecycle identity evidence")
         if callable(lifecycle_sink_setter):
-            lifecycle_sink_setter(lambda row: artifacts.append_jsonl("timing.jsonl", dict(row)))
+
+            def record_lifecycle(row: Mapping[str, Any]) -> None:
+                if row.get("event") == "selected" and selected_test_registry is not None:
+                    test_id = row.get("test_id")
+                    if not isinstance(test_id, str):
+                        raise ValueError("selected physical test identity is invalid")
+                    selected_test_registry.claim(test_id, run_identity)
+                artifacts.append_jsonl("timing.jsonl", dict(row))
+
+            lifecycle_sink_setter(record_lifecycle)
         boundary = initialize_evaluation_boundary(
             physical,
             profile,
@@ -843,6 +889,7 @@ def _execute_prepared_concurrent_arm(
     endpoint: str,
     output_root: Path,
     physical_factory: PhysicalFactory,
+    selected_test_registry: _SelectedTestIdentityRegistry,
 ) -> dict[str, Any]:
     artifacts = BaselineArtifacts(
         output_root,
@@ -860,6 +907,7 @@ def _execute_prepared_concurrent_arm(
             physical_factory=physical_factory,
             prepared=prepared,
             reserved_run_directory=True,
+            selected_test_registry=selected_test_registry,
         )
 
 
@@ -965,6 +1013,7 @@ def execute_baseline_plans_concurrently(
     suite_evidence_path = suite_evidence_dir / f"{suite_identity}.json"
     suite_claim_path = suite_evidence_dir / f".{suite_identity}.claim"
     factory = physical_factory or BoptestHttpClient
+    selected_test_registry = _SelectedTestIdentityRegistry()
     completed: list[dict[str, Any] | None] = [None] * len(prepared)
     failures: list[dict[str, Any] | None] = [None] * len(prepared)
     with physical_execution_lock(suite_lock_root):
@@ -989,6 +1038,7 @@ def execute_baseline_plans_concurrently(
                     endpoint=endpoint,
                     output_root=root,
                     physical_factory=factory,
+                    selected_test_registry=selected_test_registry,
                 ): index
                 for index, item in enumerate(prepared)
             }

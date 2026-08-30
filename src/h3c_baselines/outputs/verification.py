@@ -133,6 +133,48 @@ def verify_concurrent_suite_evidence(path: Path) -> dict[str, Any]:
             if frozen.get("valid") is True:
                 freeze_manifest = _load(Path(str(frozen["target"])) / "freeze_manifest.json")
                 freeze_binding = freeze_manifest.get("freeze_identity") == recorded_freeze_identity
+        actual_arm_bindings: list[bool] = []
+        if isinstance(arms, list):
+            suite_root = path.resolve().parent.parent
+            for arm in arms:
+                if not isinstance(arm, dict) or not isinstance(arm.get("run_dir"), str):
+                    actual_arm_bindings.append(False)
+                    continue
+                try:
+                    run_dir = Path(arm["run_dir"]).resolve()
+                    run_dir.relative_to(suite_root)
+                    resolved = _load(run_dir / "resolved_config.json")
+                    manifest = _load(run_dir / "manifest.json")
+                    completion = _load(run_dir / "completion.json")
+                    execution = resolved["execution_identity"]
+                    timing = _rows(run_dir / "timing.jsonl")
+                    actual_test_ids = {
+                        row.get("test_id")
+                        for row in timing
+                        if row.get("phase")
+                        in {"physical_dispatch", "physical_lifecycle", "evaluation_boundary"}
+                        and isinstance(row.get("test_id"), str)
+                    }
+                    verification = verify_baseline_run(run_dir)
+                    actual_arm_bindings.append(
+                        verification.get("execution_integrity") is True
+                        and resolved.get("plan_identity") == arm.get("plan_identity")
+                        and execution.get("plan_identity") == arm.get("plan_identity")
+                        and execution.get("suite_identity") == evidence.get("suite_identity")
+                        and execution.get("mpc_freeze_identity") == recorded_freeze_identity
+                        and execution.get("dispatch_mode") == "auto"
+                        and execution.get("source_commit") == source_commit
+                        and manifest.get("run_identity")
+                        == arm.get("run_identity")
+                        == _identity(execution)
+                        and completion.get("run_identity") == arm.get("run_identity")
+                        and completion.get("classification") == arm.get("classification")
+                        and manifest.get("case") == arm.get("case")
+                        and manifest.get("controller") == arm.get("controller")
+                        and actual_test_ids == {arm.get("test_id")}
+                    )
+                except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+                    actual_arm_bindings.append(False)
         checks = {
             "schema": set(evidence) == expected_fields
             and evidence.get("suite_evidence_schema") == "h3c_concurrent_baseline_suite"
@@ -161,6 +203,7 @@ def verify_concurrent_suite_evidence(path: Path) -> dict[str, Any]:
             and all(isinstance(value, str) and value for value in test_ids)
             and len(test_ids) == len(set(test_ids)),
             "cross_arm_run_identity": bool(run_ids) and len(run_ids) == len(set(run_ids)),
+            "actual_run_evidence_binding": bool(actual_arm_bindings) and all(actual_arm_bindings),
         }
         errors = sorted(name for name, value in checks.items() if not value)
         return {"checks": checks, "errors": errors, "valid": not errors}
@@ -182,6 +225,45 @@ def _numeric_sequence(value: Any, length: int) -> bool:
         and not isinstance(value, (str, bytes))
         and len(value) == length
         and all(_finite(item) for item in value)
+    )
+
+
+def _exact_dynamic_dispatch(
+    dispatch: Sequence[Mapping[str, Any]], lifecycle_test_ids: set[Any]
+) -> bool:
+    events = [row.get("event") for row in dispatch]
+    configured_index = events.index("configured") if "configured" in events else -1
+    initialized_index = events.index("initialized") if "initialized" in events else -1
+    admission = dispatch[1:configured_index] if configured_index > 0 else []
+    initialization_admission = (
+        dispatch[configured_index + 1 : initialized_index]
+        if initialized_index > configured_index >= 0
+        else []
+    )
+    return (
+        len(dispatch) >= 5
+        and events[0] == "selected"
+        and events[-1] == "stopped"
+        and events.count("selected") == 1
+        and events.count("configured") == 1
+        and events.count("initialized") == 1
+        and events.count("stopped") == 1
+        and configured_index > 1
+        and initialized_index > configured_index
+        and events[initialized_index + 1 :] == ["stopped"]
+        and all(row.get("event") == "status_changed" for row in admission)
+        and [row.get("status") for row in admission[:-1]] == ["Queued"] * (len(admission) - 1)
+        and admission[-1].get("status") == "Running"
+        and dispatch[configured_index].get("status") == "Running"
+        and bool(initialization_admission)
+        and all(
+            row.get("event") == "status_changed" and row.get("status") == "Running"
+            for row in initialization_admission
+        )
+        and dispatch[initialized_index].get("status") == "Running"
+        and all(row.get("dispatch_mode") == "auto" for row in dispatch)
+        and {row.get("test_id") for row in dispatch} == lifecycle_test_ids
+        and len({row.get("testcase") for row in dispatch}) == 1
     )
 
 
@@ -240,7 +322,13 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
         evaluation_end = evaluation_start + expected_steps * 900
         source_commit = execution_identity.get("source_commit")
 
-        expected_execution_fields = {
+        legacy_execution_fields = {
+            "plan_identity",
+            "source_commit",
+            "physical_endpoint_identity",
+            "mpc_model_identity",
+        }
+        current_execution_fields = {
             "plan_identity",
             "source_commit",
             "physical_endpoint_identity",
@@ -249,6 +337,9 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             "suite_identity",
             "mpc_freeze_identity",
         }
+        execution_fields = set(execution_identity)
+        legacy_execution_identity = execution_fields == legacy_execution_fields
+        current_execution_identity = execution_fields == current_execution_fields
         expected_manifest_fields = {
             "manifest_schema",
             "schema_version",
@@ -294,7 +385,8 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
             "evidence_parse": True,
             "resolved_plan_identity": set(resolved) == set(expected_plan) | {"execution_identity"}
             and all(resolved.get(key) == value for key, value in expected_plan.items()),
-            "execution_identity": set(execution_identity) == expected_execution_fields
+            "execution_identity_schema": legacy_execution_identity or current_execution_identity,
+            "execution_identity": (legacy_execution_identity or current_execution_identity)
             and execution_identity.get("plan_identity") == expected_plan["plan_identity"]
             and isinstance(source_commit, str)
             and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None
@@ -306,15 +398,21 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
                 if controller != "hierarchical-mpc"
                 else isinstance(execution_identity.get("mpc_model_identity"), str)
             )
-            and execution_identity.get("dispatch_mode") in {"auto", "strictly_serial"}
-            and isinstance(execution_identity.get("suite_identity"), str)
-            and re.fullmatch(r"[0-9a-f]{64}", execution_identity["suite_identity"]) is not None
             and (
-                execution_identity.get("mpc_freeze_identity") is None
-                if controller != "hierarchical-mpc"
-                else isinstance(execution_identity.get("mpc_freeze_identity"), str)
-                and re.fullmatch(r"[0-9a-f]{64}", execution_identity["mpc_freeze_identity"])
-                is not None
+                legacy_execution_identity
+                or (
+                    execution_identity.get("dispatch_mode") in {"auto", "strictly_serial"}
+                    and isinstance(execution_identity.get("suite_identity"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", execution_identity["suite_identity"])
+                    is not None
+                    and (
+                        execution_identity.get("mpc_freeze_identity") is None
+                        if controller != "hierarchical-mpc"
+                        else isinstance(execution_identity.get("mpc_freeze_identity"), str)
+                        and re.fullmatch(r"[0-9a-f]{64}", execution_identity["mpc_freeze_identity"])
+                        is not None
+                    )
+                )
             ),
             "manifest_identity": set(manifest) == expected_manifest_fields
             and manifest.get("manifest_schema") == "h3c_baseline_manifest"
@@ -384,32 +482,12 @@ def verify_baseline_run(run_dir: Path, *, require_completion: bool = True) -> di
         )
         dispatch = [row for row in timing if row.get("phase") == "physical_dispatch"]
         if execution_identity.get("dispatch_mode") == "auto":
-            dispatch_events = [row.get("event") for row in dispatch]
-            running_before_configured = (
-                any(
-                    row.get("event") == "status_changed" and row.get("status") == "Running"
-                    for row in dispatch[: dispatch_events.index("configured")]
-                )
-                if "configured" in dispatch_events
-                else False
+            checks["dynamic_dispatch_lifecycle"] = _exact_dynamic_dispatch(
+                dispatch, lifecycle_test_ids
             )
-            queued_statuses = [
-                row.get("status") for row in dispatch if row.get("event") == "status_changed"
-            ]
-            checks["dynamic_dispatch_lifecycle"] = (
-                len(dispatch) >= 5
-                and dispatch_events[0] == "selected"
-                and dispatch_events[-1] == "stopped"
-                and dispatch_events.count("selected") == 1
-                and dispatch_events.count("configured") == 1
-                and dispatch_events.count("initialized") == 1
-                and dispatch_events.count("stopped") == 1
-                and dispatch_events.index("configured") < dispatch_events.index("initialized")
-                and running_before_configured
-                and set(queued_statuses).issubset({"Queued", "Running"})
-                and "Running" in queued_statuses
-                and all(row.get("dispatch_mode") == "auto" for row in dispatch)
-                and {row.get("test_id") for row in dispatch} == lifecycle_test_ids
+        elif legacy_execution_identity:
+            checks["dynamic_dispatch_lifecycle"] = not dispatch or _exact_dynamic_dispatch(
+                dispatch, lifecycle_test_ids
             )
         else:
             checks["dynamic_dispatch_lifecycle"] = not dispatch or all(
