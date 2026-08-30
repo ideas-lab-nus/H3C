@@ -313,9 +313,13 @@ class BoptestHttpClient:
     def status(self) -> str:
         if self.test_id is None:
             raise TransportError("BOPTEST status requested before select")
-        response = _request_json("GET", f"{self.endpoint}/status/{self.test_id}")
-        status = response.get("payload")
-        if status not in {"Running", "Queued"}:
+        response = _request_json(
+            "GET",
+            f"{self.endpoint}/status/{self.test_id}",
+            _boptest_status_response=True,
+        )
+        status = response if isinstance(response, str) else response.get("payload")
+        if not isinstance(status, str) or status not in {"Running", "Queued"}:
             raise TransportError("BOPTEST status payload is invalid")
         return str(status)
 
