@@ -3,7 +3,7 @@
 H3C is a reproducible, cooling-only framework for hierarchical building control. It combines
 LLM-based coordination, zone-level executable programs, human-confirmed causal constraints, and
 a deterministic action-assurance chain. The repository also provides human-in-the-loop case
-onboarding and independent RBC/DRL benchmarks for three BOPTEST cases.
+onboarding and independent RBC, DRL, and hierarchical MPC benchmarks for three BOPTEST cases.
 
 All physical commands are dry plans unless `--execute` is explicit.
 
@@ -136,11 +136,12 @@ deterministic mode after byte-count and SHA-256 verification; each policy retain
 observation order, normalization, history, cold start, and actuator mapping.
 
 The separate MPC workflow reuses only the seven days immediately before each evaluation window.
-Up to four lanes repeatedly initialize that week with a complete seven-day internal warm-up and
-collect deterministic bounded excitation episodes. Whole episodes are separated into fit and
-holdout sets. Candidate vector-ARX models must beat persistence prediction, satisfy the registered
-closed-loop comfort and fallback gates, and are selected only by training-week reward. The frozen
-model then runs once on the case's standard formal window. Formal results never tune the model.
+Repeated, fully warmed episodes collect deterministic bounded excitation data; complete holdout
+episodes remain outside the final fit. The frozen four-lag vector-ARX model drives an hourly
+building coordinator and 15-minute zone QPs, with every fallback exposed as method degradation.
+Formal results never tune the model. See the
+[hierarchical MPC technical report](docs/hierarchical_mpc_baseline.md) for the equations, data
+roles, optimizer, frozen identities, and audited three-case results.
 
 ## Outputs and metrics
 

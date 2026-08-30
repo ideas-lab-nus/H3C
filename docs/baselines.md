@@ -32,7 +32,9 @@ raw-binary occupancy feature.
 - **Hierarchical MPC** fits one shared four-lag, four-step vector-ARX structure per case from
   repeated, fully warmed episodes in the seven days before evaluation. An hourly building
   coordinator and 15-minute zone QPs use the common cost, comfort, and smoothness objective.
-  Any deterministic P0 fallback is exposed as method degradation.
+  Any deterministic P0 fallback is exposed as method degradation. The complete equations, data
+  partition, robust calibration, frozen identities, and formal results are documented in the
+  [hierarchical MPC technical report](hierarchical_mpc_baseline.md).
 
 The two-rate coordinator/zone decomposition follows established building-control practice: an
 upper layer uses global state to generate references while faster local controllers optimize

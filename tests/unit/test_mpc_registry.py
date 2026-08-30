@@ -347,6 +347,20 @@ def test_frozen_suite_is_self_contained_and_runtime_loadable(
     assert training.verify_frozen_mpc_model("CaseA")["valid"] is True
 
 
+def test_frozen_suite_verification_is_portable_across_json_newlines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, validation, verification = _workspaces(tmp_path)
+    _patch_owners(monkeypatch, tmp_path, verification)
+    target = Path(registry.freeze_validated_mpc_suite(validation)["target"])
+    for name in ("model_card.json", "training_manifest.json"):
+        path = target / "CaseA" / name
+        lf = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        path.write_bytes(lf.replace(b"\n", b"\r\n"))
+
+    assert registry.verify_frozen_mpc_suite(target)["valid"] is True
+
+
 def test_comfort_target_miss_is_preserved_and_does_not_block_atomic_freeze(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

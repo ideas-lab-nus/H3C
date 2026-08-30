@@ -33,6 +33,13 @@ def _identity(value: Any) -> str:
     ).hexdigest()
 
 
+def _portable_json_sha256(path: Path) -> str:
+    """Hash tracked JSON independently of Git's platform newline checkout policy."""
+
+    normalized = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(normalized).hexdigest()
+
+
 def _comfort_target_attestation_valid(value: Any) -> bool:
     if not isinstance(value, Mapping):
         return False
@@ -448,8 +455,8 @@ def _stage_case(
         "case": case,
         "model_identity": model.identity,
         "coefficient_sha256": _sha256(target / "model_coefficients.npz"),
-        "model_card_sha256": _sha256(target / "model_card.json"),
-        "training_manifest_sha256": _sha256(target / "training_manifest.json"),
+        "model_card_sha256": _portable_json_sha256(target / "model_card.json"),
+        "training_manifest_sha256": _portable_json_sha256(target / "training_manifest.json"),
     }
 
 
@@ -634,9 +641,10 @@ def _verify_staged_suite(
                 and _comfort_target_attestation_valid(validated)
                 and row.get("model_identity") == model.identity
                 and row.get("coefficient_sha256") == _sha256(target / "model_coefficients.npz")
-                and row.get("model_card_sha256") == _sha256(target / "model_card.json")
+                and row.get("model_card_sha256")
+                == _portable_json_sha256(target / "model_card.json")
                 and row.get("training_manifest_sha256")
-                == _sha256(target / "training_manifest.json")
+                == _portable_json_sha256(target / "training_manifest.json")
                 and card.get("schema") == "h3c_hierarchical_mpc_model_card"
                 and card.get("schema_version") == 2
                 and card.get("case") == case
