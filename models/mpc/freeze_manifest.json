@@ -1,0 +1,285 @@
+{
+  "admission_mode": "post_result_method_degraded",
+  "case_order": [
+    "SZ_Air",
+    "MZ_Hydro",
+    "MZ_Air"
+  ],
+  "cases": [
+    {
+      "case": "SZ_Air",
+      "coefficient_sha256": "caf6ec4fa4a0fc09110b336c95243825034c3bdce4308d243435773467b5dade",
+      "model_card_sha256": "450abdae7b96c1159e2ecf6573c266f91430eba24199eb11e0613c002ff666e6",
+      "model_identity": "f2af2932cae8fb4b8846fc921fbdfcfeec359530bd513b3f4a9cee556e39d231",
+      "training_manifest_sha256": "f7e24d8349449ec40a1ed30a9b227978e95085af6c170af0a8379b530a712f43"
+    },
+    {
+      "case": "MZ_Hydro",
+      "coefficient_sha256": "c987ac10abb81906aafb8572d364e440b9a566808adc5f5897367ab3b97756b2",
+      "model_card_sha256": "f2ddef0133c5899f3f112c6e477f9884b82240570e482d3db3e3245d170c4c08",
+      "model_identity": "04c02b14a69a23f0e698371aee16c8c9093dd3baee2373984692e617ce4aecb1",
+      "training_manifest_sha256": "0e739e83d5e5dcd8887b1130da1829adc8153db339331813bd96448720017c76"
+    },
+    {
+      "case": "MZ_Air",
+      "coefficient_sha256": "16c5596ad638fd7829d917dc7d55fb31886490c2009a070c56d110a2c0ffc6bf",
+      "model_card_sha256": "981003a4c7e1a11f07f3fdba738f12601c157937f45d1666849829c5cbaef2f9",
+      "model_identity": "b5ee83dfa2670472c8f1db413b90ab582508f5a660d9d3a641dd65c296f4a17e",
+      "training_manifest_sha256": "b593c26cb18fe411debd763f65bd988aa6dfa058fcb22ef9e2fe199a7b00a5f0"
+    }
+  ],
+  "decision_reference": "docs/hierarchical_mpc_formal_evaluation_post_result_preregistration_20260831.md",
+  "freeze_identity": "f5cf1873428d81ad0ab9f5d60abbb564788a202683aa047865175f04cc78a467",
+  "model_identities": {
+    "MZ_Air": "b5ee83dfa2670472c8f1db413b90ab582508f5a660d9d3a641dd65c296f4a17e",
+    "MZ_Hydro": "04c02b14a69a23f0e698371aee16c8c9093dd3baee2373984692e617ce4aecb1",
+    "SZ_Air": "f2af2932cae8fb4b8846fc921fbdfcfeec359530bd513b3f4a9cee556e39d231"
+  },
+  "original_failure_preserved": true,
+  "publication": "single_directory_replace",
+  "refit_candidate_gates": [
+    {
+      "case": "SZ_Air",
+      "checks": {
+        "candidate_report_identity": true,
+        "finite_model": true,
+        "fresh_validation_pending": true,
+        "recomputed_persistence_gate": true,
+        "refit_candidate_verified": true,
+        "refit_model_identity": true,
+        "source_beats_persistence": true,
+        "source_prediction_finite": true
+      },
+      "model_identity": "f2af2932cae8fb4b8846fc921fbdfcfeec359530bd513b3f4a9cee556e39d231",
+      "prediction_quality": {
+        "beats_persistence": true,
+        "finite": true,
+        "model": {
+          "site_power_rmse_w": 136.8683466037643,
+          "standardized_rmse": 0.4562919041108987,
+          "zone_temperature_rmse_c": 0.8684726551758545
+        },
+        "origin_count": 2664,
+        "persistence": {
+          "site_power_rmse_w": 231.55979700097598,
+          "standardized_rmse": 0.7721664523624548,
+          "zone_temperature_rmse_c": 1.469930232722713
+        }
+      },
+      "valid": true
+    },
+    {
+      "case": "MZ_Hydro",
+      "checks": {
+        "candidate_report_identity": true,
+        "finite_model": true,
+        "fresh_validation_pending": true,
+        "recomputed_persistence_gate": true,
+        "refit_candidate_verified": true,
+        "refit_model_identity": true,
+        "source_beats_persistence": true,
+        "source_prediction_finite": true
+      },
+      "model_identity": "04c02b14a69a23f0e698371aee16c8c9093dd3baee2373984692e617ce4aecb1",
+      "prediction_quality": {
+        "beats_persistence": true,
+        "finite": true,
+        "model": {
+          "site_power_rmse_w": 6632.769899169058,
+          "standardized_rmse": 0.37887072489843304,
+          "zone_temperature_rmse_c": 0.2984504186005219
+        },
+        "origin_count": 2664,
+        "persistence": {
+          "site_power_rmse_w": 8276.279433557818,
+          "standardized_rmse": 0.4549481795054035,
+          "zone_temperature_rmse_c": 0.35379318523614345
+        }
+      },
+      "valid": true
+    },
+    {
+      "case": "MZ_Air",
+      "checks": {
+        "candidate_report_identity": true,
+        "finite_model": true,
+        "fresh_validation_pending": true,
+        "recomputed_persistence_gate": true,
+        "refit_candidate_verified": true,
+        "refit_model_identity": true,
+        "source_beats_persistence": true,
+        "source_prediction_finite": true
+      },
+      "model_identity": "b5ee83dfa2670472c8f1db413b90ab582508f5a660d9d3a641dd65c296f4a17e",
+      "prediction_quality": {
+        "beats_persistence": true,
+        "finite": true,
+        "model": {
+          "site_power_rmse_w": 3562.6936084127087,
+          "standardized_rmse": 0.37309406794246497,
+          "zone_temperature_rmse_c": 0.3796137573991551
+        },
+        "origin_count": 2664,
+        "persistence": {
+          "site_power_rmse_w": 5399.274168543409,
+          "standardized_rmse": 0.554449516222801,
+          "zone_temperature_rmse_c": 0.5595829683924051
+        }
+      },
+      "valid": true
+    }
+  ],
+  "refit_verification_identity": "2282b3b2ee156e5476751e53bf432072782a6024be3fe3ed9aebb6f67ecce643",
+  "refit_workspace": "outputs/baselines/mpc/refit/20260830T055459612018Z-0eb62c29",
+  "schema": "h3c_hierarchical_mpc_freeze_manifest",
+  "schema_version": 2,
+  "secret_exposure_count": 0,
+  "source_bundles": [
+    {
+      "case": "SZ_Air",
+      "coefficient_sha256": "caf6ec4fa4a0fc09110b336c95243825034c3bdce4308d243435773467b5dade",
+      "model_identity": "f2af2932cae8fb4b8846fc921fbdfcfeec359530bd513b3f4a9cee556e39d231",
+      "refit_candidate_report_sha256": "e6481fa993af3c395bd0411cf5e31c52bee789bcc1a864999a51f05afd5fed0b",
+      "refit_model_card_sha256": "911a599f3239f061fcd27503135bf74a0136dbb731bb16a76f05ddf02437d268",
+      "robust_calibration_attestation": {
+        "robust_margin": {
+          "application": "internal_soft_comfort_band_only",
+          "calibration_episode": "episodes/validation-064-lane-0",
+          "estimator": "p95_absolute_occupied_pmv_prediction_residual",
+          "internal_comfort_band": 0.2,
+          "order_statistic": "higher",
+          "pmv_margin": 0.3,
+          "quantile": 0.95,
+          "sample_count": 1148,
+          "scope": "case_specific_estimate_common_formula"
+        },
+        "terminal_reference": {
+          "calibration_occupancy_source": "basic_reference.disturbances[timestamp=origin+4]",
+          "runtime_owner": "effective_occupancy_forecast(step+4)",
+          "target_offset_steps": 4,
+          "terminal_occupied_zone_targets": 287,
+          "terminal_zone_targets": 662
+        }
+      }
+    },
+    {
+      "case": "MZ_Hydro",
+      "coefficient_sha256": "c987ac10abb81906aafb8572d364e440b9a566808adc5f5897367ab3b97756b2",
+      "model_identity": "04c02b14a69a23f0e698371aee16c8c9093dd3baee2373984692e617ce4aecb1",
+      "refit_candidate_report_sha256": "a4258279d3ac08d2619f672b77c416980feb0b693318c60e7cf06d7f6bce4ba0",
+      "refit_model_card_sha256": "fcee0799a1aa43a2fb96770759d19675efd63139de2fbdea53046cef647ba3f1",
+      "robust_calibration_attestation": {
+        "robust_margin": {
+          "application": "internal_soft_comfort_band_only",
+          "calibration_episode": "episodes/validation-032-lane-0",
+          "estimator": "p95_absolute_occupied_pmv_prediction_residual",
+          "internal_comfort_band": 0.36,
+          "order_statistic": "higher",
+          "pmv_margin": 0.13999999999999999,
+          "quantile": 0.95,
+          "sample_count": 1928,
+          "scope": "case_specific_estimate_common_formula"
+        },
+        "terminal_reference": {
+          "calibration_occupancy_source": "basic_reference.disturbances[timestamp=origin+4]",
+          "runtime_owner": "effective_occupancy_forecast(step+4)",
+          "target_offset_steps": 4,
+          "terminal_occupied_zone_targets": 482,
+          "terminal_zone_targets": 1324
+        }
+      }
+    },
+    {
+      "case": "MZ_Air",
+      "coefficient_sha256": "16c5596ad638fd7829d917dc7d55fb31886490c2009a070c56d110a2c0ffc6bf",
+      "model_identity": "b5ee83dfa2670472c8f1db413b90ab582508f5a660d9d3a641dd65c296f4a17e",
+      "refit_candidate_report_sha256": "a120377976dfff5b19c82f4f8dba80055f58d1bf170c3c4286e280306488fc2f",
+      "refit_model_card_sha256": "0bfc9dce84ee9af341ed07331aa1fa03e1871791e39942ae8bcd8afbf0c77eb8",
+      "robust_calibration_attestation": {
+        "robust_margin": {
+          "application": "internal_soft_comfort_band_only",
+          "calibration_episode": "episodes/validation-032-lane-0",
+          "estimator": "p95_absolute_occupied_pmv_prediction_residual",
+          "internal_comfort_band": 0.32000000000000006,
+          "order_statistic": "higher",
+          "pmv_margin": 0.17999999999999997,
+          "quantile": 0.95,
+          "sample_count": 6272,
+          "scope": "case_specific_estimate_common_formula"
+        },
+        "terminal_reference": {
+          "calibration_occupancy_source": "basic_reference.disturbances[timestamp=origin+4]",
+          "runtime_owner": "effective_occupancy_forecast(step+4)",
+          "target_offset_steps": 4,
+          "terminal_occupied_zone_targets": 1568,
+          "terminal_zone_targets": 3310
+        }
+      }
+    }
+  ],
+  "validation_failure_sha256": "e63603503963e048b67b98688ece2d977a4e10838321426307580efa21743941",
+  "validation_results": [
+    {
+      "case": "SZ_Air",
+      "checks": {
+        "diagnostic_rows": true,
+        "episode_artifacts": true,
+        "finite_peak_pmv": true,
+        "finite_reward": true,
+        "lifecycle": true,
+        "timeline_reward_and_identity": true
+      },
+      "comfort_target_met": true,
+      "eligible": false,
+      "evidence_valid": true,
+      "fallback_count": 1,
+      "model_identity": "f2af2932cae8fb4b8846fc921fbdfcfeec359530bd513b3f4a9cee556e39d231",
+      "occupied_peak_absolute_pmv": 0.61,
+      "reward": -605.753843182493,
+      "steps": 668,
+      "test_id": "4c62d833-03ed-4db4-a4a1-90cf78f73471"
+    },
+    {
+      "case": "MZ_Hydro",
+      "checks": {
+        "diagnostic_rows": true,
+        "episode_artifacts": true,
+        "finite_peak_pmv": true,
+        "finite_reward": true,
+        "lifecycle": true,
+        "timeline_reward_and_identity": true
+      },
+      "comfort_target_met": true,
+      "eligible": true,
+      "evidence_valid": true,
+      "fallback_count": 0,
+      "model_identity": "04c02b14a69a23f0e698371aee16c8c9093dd3baee2373984692e617ce4aecb1",
+      "occupied_peak_absolute_pmv": 0.63,
+      "reward": -486.0134167808893,
+      "steps": 668,
+      "test_id": "019d02e3-e539-40fb-9ebb-9275fddab3b6"
+    },
+    {
+      "case": "MZ_Air",
+      "checks": {
+        "diagnostic_rows": true,
+        "episode_artifacts": true,
+        "finite_peak_pmv": true,
+        "finite_reward": true,
+        "lifecycle": true,
+        "timeline_reward_and_identity": true
+      },
+      "comfort_target_met": false,
+      "eligible": true,
+      "evidence_valid": true,
+      "fallback_count": 0,
+      "model_identity": "b5ee83dfa2670472c8f1db413b90ab582508f5a660d9d3a641dd65c296f4a17e",
+      "occupied_peak_absolute_pmv": 0.9,
+      "reward": -625.1543150432444,
+      "steps": 668,
+      "test_id": "05255bfb-c499-4988-bd10-d15b7ea111e4"
+    }
+  ],
+  "validation_source_commit": "1b297a29cbb7b50e335e8be811b58dd5e5e428da",
+  "validation_workspace": "outputs/baselines/mpc/validation/20260830T155850602571Z-1b297a29"
+}
