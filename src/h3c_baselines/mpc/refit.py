@@ -330,17 +330,30 @@ def _case_roles(case: str, source: Path) -> _EpisodeRoles:
         != list(range(int(config["holdout_episodes"])))
     ):
         raise ValueError(f"MPC source episode budget is invalid for {case}")
+    expected_validation_ids = tuple(
+        int(value) for value in config["fit_checkpoints"] if int(value) <= len(fit_episode_ids)
+    )
+    if tuple(sorted(validations)) != expected_validation_ids:
+        raise ValueError(
+            f"MPC source validation IDs do not exactly match eligible checkpoints for {case}"
+        )
+    checkpoint_root = case_dir / "checkpoints"
+    expected_checkpoint_names = {
+        f"checkpoint-{checkpoint:03d}.json" for checkpoint in expected_validation_ids
+    }
+    actual_checkpoint_names = (
+        {path.name for path in checkpoint_root.iterdir() if path.is_file()}
+        if checkpoint_root.is_dir()
+        else set()
+    )
+    if actual_checkpoint_names != expected_checkpoint_names:
+        raise ValueError(
+            f"MPC source checkpoint reports do not exactly match fit coverage for {case}"
+        )
     ordered_validations: list[_SourceEpisode] = []
-    for checkpoint_value in config["fit_checkpoints"]:
-        checkpoint = int(checkpoint_value)
-        validation_episode = validations.get(checkpoint)
+    for checkpoint in expected_validation_ids:
+        validation_episode = validations[checkpoint]
         checkpoint_path = case_dir / "checkpoints" / f"checkpoint-{checkpoint:03d}.json"
-        if validation_episode is None:
-            if checkpoint_path.exists():
-                raise ValueError(f"MPC checkpoint has no validation episode for {case}")
-            continue
-        if not checkpoint_path.is_file():
-            raise ValueError(f"MPC validation has no checkpoint report for {case}")
         report = _read_json(checkpoint_path)
         closed_loop = report.get("closed_loop_validation")
         if not isinstance(closed_loop, dict) or (
@@ -356,8 +369,6 @@ def _case_roles(case: str, source: Path) -> _EpisodeRoles:
         ):
             raise ValueError(f"MPC validation/checkpoint evidence mismatch for {case}")
         ordered_validations.append(validation_episode)
-    if set(validations) != {episode.data.episode for episode in ordered_validations}:
-        raise ValueError(f"MPC source contains an unregistered validation for {case}")
     zero_fallback = [episode for episode in ordered_validations if episode.data.fallback_count == 0]
     if len(zero_fallback) < 3:
         raise ValueError(f"MPC refit requires three zero-fallback validations for {case}")
@@ -441,6 +452,14 @@ def resolved_refit_plan(source_run: Path) -> dict[str, Any]:
         "physical_calls": 0,
         "model_api_calls": 0,
         "candidate_promotion": False,
+    }
+
+
+def _executed_refit_plan(source_run: Path, refit_source_commit: str) -> dict[str, Any]:
+    return {
+        **resolved_refit_plan(source_run),
+        "execution": True,
+        "refit_source_commit": refit_source_commit,
     }
 
 
@@ -880,7 +899,10 @@ def _verify_candidate(
         and card.get("final_fit_includes_holdout") is False
         and robust.get("estimator") == "p95_absolute_occupied_pmv_prediction_residual"
         and robust.get("scope") == "case_specific_estimate_common_formula"
+        and robust.get("quantile") == ROBUST_QUANTILE
         and robust.get("order_statistic") == "higher"
+        and robust.get("application") == "internal_soft_comfort_band_only"
+        and robust.get("calibration_episode") == calibration_path
         and robust.get("sample_count") == calibration.get("residual_count")
         and np.isclose(float(robust.get("pmv_margin", np.nan)), model.pmv_robust_margin)
         and np.isclose(
@@ -902,7 +924,6 @@ def _verify_candidate(
 
 def refit_hierarchical_mpc(source_run: Path) -> dict[str, Any]:
     source = _resolve_source_run(source_run)
-    plan = resolved_refit_plan(source)
     config = load_hierarchical_mpc_config()
     source_commit = committed_source_identity()
     root = repository_root() / "outputs" / "baselines" / "mpc" / "refit"
@@ -911,7 +932,7 @@ def refit_hierarchical_mpc(source_run: Path) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=False)
     _write_json(
         run_dir / "resolved_plan.json",
-        {**plan, "execution": True, "refit_source_commit": source_commit},
+        _executed_refit_plan(source, source_commit),
     )
     reports: list[dict[str, Any]] = []
     source_manifest_identity = ""
@@ -1002,6 +1023,15 @@ def verify_refit_workspace(workspace: Path) -> dict[str, Any]:
         source_manifest = _read_json(target / "source_manifest.json")
         source = _resolve_source_run(root / str(source_manifest["source_run"]))
         source_failure = _read_json(source / "failure.json")
+        refit_source_commit = completion.get("refit_source_commit")
+        expected_plan = (
+            _executed_refit_plan(source, refit_source_commit)
+            if isinstance(refit_source_commit, str)
+            else {}
+        )
+        refit_commit_suffix = (
+            refit_source_commit[:8] if isinstance(refit_source_commit, str) else ""
+        )
         expected_files = source_manifest.get("files")
         if not isinstance(expected_files, list) or expected_files != _source_file_manifest(source):
             raise ValueError("MPC refit source file identity changed")
@@ -1030,9 +1060,10 @@ def verify_refit_workspace(workspace: Path) -> dict[str, Any]:
             "robust_margin_scope": completion.get("robust_margin_scope")
             == "case_specific_estimate_common_formula",
             "case_order": completion.get("case_order") == list(config["case_order"]),
-            "plan_identity": resolved_plan.get("schema") == "h3c_hierarchical_mpc_refit_plan"
-            and resolved_plan.get("execution") is True
-            and resolved_plan.get("refit_source_commit") == completion.get("refit_source_commit")
+            "plan_identity": resolved_plan == expected_plan
+            and isinstance(refit_source_commit, str)
+            and len(refit_source_commit) == 40
+            and target.name.endswith(f"-{refit_commit_suffix}")
             and resolved_plan.get("source_run") == completion.get("source_run"),
             "source_identity": source_manifest.get("schema")
             == "h3c_hierarchical_mpc_refit_source_manifest"

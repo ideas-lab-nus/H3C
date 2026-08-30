@@ -123,12 +123,11 @@ def _source_bank(
         },
     )
     episode_paths = [
-        *[_episode(case_dir, role="fit", episode=index, lane=index) for index in range(4)],
-        *[_episode(case_dir, role="fit", episode=index, lane=index % 4) for index in range(4, 8)],
+        *[_episode(case_dir, role="fit", episode=index, lane=index % 4) for index in range(32)],
         _episode(case_dir, role="basic_reference", episode=0, lane=0),
         *[_episode(case_dir, role="holdout", episode=index, lane=index) for index in range(4)],
     ]
-    fallback = {8: 0, 16: 1, 32: 0, 64: 0}
+    fallback = {8: 0, 16: 0, 32: 0}
     for checkpoint, count in fallback.items():
         episode_path = _episode(
             case_dir,
@@ -198,10 +197,10 @@ def test_source_roles_reconstruct_exact_partition_and_lane_identity(
 
     assert summary["episodes"]["adaptive_validation"] == [
         "episodes/validation-008-lane-0",
-        "episodes/validation-032-lane-0",
+        "episodes/validation-016-lane-0",
     ]
-    assert summary["episodes"]["calibration"] == "episodes/validation-064-lane-0"
-    assert summary["episodes"]["excluded_fallback"] == ["episodes/validation-016-lane-0"]
+    assert summary["episodes"]["calibration"] == "episodes/validation-032-lane-0"
+    assert summary["episodes"]["excluded_fallback"] == []
     assert len(summary["episodes"]["holdout"]) == 4
     assert all(row["test_identity_count"] == 1 for row in summary["lane_lifecycle"])
     assert all(row["frozen_manifest_cross_checked"] is True for row in summary["lane_lifecycle"])
@@ -269,11 +268,11 @@ def test_source_fit_ids_and_registered_lane_assignment_fail_closed(
     source, case_dir = _source_bank(tmp_path)
     _patch_source_owners(monkeypatch, tmp_path)
     original = case_dir / "episodes" / "fit-003-lane-3"
-    renumbered = case_dir / "episodes" / "fit-009-lane-3"
+    renumbered = case_dir / "episodes" / "fit-040-lane-3"
     original.rename(renumbered)
     manifest_path = renumbered / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["episode"] = 9
+    manifest["episode"] = 40
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="fit episode IDs are not contiguous"):
         refit._case_roles("Case", source)
@@ -291,6 +290,52 @@ def test_source_fit_ids_and_registered_lane_assignment_fail_closed(
     manifest["test_id"] = "test-lane-0"
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="episode lane assignment is invalid"):
+        refit._case_roles("Case", source)
+
+
+def test_source_validation_episode_set_cannot_omit_an_eligible_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, case_dir = _source_bank(tmp_path)
+    _patch_source_owners(monkeypatch, tmp_path)
+    missing = case_dir / "episodes" / "validation-016-lane-0"
+    missing.rename(tmp_path / missing.name)
+
+    with pytest.raises(ValueError, match="validation IDs do not exactly match"):
+        refit._case_roles("Case", source)
+
+
+def test_source_checkpoint_report_set_cannot_delete_an_eligible_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, case_dir = _source_bank(tmp_path)
+    _patch_source_owners(monkeypatch, tmp_path)
+    missing = case_dir / "checkpoints" / "checkpoint-016.json"
+    missing.rename(tmp_path / missing.name)
+
+    with pytest.raises(ValueError, match="checkpoint reports do not exactly match"):
+        refit._case_roles("Case", source)
+
+
+def test_source_validation_cannot_overreach_fit_episode_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, case_dir = _source_bank(tmp_path)
+    _patch_source_owners(monkeypatch, tmp_path)
+    _episode(case_dir, role="validation", episode=64, lane=0)
+    _write_json(
+        case_dir / "checkpoints" / "checkpoint-064.json",
+        {
+            "checkpoint_fit_episodes": 64,
+            "closed_loop_validation": {
+                "fallback_count": 0,
+                "peak_occupied_absolute_pmv": 0.6,
+                "reward": -1.0,
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="validation IDs do not exactly match"):
         refit._case_roles("Case", source)
 
 
@@ -431,10 +476,13 @@ def test_coordinated_candidate_artifact_tamper_cannot_bypass_source_rebuild(
         "robust_margin": {
             "scope": "case_specific_estimate_common_formula",
             "estimator": "p95_absolute_occupied_pmv_prediction_residual",
+            "quantile": 0.95,
             "order_statistic": "higher",
+            "calibration_episode": "calibration",
             "sample_count": 4,
             "pmv_margin": 0.1,
             "internal_comfort_band": 0.4,
+            "application": "internal_soft_comfort_band_only",
         },
         "physical_validation": "pending_fresh_validation",
     }
@@ -500,6 +548,101 @@ def test_coordinated_candidate_artifact_tamper_cannot_bypass_source_rebuild(
     assert verification["checks"]["source_candidate_identity"] is False
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("quantile", 0.9),
+        ("application", "public_reward_band"),
+        ("calibration_episode", "different-calibration"),
+    ],
+)
+def test_candidate_card_robust_margin_contract_is_exact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    monkeypatch.setattr(refit, "load_profile", lambda _case: _profile())
+    model = with_pmv_robust_margin(_constant_model(refit._arx_layout(_profile())), 0.1)
+    target = tmp_path / "candidate"
+    target.mkdir()
+    model.save(target / "model_coefficients.npz")
+    roles = {
+        "episodes": {
+            "fit": ["fit", "adaptive"],
+            "adaptive_validation": ["adaptive"],
+            "calibration": "calibration",
+            "holdout": ["holdout"],
+        }
+    }
+    calibration = {"pmv_robust_margin": 0.1, "residual_count": 4}
+    fit_report = {"final_fit_includes_holdout": False}
+    quality = {"finite": True, "beats_persistence": True}
+    _write_json(
+        target / "candidate_report.json",
+        {
+            "schema": "h3c_hierarchical_mpc_refit_candidate",
+            "case": "Case",
+            "model_identity": model.identity,
+            "eligible": True,
+            "checks": {"registered": True},
+            "episode_roles": roles,
+            "fit_rows": 10,
+            "holdout_rows": 4,
+            "calibration_one_step_rows": 5,
+            "fit_report": fit_report,
+            "holdout_use": "alpha_selection_and_persistence_gate_only",
+            "final_fit_includes_holdout": False,
+            "prediction_quality": quality,
+            "calibration": calibration,
+            "physical_validation": "pending_fresh_validation",
+        },
+    )
+    robust = {
+        "scope": "case_specific_estimate_common_formula",
+        "estimator": "p95_absolute_occupied_pmv_prediction_residual",
+        "quantile": 0.95,
+        "order_statistic": "higher",
+        "calibration_episode": "calibration",
+        "sample_count": 4,
+        "pmv_margin": 0.1,
+        "internal_comfort_band": 0.4,
+        "application": "internal_soft_comfort_band_only",
+    }
+    robust[field] = value
+    _write_json(
+        target / "model_card.json",
+        {
+            "schema": "h3c_hierarchical_mpc_refit_model_card",
+            "case": "Case",
+            "model_identity": model.identity,
+            "holdout_use": "alpha_selection_and_persistence_gate_only",
+            "final_fit_includes_holdout": False,
+            "robust_margin": robust,
+            "physical_validation": "pending_fresh_validation",
+        },
+    )
+    source_evidence = {
+        "episode_roles": roles,
+        "fit_rows": 10,
+        "holdout_rows": 4,
+        "calibration_one_step_rows": 5,
+        "fit_report": fit_report,
+        "holdout_use": "alpha_selection_and_persistence_gate_only",
+        "final_fit_includes_holdout": False,
+        "prediction_quality": quality,
+        "calibration": calibration,
+        "candidate_model_identity": model.identity,
+    }
+
+    verification = refit._verify_candidate(
+        "Case", target, source_evidence=source_evidence, source_model=model
+    )
+
+    assert verification["valid"] is False
+    assert verification["checks"]["model_card"] is False
+
+
 def test_source_evidence_recomputes_persistence_instead_of_reading_candidate_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -550,3 +693,70 @@ def test_refit_cli_is_dry_without_explicit_execute(
 
     assert baseline_cli.main(["mpc", "refit", "--source-run", "preserved-failure"]) == 0
     assert '"execution": false' in capsys.readouterr().out
+
+
+def test_executed_plan_is_exactly_derived_from_fresh_dry_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, _ = _source_bank(tmp_path)
+    _patch_source_owners(monkeypatch, tmp_path)
+    commit = "c" * 40
+
+    expected = {**refit.resolved_refit_plan(source), "execution": True}
+    expected["refit_source_commit"] = commit
+
+    assert refit._executed_refit_plan(source, commit) == expected
+    assert {**expected, "unexpected": True} != refit._executed_refit_plan(source, commit)
+
+
+def test_execute_failure_on_later_case_is_atomic_and_never_promotes_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "outputs" / "baselines" / "mpc" / "training" / "failed"
+    _write_json(source / "failure.json", {"source_commit": "a" * 40})
+    _write_json(source / "resolved_plan.json", {"schema": "source"})
+    model = _constant_model(refit._arx_layout(_profile()))
+    monkeypatch.setattr(refit, "repository_root", lambda: tmp_path)
+    monkeypatch.setattr(
+        refit,
+        "load_hierarchical_mpc_config",
+        lambda: {"case_order": ["First", "Later", "Never"]},
+    )
+    monkeypatch.setattr(refit, "_resolve_source_run", lambda _source: source)
+    monkeypatch.setattr(
+        refit,
+        "resolved_refit_plan",
+        lambda _source: {"schema": "h3c_hierarchical_mpc_refit_plan", "execution": False},
+    )
+    monkeypatch.setattr(refit, "committed_source_identity", lambda: "c" * 40)
+    monkeypatch.setattr(refit, "_source_file_manifest", lambda _source: [])
+    monkeypatch.setattr(refit, "secret_occurrences", lambda _path: 0)
+
+    def fit_candidate(case: str, _source: Path, _target: Path) -> dict[str, Any]:
+        if case == "Later":
+            raise RuntimeError("registered later-case failure")
+        return {"case": case}
+
+    monkeypatch.setattr(refit, "_fit_candidate", fit_candidate)
+    monkeypatch.setattr(
+        refit,
+        "_rebuild_candidate_from_source",
+        lambda _case, _source: refit._RebuiltCandidate(model=model, evidence={}),
+    )
+    monkeypatch.setattr(
+        refit,
+        "_verify_candidate",
+        lambda *_args, **_kwargs: {"valid": True},
+    )
+
+    with pytest.raises(RuntimeError, match="registered later-case failure"):
+        refit.refit_hierarchical_mpc(source)
+
+    run_root = tmp_path / "outputs" / "baselines" / "mpc" / "refit"
+    workspaces = [path for path in run_root.iterdir() if path.is_dir()]
+    assert len(workspaces) == 1
+    workspace = workspaces[0]
+    failure = json.loads((workspace / "failure.json").read_text(encoding="utf-8"))
+    assert failure["completed_cases"] == ["First"]
+    assert not (workspace / "completion.json").exists()
+    assert not (tmp_path / "models" / "mpc").exists()
