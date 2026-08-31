@@ -171,11 +171,6 @@ class RunArtifacts:
         return completion_path
 
     def publish_failure(self, failure: Mapping[str, Any]) -> Path:
-        if (
-            not (self.run_dir / "metrics.json").is_file()
-            or not (self.run_dir / "verification.json").is_file()
-        ):
-            raise ArtifactError("metrics and verification must exist before failure")
         failure_path = self.run_dir / "failure.json"
         pending = self.run_dir / ".failure.pending"
         if failure_path.exists() or pending.exists() or (self.run_dir / "completion.json").exists():

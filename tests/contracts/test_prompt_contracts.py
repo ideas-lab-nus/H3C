@@ -264,6 +264,24 @@ def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only
         assert internal_coordinate not in executor_user_off
     assert not re.search(r"\b\d{4}-\d{2}-\d{2}\b", executor_user_off)
 
+    rounded_equivalent_observation = {
+        "zone_temperature_c": 24.00004,
+        "last_pmv": 0.20004,
+        "current_occupancy": 1.0,
+        "last_occupancy": 1.0,
+        "last_setpoint": 25.00004,
+        "occ_ahead": [1.0, 1.0, 1.0, 1.0],
+    }
+    Executor.build_user(
+        hour=7,
+        zone="zone1",
+        observation=rounded_equivalent_observation,
+        current_executable_program={"program_version": 0, "params": {}, "rules": []},
+        causal_edges=None,
+        allowance=None,
+        working_memory=completed_hour,
+    )
+
     conflicting_observation = {
         "zone_temperature_c": 24.0,
         "last_pmv": 0.21,

@@ -99,6 +99,22 @@ def test_failure_is_atomic_terminal_and_mutually_exclusive_with_completion(
         artifacts.replace_manifest({"run_identity": "changed"})
 
 
+def test_early_failure_can_be_published_before_metrics_and_verification(tmp_path: Path) -> None:
+    artifacts = RunArtifacts(tmp_path, "main", "Demo", "early-failure")
+    artifacts.create({}, {"run_identity": "identity"})
+    failure_path = artifacts.publish_failure(
+        {
+            "status": "failed",
+            "classification": "RUN-INVALID",
+            "run_identity": "identity",
+            "failure_type": "terminal_runtime_error",
+        }
+    )
+    assert json.loads(failure_path.read_text(encoding="utf-8"))["failure_type"] == (
+        "terminal_runtime_error"
+    )
+
+
 def test_existing_execution_lock_reports_path_and_pid_without_deleting(
     tmp_path: Path,
 ) -> None:

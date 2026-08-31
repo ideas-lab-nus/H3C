@@ -1880,6 +1880,9 @@ def test_initialization_identity_failure_hard_stops_without_completion(
         )
     assert physical.initialize_count == physical.stop_count == 1
     assert list(tmp_path.rglob("completion.json")) == []
+    failure = _read_json(next(tmp_path.rglob("failure.json")))
+    assert failure["failure_type"] == "terminal_runtime_error"
+    assert failure["error_type"] == "ValueError"
     assert not (tmp_path / ".execution.lock").exists()
 
 

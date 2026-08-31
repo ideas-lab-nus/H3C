@@ -25,7 +25,11 @@ from h3c.agents.prompts import Role, system_prompt
 from h3c.agents.time_context import decision_window
 from h3c.control.budget import validate_allocation
 from h3c.control.program import validate_patch_shape
-from h3c.memory.caol import ReflectorResolution, resolve_reflector_payload
+from h3c.memory.caol import (
+    ReflectorResolution,
+    agent_visible_number,
+    resolve_reflector_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -276,7 +280,7 @@ def _assert_current_state_matches_memory(
         for state_field in ("zone_temperature_c", "pmv", "setpoint_c"):
             if state_field not in row:
                 raise ValueError(f"current decision state is missing {zone}.{state_field}")
-            if abs(float(row[state_field]) - terminal[zone][state_field]) > 1e-6:
+            if agent_visible_number(float(row[state_field])) != terminal[zone][state_field]:
                 raise ValueError(
                     "current decision state disagrees with working-memory endpoint for "
                     f"{zone}.{state_field}"

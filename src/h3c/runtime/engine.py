@@ -1211,7 +1211,8 @@ async def _execute_one(
     started = time.perf_counter()
     initialized = False
     stop_attempted = False
-    terminal_transport_error: TransportError | None = None
+    terminal_error: Exception | None = None
+    terminal_failure_type = "terminal_runtime_error"
 
     def record_dispatch(event: Mapping[str, Any]) -> None:
         status = event.get("status")
@@ -1368,7 +1369,10 @@ async def _execute_one(
     except TransportError as error:
         manifest["retry_count"] = _recorded_retry_count(artifacts.run_dir)
         manifest["transport_error_count"] += int(getattr(error, "failure_count", 1))
-        terminal_transport_error = error
+        terminal_error = error
+        terminal_failure_type = "terminal_transport_error"
+    except Exception as error:
+        terminal_error = error
     finally:
         try:
             if (initialized or physical.test_id is not None) and not stop_attempted:
@@ -1400,27 +1404,48 @@ async def _execute_one(
                 manifest["secret_scan_status"] = "completed"
             if artifacts.run_dir.is_dir() and not (artifacts.run_dir / "completion.json").exists():
                 artifacts.replace_manifest(manifest)
-    if terminal_transport_error is not None:
-        metrics = compute_run_metrics(artifacts.run_dir)
-        artifacts.write_metrics(metrics)
-        verification = verify_run(artifacts.run_dir, require_completion=False)
-        artifacts.record_incomplete(metrics=metrics, verification=verification)
+    if terminal_error is not None:
+        metrics_path = artifacts.run_dir / "metrics.json"
+        verification_path = artifacts.run_dir / "verification.json"
+        finalization_error_type: str | None = None
+        failure_verification: Mapping[str, Any] | None = None
+        try:
+            if not metrics_path.is_file():
+                artifacts.write_metrics(compute_run_metrics(artifacts.run_dir))
+            if verification_path.is_file():
+                failure_verification = json.loads(verification_path.read_text(encoding="utf-8"))
+            else:
+                failure_verification = verify_run(artifacts.run_dir, require_completion=False)
+                artifacts.write_verification(failure_verification)
+        except Exception as finalization_error:
+            finalization_error_type = type(finalization_error).__name__
         artifacts.publish_failure(
             {
                 "status": "failed",
-                "classification": verification["classification"],
+                "classification": (
+                    failure_verification.get("classification", "RUN-INVALID")
+                    if failure_verification is not None
+                    else "RUN-INVALID"
+                ),
                 "run_identity": run_identity,
                 "finished_at": datetime.now(UTC).isoformat(),
                 "elapsed_seconds": time.perf_counter() - started,
-                "failure_type": "terminal_transport_error",
-                "error_type": terminal_transport_error.error_type,
-                "retryable": terminal_transport_error.retryable,
-                "provider_response_received": (terminal_transport_error.provider_response_received),
-                "failure_count": int(getattr(terminal_transport_error, "failure_count", 1)),
+                "failure_type": terminal_failure_type,
+                "error_type": getattr(terminal_error, "error_type", type(terminal_error).__name__),
+                "retryable": bool(getattr(terminal_error, "retryable", False)),
+                "provider_response_received": bool(
+                    getattr(terminal_error, "provider_response_received", False)
+                ),
+                "failure_count": int(getattr(terminal_error, "failure_count", 1)),
+                **(
+                    {"finalization_error_type": finalization_error_type}
+                    if finalization_error_type is not None
+                    else {}
+                ),
             }
         )
-        raise terminal_transport_error
-    raise AssertionError("execution exited without a result or terminal transport error")
+        raise terminal_error
+    raise AssertionError("execution exited without a result or terminal error")
 
 
 def execute_serial(

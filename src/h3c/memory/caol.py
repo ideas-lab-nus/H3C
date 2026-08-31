@@ -27,13 +27,20 @@ _PROVENANCE_PATTERN = re.compile(
     r"(?:\b(?:hour|step)\s*#?\d+\b|\bcaol[_-]|小时\s*\d+|步骤\s*\d+)",
     re.IGNORECASE,
 )
+AGENT_VISIBLE_NUMERIC_DECIMALS = 4
+
+
+def agent_visible_number(value: int | float) -> float:
+    """Normalize one finite scalar to the precision used in Agent-visible memory."""
+    number = float(value)
+    return round(number, AGENT_VISIBLE_NUMERIC_DECIMALS) if math.isfinite(number) else number
 
 
 def _rounded(value: Any) -> Any:
     if isinstance(value, (bool, int, str)) or value is None:
         return value
     if isinstance(value, float):
-        return round(value, 4) if math.isfinite(value) else value
+        return agent_visible_number(value)
     if isinstance(value, Mapping):
         return {str(key): _rounded(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
