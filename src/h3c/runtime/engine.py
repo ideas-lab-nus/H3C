@@ -38,6 +38,7 @@ from h3c.experiments.settings import load_model_provider_contract, load_runtime_
 from h3c.memory.caol import (
     ReflectorResolution,
     active_experiences,
+    agent_visible_number,
     apply_memory_operations,
     attach_hourly_lessons,
     build_hourly_cao,
@@ -324,10 +325,10 @@ def _zone_coupling_view(
             raise ValueError("comfort headroom must be an object when available")
         precool_offset = float(programs[zone].current_program["params"]["precool_residual_c"])
         row: dict[str, Any] = {
-            "zone_temperature_c": round(float(observation["zone_temperature_c"]), 3),
-            "pmv": round(float(observation["last_pmv"]), 3),
+            "zone_temperature_c": agent_visible_number(float(observation["zone_temperature_c"])),
+            "pmv": agent_visible_number(float(observation["last_pmv"])),
             "occupancy": round(float(observation["current_occupancy"]), 1),
-            "setpoint_c": round(float(observation["last_setpoint"]), 2),
+            "setpoint_c": agent_visible_number(float(observation["last_setpoint"])),
             "occupancy_at_interval_end": round(float(observation["next_hour_occupancy"]), 1),
             "precool_offset_from_unoccupied_base_c": round(precool_offset, 4),
             "resulting_precool_setpoint_c": round(30.0 + precool_offset, 4),

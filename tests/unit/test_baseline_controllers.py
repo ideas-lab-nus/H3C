@@ -6,7 +6,8 @@ from typing import Any
 from h3c.control.program import load_program
 from h3c.control.program_execution import execute_zone_programs
 from h3c.experiments.profiles import load_profile, repository_root
-from h3c.runtime.engine import _hour_observations
+from h3c.memory.ledger import ProgramLedger
+from h3c.runtime.engine import _hour_observations, _zone_coupling_view
 from h3c_baselines.controllers.basic_rbc import basic_rbc_setpoints
 from h3c_baselines.controllers.enhanced_rbc import EnhancedRbcController
 
@@ -141,3 +142,26 @@ def test_h3c_and_enhanced_rbc_project_identical_program_observations(
     assert diagnostics == {
         zone: {"interpreter": proposals[zone], "action_assurance": audits[zone]} for zone in zones
     }
+
+
+def test_zone_coupling_uses_shared_agent_visible_precision() -> None:
+    profile = load_profile("MZ_Air")
+    program = load_program(repository_root() / profile["program"], "cor")
+    view = _zone_coupling_view(
+        ("cor",),
+        {
+            "cor": {
+                "zone_temperature_c": 24.5958606816597,
+                "last_pmv": -0.27004,
+                "current_occupancy": 2.0,
+                "last_setpoint": 26.20004,
+                "next_hour_occupancy": 2.0,
+            }
+        },
+        {"cor": ProgramLedger(program)},
+        (),
+    )
+
+    assert view["cor"]["zone_temperature_c"] == 24.5959
+    assert view["cor"]["pmv"] == -0.27
+    assert view["cor"]["setpoint_c"] == 26.2
