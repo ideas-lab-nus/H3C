@@ -68,6 +68,7 @@ def _run_plan(args: argparse.Namespace) -> RunPlan:
         or args.causal_off
         or args.independent_coordination
         or args.no_thinking
+        or args.long_term_memory
         or mutation is not None
     ):
         raise SystemExit("--baseline cannot be combined with Agent-only flags")
@@ -84,6 +85,7 @@ def _run_plan(args: argparse.Namespace) -> RunPlan:
         ),
         graph_mutation=None if baseline else mutation,
         evaluation_hours=evaluation_hours,
+        long_term_memory=False if baseline else bool(args.long_term_memory),
     )
 
 
@@ -176,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--causal-off", action="store_true")
     run.add_argument("--independent-coordination", action="store_true")
     run.add_argument("--no-thinking", action="store_true")
+    run.add_argument(
+        "--long-term-memory",
+        action="store_true",
+        help="enable the optional three-regime per-zone experience store",
+    )
     run.add_argument(
         "--graph-mutation",
         choices=(

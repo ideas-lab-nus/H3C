@@ -19,6 +19,8 @@ STREAM_FILES = (
     "raw_model_io.jsonl",
     "model_request_attempts.jsonl",
     "timing.jsonl",
+    "caol_records.jsonl",
+    "long_term_memory_crud.jsonl",
 )
 JSON_FILES = (
     "resolved_config.yaml",

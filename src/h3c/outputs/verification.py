@@ -13,7 +13,7 @@ from typing import Any
 from h3c.agents.contracts import rationale_length_telemetry
 from h3c.agents.roles import (
     ModelContractError,
-    clean_insight,
+    resolve_executor_memory_model_output,
     resolve_executor_model_output,
     resolve_orchestrator_model_output,
 )
@@ -31,6 +31,14 @@ from h3c.control.validation import validate_candidate
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import load_profile, repository_root
 from h3c.experiments.settings import load_runtime_contract
+from h3c.memory.caol import (
+    active_experiences,
+    apply_memory_operations,
+    build_hourly_cao,
+    empty_regime_store,
+    resolve_reflector_payload,
+    validate_memory_refs,
+)
 from h3c.memory.ledger import ProgramLedger
 from h3c.outputs.artifacts import PERFORMANCE_COLUMNS, STREAM_FILES
 from h3c.outputs.metrics import compute_run_metrics
@@ -161,6 +169,7 @@ def _raw_contract(
     causal_enabled: bool,
     allowed_edge_ids: set[str] | None,
     shared_power_edge_ids: set[str] | None,
+    long_term_memory: bool,
 ) -> bool:
     try:
         value = json.loads(row["output"])
@@ -177,21 +186,17 @@ def _raw_contract(
             )
             return True
         if role == "executor":
-            resolve_executor_model_output(row["output"], causal_enabled=causal_enabled)
+            if long_term_memory:
+                resolve_executor_memory_model_output(row["output"], causal_enabled=causal_enabled)
+            else:
+                resolve_executor_model_output(row["output"], causal_enabled=causal_enabled)
             return True
         if role == "reflector":
-            pairs = value.get("pairs")
-            if set(value) != {"pairs"} or not isinstance(pairs, list):
-                return False
-            seen: set[str] = set()
-            for pair in pairs:
-                if not isinstance(pair, dict) or set(pair) != {"zone", "insight_text"}:
-                    return False
-                zone = pair["zone"]
-                if zone not in zones or zone in seen or clean_insight(pair["insight_text"]) is None:
-                    return False
-                seen.add(zone)
-            return True
+            return resolve_reflector_payload(
+                value,
+                zones=zones,
+                long_term_memory=long_term_memory,
+            ).clean
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return False
     return False
@@ -268,6 +273,8 @@ def _program_replay(
             if not isinstance(patch, dict):
                 raise ValueError("program update patch must be an object")
             expected_fields = set(base_fields)
+            if bool(method.get("long_term_memory")):
+                expected_fields.add("memory_refs")
             if row.get("status") == "accepted" and patch.get("op") != "no_change":
                 expected_fields.add("accepted_update")
             if set(row) != expected_fields:
@@ -377,9 +384,15 @@ def _rationale_persistence(
             if parsed is None:
                 return False
             try:
-                patch, telemetry = resolve_executor_model_output(
-                    raw["output"], causal_enabled=causal_enabled
-                )
+                if bool(method.get("long_term_memory")):
+                    patch, telemetry, memory_refs = resolve_executor_memory_model_output(
+                        raw["output"], causal_enabled=causal_enabled
+                    )
+                else:
+                    patch, telemetry = resolve_executor_model_output(
+                        raw["output"], causal_enabled=causal_enabled
+                    )
+                    memory_refs = []
             except (KeyError, ModelContractError):
                 rejection = parsed.get("rejection")
                 if not (
@@ -401,6 +414,10 @@ def _rationale_persistence(
                     parsed.get("status") != "model_output_rejected"
                     and public_patch_matches
                     and parsed.get("rationale_telemetry") == telemetry
+                    and (
+                        not bool(method.get("long_term_memory"))
+                        or parsed.get("memory_refs", {}).get("reported") == memory_refs
+                    )
                 ):
                     return False
         elif role == "orchestrator":
@@ -439,6 +456,186 @@ def _rationale_persistence(
     )
 
 
+def _caol_memory_checks(
+    *,
+    method: dict[str, Any],
+    zones: list[str],
+    zone_steps: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    caol_rows: list[dict[str, Any]],
+    crud_rows: list[dict[str, Any]],
+    raw_calls: list[dict[str, Any]],
+) -> dict[str, bool]:
+    hours = int(method["evaluation_hours"])
+    controller_is_agent = method["controller"] == "h3c_agent"
+    long_term_memory = bool(method.get("long_term_memory", False))
+    update_by_scope = {(int(row["hour"]), str(row["zone"])): row for row in updates}
+    persisted_by_scope = {(int(row["hour"]), str(row["zone"])): row for row in caol_rows}
+    lesson_by_scope: dict[tuple[int, str], str] = {}
+    for decision in decisions:
+        for row in decision.get("reflector_summary", []):
+            if isinstance(row, dict) and set(row) == {"zone", "lesson"}:
+                lesson_by_scope[(int(decision["hour"]), str(row["zone"]))] = str(row["lesson"])
+
+    expected_cao: dict[tuple[int, str], dict[str, Any]] = {}
+    caol_replayed = (
+        len(caol_rows) == hours * len(zones)
+        and len(persisted_by_scope) == len(caol_rows)
+        and len(decisions) == hours
+    )
+    try:
+        for hour in range(hours):
+            for zone in zones:
+                step_rows = sorted(
+                    (
+                        row
+                        for row in zone_steps
+                        if int(row["hour"]) == hour and str(row["zone"]) == zone
+                    ),
+                    key=lambda row: int(row["step"]),
+                )
+                if controller_is_agent:
+                    decision = update_by_scope[(hour, zone)]
+                else:
+                    decision = {
+                        "hour": hour,
+                        "step": hour * 4,
+                        "zone": zone,
+                        "status": "not_called",
+                        "patch": {"op": "no_change", "rationale": "controller has no model"},
+                        "current_program_version": 0,
+                        "rejection": None,
+                    }
+                expected = build_hourly_cao(
+                    hour=hour,
+                    zone=zone,
+                    step_rows=step_rows,
+                    program_decision=decision,
+                )
+                expected_cao[(hour, zone)] = expected
+                persisted = persisted_by_scope[(hour, zone)]
+                persisted_cao = {key: value for key, value in persisted.items() if key != "lesson"}
+                expected_lesson = lesson_by_scope.get((hour, zone))
+                caol_replayed = caol_replayed and persisted_cao == expected
+                caol_replayed = caol_replayed and (
+                    (expected_lesson is None and "lesson" not in persisted)
+                    or persisted.get("lesson") == expected_lesson
+                )
+    except (KeyError, TypeError, ValueError):
+        caol_replayed = False
+
+    caol_prompt_surface = True
+    if controller_is_agent:
+        memory_hours = int(method["working_memory_hours"])
+        for raw in raw_calls:
+            role = raw.get("role")
+            user = str(raw.get("user", ""))
+            hour = int(raw.get("hour", -1))
+            if role in {"orchestrator", "executor"}:
+                expected_block = hour >= memory_hours
+                caol_prompt_surface = caol_prompt_surface and (
+                    ("### CAOL WORKING MEMORY" in user) == expected_block
+                )
+                caol_prompt_surface = caol_prompt_surface and "RECENT OUTCOME SUMMARY" not in user
+            elif role == "reflector":
+                caol_prompt_surface = caol_prompt_surface and (
+                    "### CURRENT HOUR DETERMINISTIC CAO" in user
+                    and "### CAOL WORKING MEMORY" not in user
+                )
+
+    off_tokens = (
+        "ACTIVE LONG-TERM EXPERIENCES",
+        "CURRENT THREE-REGIME EXPERIENCE SLOTS",
+        "memory_refs",
+        "memory_operations",
+        "expected_revision",
+    )
+    off_surface = _canonical(
+        {"raw_calls": raw_calls, "updates": updates, "decisions": decisions, "crud": crud_rows}
+    )
+    memory_off_isolation = (
+        True
+        if long_term_memory
+        else not crud_rows and all(token not in off_surface for token in off_tokens)
+    )
+
+    memory_store_replayed = True
+    memory_refs_valid = True
+    memory_crud_clean = True
+    if long_term_memory:
+        store = empty_regime_store(zones)
+        audit_by_hour: dict[int, list[dict[str, Any]]] = {}
+        for row in crud_rows:
+            audit_by_hour.setdefault(int(row.get("hour", -1)), []).append(row)
+        try:
+            for hour in range(hours):
+                for zone in zones:
+                    reference_audit = update_by_scope[(hour, zone)]["memory_refs"]
+                    exposed = active_experiences(store, zone)
+                    valid, invalid = validate_memory_refs(reference_audit["reported"], exposed)
+                    memory_refs_valid = memory_refs_valid and (
+                        reference_audit["available"] is True
+                        and reference_audit["exposed"] == exposed
+                        and reference_audit["valid"] == valid
+                        and reference_audit["invalid"] == invalid == []
+                    )
+                rows = audit_by_hour.get(hour, [])
+                operations = {
+                    str(row["zone"]): row["requested_operation"]
+                    for row in rows
+                    if isinstance(row.get("requested_operation"), dict)
+                }
+                observed = {
+                    zone: list(expected_cao[(hour, zone)]["context"]["regime_step_coverage"])
+                    for zone in zones
+                }
+                store, expected_audits = apply_memory_operations(
+                    store,
+                    operations,
+                    zones=zones,
+                    hour=hour,
+                    observed_regimes=observed,
+                )
+                ordered_rows = sorted(rows, key=lambda row: zones.index(str(row["zone"])))
+                memory_store_replayed = memory_store_replayed and ordered_rows == expected_audits
+                memory_crud_clean = memory_crud_clean and all(
+                    row.get("status") == "accepted" for row in rows
+                )
+            memory_store_replayed = memory_store_replayed and len(crud_rows) == hours * len(zones)
+        except (KeyError, TypeError, ValueError):
+            memory_store_replayed = False
+            memory_refs_valid = False
+            memory_crud_clean = False
+        for raw in raw_calls:
+            role = raw.get("role")
+            if role == "orchestrator":
+                memory_store_replayed = memory_store_replayed and all(
+                    token not in str(raw.get("system", "")) + str(raw.get("user", ""))
+                    for token in off_tokens
+                )
+            elif role == "reflector":
+                memory_store_replayed = memory_store_replayed and (
+                    "CURRENT THREE-REGIME EXPERIENCE SLOTS" in str(raw.get("user", ""))
+                    and "memory_operations" in str(raw.get("system", ""))
+                )
+            elif role == "executor":
+                memory_store_replayed = memory_store_replayed and "memory_refs" in str(
+                    raw.get("system", "")
+                )
+    else:
+        memory_store_replayed = not crud_rows
+
+    return {
+        "caol_replayed": caol_replayed,
+        "caol_working_memory_surface": caol_prompt_surface,
+        "memory_off_isolation": memory_off_isolation,
+        "memory_store_replayed": memory_store_replayed,
+        "memory_refs_valid": memory_refs_valid,
+        "memory_crud_clean": memory_crud_clean,
+    }
+
+
 EXECUTION_CHECKS = {
     "required_artifacts",
     "physical_protocol",
@@ -459,6 +656,10 @@ EXECUTION_CHECKS = {
     "secret_exposure_count_zero",
     "orchestration_resolution_recomputed",
     "rationale_persistence",
+    "caol_replayed",
+    "caol_working_memory_surface",
+    "memory_off_isolation",
+    "memory_store_replayed",
 }
 
 MODEL_CHECKS = {
@@ -470,6 +671,9 @@ MODEL_CHECKS = {
     "coordination_surface",
     "fallback_count_zero",
     "role_contract_audit",
+    "model_finish_clean",
+    "memory_refs_valid",
+    "memory_crud_clean",
 }
 
 
@@ -538,6 +742,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         calls = streams["agent_calls.jsonl"]
         raw_calls = streams["raw_model_io.jsonl"]
         model_attempts = streams["model_request_attempts.jsonl"]
+        caol_rows = streams["caol_records.jsonl"]
+        crud_rows = streams["long_term_memory_crud.jsonl"]
 
         protocol = profile["protocol"]
         conditioning_count = 0
@@ -769,6 +975,18 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             replay_ok, settlement_ok = not updates, not updates
         checks["program_replay_recomputed"] = replay_ok
         checks["deterministic_settlement"] = settlement_ok
+        checks.update(
+            _caol_memory_checks(
+                method=method,
+                zones=zones,
+                zone_steps=zone_steps,
+                updates=updates,
+                decisions=decisions,
+                caol_rows=caol_rows,
+                crud_rows=crud_rows,
+                raw_calls=raw_calls,
+            )
+        )
 
         expected_calls = (
             0
@@ -871,11 +1089,15 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 row.get("status") == "received"
                 and row.get("request_model") == model_name
                 and row.get("response_model") == model_name
-                and row.get("finish_reason") not in (None, "length")
                 and _finite_number(row.get("elapsed_seconds"))
                 and float(row["elapsed_seconds"]) >= 0
                 for row in calls
             )
+            if calls
+            else method["controller"] == "deterministic_baseline"
+        )
+        checks["model_finish_clean"] = (
+            all(row.get("finish_reason") not in (None, "length") for row in calls)
             if calls
             else method["controller"] == "deterministic_baseline"
         )
@@ -892,6 +1114,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 thinking_policy=str(method["thinking_policy"]),
                 graph_mutation=method.get("graph_mutation"),
                 evaluation_hours=method["evaluation_hours"],
+                long_term_memory=bool(method.get("long_term_memory", False)),
             )
             execution_identity = resolved["execution_identity"]
             expected_execution_fields = {
@@ -1383,6 +1606,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 causal_enabled=causal_enabled,
                 allowed_edge_ids=allowed_edge_ids,
                 shared_power_edge_ids=shared_power_edge_ids,
+                long_term_memory=bool(method.get("long_term_memory")),
             )
             for row in raw_calls
         )

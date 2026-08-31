@@ -13,9 +13,9 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from dataclasses import dataclass
 from typing import Any, Literal, overload
 
 from h3c.agents.prompts import Role
@@ -278,6 +278,7 @@ class BoptestHttpClient:
             raise ValueError("BOPTEST queue poll interval must be positive")
         self.queue_poll_seconds = float(queue_poll_seconds)
         self._lifecycle_sink: LifecycleSink | None = None
+
     def set_lifecycle_sink(self, sink: LifecycleSink) -> None:
         self._lifecycle_sink = sink
 
@@ -320,7 +321,10 @@ class BoptestHttpClient:
         )
         status = response if isinstance(response, str) else response.get("payload")
         if not isinstance(status, str) or status not in {"Running", "Queued"}:
-            raise TransportError("BOPTEST status payload is invalid")
+            raise TransportError(
+                "BOPTEST status payload is invalid",
+                error_type="boptest_status_invalid",
+            )
         return str(status)
 
     def _wait_until_running(self) -> None:

@@ -1,0 +1,118 @@
+{
+  "fixture_schema": "h3c_caol_complete_hour",
+  "schema_version": 1,
+  "profile": "MZ_Air",
+  "hour": 42,
+  "first_step": 168,
+  "action_time_seconds": 17510400,
+  "model": "deepseek-v4-flash",
+  "zones": ["cor", "eas", "nor", "sou", "wes"],
+  "site_state": {
+    "outdoor_temp_c": 31.4,
+    "solar_irr": 612.0,
+    "price_now": 0.14231,
+    "price_next_hour": 0.16842,
+    "outdoor_temp_change_next_1h_c": 0.8,
+    "solar_irr_max_next_1h_w_m2": 668.0,
+    "solar_irr_mean_next_1h_w_m2": 642.5,
+    "weather_next_steps": [
+      {"step_ahead": 1, "outdoor_temp_c": 31.6, "solar_irr": 628.0},
+      {"step_ahead": 2, "outdoor_temp_c": 31.8, "solar_irr": 646.0},
+      {"step_ahead": 3, "outdoor_temp_c": 32.0, "solar_irr": 668.0},
+      {"step_ahead": 4, "outdoor_temp_c": 32.2, "solar_irr": 628.0}
+    ]
+  },
+  "zone_state": {
+    "cor": {"zone_temperature_c": 24.31, "last_pmv": 0.34, "last_setpoint": 25.0, "comfort_headroom_c": {"warmer_c": 0.62, "cooler_c": 2.45}},
+    "eas": {"zone_temperature_c": 24.58, "last_pmv": 0.43, "last_setpoint": 25.0, "comfort_headroom_c": {"warmer_c": 0.34, "cooler_c": 2.72}},
+    "nor": {"zone_temperature_c": 24.22, "last_pmv": 0.31, "last_setpoint": 25.0, "comfort_headroom_c": {"warmer_c": 0.72, "cooler_c": 2.36}},
+    "sou": {"zone_temperature_c": 24.47, "last_pmv": 0.39, "last_setpoint": 25.0, "comfort_headroom_c": {"warmer_c": 0.45, "cooler_c": 2.61}},
+    "wes": {"zone_temperature_c": 24.36, "last_pmv": 0.36, "last_setpoint": 25.0, "comfort_headroom_c": {"warmer_c": 0.57, "cooler_c": 2.50}}
+  },
+  "previous_allocation": {
+    "site_cap_c": 10.0,
+    "zone_budgets_c": {"cor": 1.0, "eas": 2.0, "nor": 1.0, "sou": 1.0, "wes": 1.0},
+    "priority": ["eas", "sou", "wes", "cor", "nor"],
+    "rationale_per_zone": {
+      "cor": "Core conditions were stable.",
+      "eas": "East had the smallest warm-side headroom.",
+      "nor": "North conditions were stable.",
+      "sou": "South had moderate warm-side headroom.",
+      "wes": "West had moderate warm-side headroom."
+    }
+  },
+  "previous_utilisation": {
+    "granted_c": 6.0,
+    "used_c": 0.3,
+    "utilisation": 0.05,
+    "site_cap_c": 10.0,
+    "residual_initial_c": 4.0,
+    "residual_left_c": 3.7,
+    "residual_used_by": {"eas": 0.3}
+  },
+  "allocation_output": {
+    "site_cap_c": 10.0,
+    "zone_budgets_c": {"cor": 1.0, "eas": 2.0, "nor": 1.0, "sou": 1.0, "wes": 1.0},
+    "priority": ["eas", "sou", "wes", "cor", "nor"]
+  },
+  "active_experiences": {
+    "cor": [{"regime": "steady_state_occupancy", "revision": 2, "experience": "Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive."}],
+    "eas": [{"regime": "steady_state_occupancy", "revision": 1, "experience": "East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone."}],
+    "nor": [],
+    "sou": [{"regime": "steady_state_occupancy", "revision": 2, "experience": "South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions."}],
+    "wes": [{"regime": "steady_state_occupancy", "revision": 1, "experience": "West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions."}]
+  },
+  "executor_outputs": {
+    "cor": {"op": "no_change", "rationale_en": "The current program retained occupied comfort headroom without an evidenced beneficial edit.", "rationale_zh": "当前程序保持了占用舒适余量，且没有证据支持有益修改。", "memory_refs": []},
+    "eas": {"op": "set_param", "param": "pmv_band_hi", "to": 0.4, "rationale_en": "Tighten the active upper PMV threshold while East has the smallest warm-side headroom.", "rationale_zh": "East 的暖侧余量最小，因此收紧当前上侧 PMV 阈值。", "memory_refs": [{"regime": "steady_state_occupancy", "revision": 1}]},
+    "nor": {"op": "no_change", "rationale_en": "The current program matched the observed stable occupied conditions.", "rationale_zh": "当前程序与已观察到的稳定占用状态相匹配。", "memory_refs": []},
+    "sou": {"op": "no_change", "rationale_en": "Observed comfort headroom and the current program did not support a different atomic edit.", "rationale_zh": "已观察舒适余量与当前程序不支持其他原子修改。", "memory_refs": []},
+    "wes": {"op": "no_change", "rationale_en": "The supplied evidence did not support changing the executable specification this hour.", "rationale_zh": "给定证据不支持在本小时修改可执行规格。", "memory_refs": []}
+  },
+  "post_step_outcomes": {
+    "cor": [
+      {"zone_temperature_c": 24.30, "pmv": 0.34, "effective_occupancy": 1.0, "power_w": 21480.0, "cost": 0.7639},
+      {"zone_temperature_c": 24.32, "pmv": 0.35, "effective_occupancy": 1.0, "power_w": 21820.0, "cost": 0.7760},
+      {"zone_temperature_c": 24.34, "pmv": 0.35, "effective_occupancy": 1.0, "power_w": 22110.0, "cost": 0.7863},
+      {"zone_temperature_c": 24.35, "pmv": 0.36, "effective_occupancy": 1.0, "power_w": 22360.0, "cost": 0.7952}
+    ],
+    "eas": [
+      {"zone_temperature_c": 24.40, "pmv": 0.36, "effective_occupancy": 1.0, "power_w": 21480.0, "cost": 0.7639},
+      {"zone_temperature_c": 24.25, "pmv": 0.30, "effective_occupancy": 1.0, "power_w": 21820.0, "cost": 0.7760},
+      {"zone_temperature_c": 24.18, "pmv": 0.28, "effective_occupancy": 1.0, "power_w": 22110.0, "cost": 0.7863},
+      {"zone_temperature_c": 24.24, "pmv": 0.31, "effective_occupancy": 1.0, "power_w": 22360.0, "cost": 0.7952}
+    ],
+    "nor": [
+      {"zone_temperature_c": 24.23, "pmv": 0.31, "effective_occupancy": 1.0, "power_w": 21480.0, "cost": 0.7639},
+      {"zone_temperature_c": 24.24, "pmv": 0.32, "effective_occupancy": 1.0, "power_w": 21820.0, "cost": 0.7760},
+      {"zone_temperature_c": 24.25, "pmv": 0.32, "effective_occupancy": 1.0, "power_w": 22110.0, "cost": 0.7863},
+      {"zone_temperature_c": 24.27, "pmv": 0.33, "effective_occupancy": 1.0, "power_w": 22360.0, "cost": 0.7952}
+    ],
+    "sou": [
+      {"zone_temperature_c": 24.47, "pmv": 0.39, "effective_occupancy": 1.0, "power_w": 21480.0, "cost": 0.7639},
+      {"zone_temperature_c": 24.49, "pmv": 0.40, "effective_occupancy": 1.0, "power_w": 21820.0, "cost": 0.7760},
+      {"zone_temperature_c": 24.50, "pmv": 0.40, "effective_occupancy": 1.0, "power_w": 22110.0, "cost": 0.7863},
+      {"zone_temperature_c": 24.52, "pmv": 0.41, "effective_occupancy": 1.0, "power_w": 22360.0, "cost": 0.7952}
+    ],
+    "wes": [
+      {"zone_temperature_c": 24.37, "pmv": 0.36, "effective_occupancy": 1.0, "power_w": 21480.0, "cost": 0.7639},
+      {"zone_temperature_c": 24.38, "pmv": 0.37, "effective_occupancy": 1.0, "power_w": 21820.0, "cost": 0.7760},
+      {"zone_temperature_c": 24.40, "pmv": 0.37, "effective_occupancy": 1.0, "power_w": 22110.0, "cost": 0.7863},
+      {"zone_temperature_c": 24.41, "pmv": 0.38, "effective_occupancy": 1.0, "power_w": 22360.0, "cost": 0.7952}
+    ]
+  },
+  "lessons": {
+    "cor": {"en": "Stable setpoints coincided with steady occupied PMV and positive warm-side headroom.", "zh": "稳定设定点与平稳的占用 PMV 及正向暖侧余量同时出现。"},
+    "eas": {"en": "A tighter upper threshold preceded a bounded cooling response while occupied PMV stayed within the comfort band.", "zh": "更紧的上侧阈值之后出现了有界制冷响应，同时占用 PMV 保持在舒适带内。"},
+    "nor": {"en": "The occupied hold branch coincided with small temperature and PMV changes.", "zh": "占用保持分支与较小的温度和 PMV 变化同时出现。"},
+    "sou": {"en": "The occupied hold branch retained positive warm-side headroom under elevated solar input.", "zh": "在较高太阳辐射下，占用保持分支仍保留了正向暖侧余量。"},
+    "wes": {"en": "Stable actions coincided with a gradual occupied temperature response and bounded PMV.", "zh": "稳定动作与渐进的占用温度响应及有界 PMV 同时出现。"}
+  },
+  "memory_operations": {
+    "cor": {"op": "no_change"},
+    "eas": {"op": "replace", "regime": "steady_state_occupancy", "expected_revision": 1, "experience_en": "East has repeatedly shown limited occupied warm-side comfort headroom and a bounded cooling response after tighter upper-threshold admission.", "experience_zh": "East 在占用状态下反复表现出有限的暖侧舒适余量，并在更紧上侧阈值获准后呈现有界制冷响应。"},
+    "nor": {"op": "add", "regime": "steady_state_occupancy", "experience_en": "North has shown slow occupied temperature and PMV changes under stable setpoints.", "experience_zh": "North 在稳定设定点下表现出缓慢的占用温度和 PMV 变化。"},
+    "sou": {"op": "no_change"},
+    "wes": {"op": "no_change"}
+  }
+}

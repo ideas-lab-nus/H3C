@@ -20,7 +20,10 @@ flowchart LR
     V --> A[Action assurance]
     A --> B[BOPTEST / building]
     B --> R[Reflector]
-    R --> O
+    R --> C[Completed CAOL]
+    C --> O
+    C --> E
+    R -. optional three-regime experience .-> E
 ```
 
 ## Workflows
@@ -73,6 +76,7 @@ Copy `.env.example` as a local template. Never store credentials in repository f
 ```console
 # Resolve online runs
 h3c run --profile MZ_Air
+h3c run --profile MZ_Air --long-term-memory
 h3c suite main
 
 # Verify frozen policy assets
@@ -93,6 +97,13 @@ h3c-baseline report outputs/baselines/runs/formal
 ```
 
 Add `--execute` only after reviewing the resolved plan.
+
+Online H3C uses the previous completed hour's per-zone Context–Action–Outcome–Lesson record as
+its sole Agent-visible `k=1` working memory. `--long-term-memory` enables a separate experimental
+module with one zone-specific experience slot for each of `unoccupied`, `occupancy_transition`,
+and `steady_state_occupancy`. Without that flag, no long-term-memory, CRUD, revision, or reference
+field is rendered or accepted. Complete bilingual one-hour contracts are in
+[English](docs/h3c_complete_hour_io_en.md) and [Chinese](docs/h3c_complete_hour_io_zh.md).
 
 Offline onboarding has explicit human review pauses and checkpointed recovery:
 

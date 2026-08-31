@@ -31,6 +31,7 @@ class RunPlan:
     thinking_policy: str
     graph_mutation: dict[str, Any] | None
     evaluation_hours: int = 168
+    long_term_memory: bool = False
 
     def __post_init__(self) -> None:
         loaded = profiles()
@@ -48,6 +49,8 @@ class RunPlan:
             self.coordination_enabled, bool
         ):
             raise ValueError("causal and coordination flags must be boolean")
+        if not isinstance(self.long_term_memory, bool):
+            raise ValueError("long-term memory flag must be boolean")
         if self.thinking_policy not in {"occupancy_routed", "all_roles_disabled"}:
             raise ValueError("thinking policy is not registered")
         formal_hours = int(loaded[self.profile]["protocol"]["formal_evaluation_days"]) * 24
@@ -65,6 +68,7 @@ class RunPlan:
             or self.thinking_policy != "all_roles_disabled"
             or self.graph_mutation is not None
             or self.working_memory_hours != 1
+            or self.long_term_memory
         ):
             raise ValueError("baseline plans cannot carry Agent-only factors")
         if self.graph_mutation is not None:
@@ -90,6 +94,9 @@ class RunPlan:
         }
         if self.graph_mutation is not None:
             config["graph_mutation"] = self.graph_mutation
+        if self.controller == "h3c_agent":
+            config["working_memory_format"] = "caol"
+            config["long_term_memory"] = self.long_term_memory
         return config
 
     def identity_payload(self, case_profile: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +127,7 @@ def _agent(
     thinking: str = "occupancy_routed",
     mutation: dict[str, Any] | None = None,
     evaluation_hours: int = 168,
+    long_term_memory: bool = False,
 ) -> RunPlan:
     return RunPlan(
         profile=profile,
@@ -130,6 +138,7 @@ def _agent(
         thinking_policy=thinking,
         graph_mutation=mutation,
         evaluation_hours=evaluation_hours,
+        long_term_memory=long_term_memory,
     )
 
 

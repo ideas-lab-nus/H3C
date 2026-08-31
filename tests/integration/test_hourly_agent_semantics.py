@@ -13,6 +13,7 @@ from h3c.control.budget import validated_fallback_allocation
 from h3c.control.program import load_program
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import repository_root
+from h3c.memory.caol import empty_regime_store
 from h3c.memory.ledger import ProgramLedger
 from h3c.outputs.artifacts import RunArtifacts
 from h3c.runtime.clients import TransportError
@@ -123,8 +124,9 @@ def test_two_phase_proposals_use_uncharged_snapshots_then_priority_settlement(
             route={"thinking_mode": "disabled"},
             graph=None,
             programs=_programs(zones),
-            frames=[],
+            caol_records=[],
             executor_records=[],
+            long_term_store=empty_regime_store(zones),
             client=model,
             artifacts=_artifacts(tmp_path, "-".join(priority)),
             previous_allocation=None,
@@ -211,8 +213,9 @@ def test_executor_requests_overlap_and_completion_order_does_not_change_settleme
             route={"thinking_mode": "disabled"},
             graph=None,
             programs=_programs(zones),
-            frames=[],
+            caol_records=[],
             executor_records=[],
+            long_term_store=empty_regime_store(zones),
             client=model,
             artifacts=_artifacts(tmp_path, "delayed-priority"),
             previous_allocation=None,
@@ -280,8 +283,9 @@ def test_terminal_executor_batch_waits_for_all_and_never_settles(
                 route={"thinking_mode": "disabled"},
                 graph=None,
                 programs=programs,
-                frames=[],
+                caol_records=[],
                 executor_records=[],
+                long_term_store=empty_regime_store(zones),
                 client=FailingExecutorBatchModel(failed_zones),
                 artifacts=artifacts,
                 previous_allocation=None,
@@ -386,8 +390,9 @@ def test_last_rejection_propagates_one_hour_and_clears_after_no_change(
                 route={"thinking_mode": "disabled"},
                 graph=None,
                 programs=programs,
-                frames=[],
+                caol_records=[],
                 executor_records=[],
+                long_term_store=empty_regime_store(["zone1"]),
                 client=model,
                 artifacts=_artifacts(tmp_path, f"hour-{hour}"),
                 previous_allocation=previous_allocation,

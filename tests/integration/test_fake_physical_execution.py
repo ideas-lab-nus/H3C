@@ -190,37 +190,55 @@ class FakeModelClient:
                     allocation["causal_edge_ids"] = [self.causal_id]
                 output = json.dumps(allocation)
         elif role == "executor":
+            root = {
+                "patch": [
+                    {
+                        "op": "no_change",
+                        "rationale": ("y" * 500 if self.overlong_executor_rationale else "hold"),
+                    }
+                ]
+            }
+            if "memory_refs" in system:
+                root["memory_refs"] = (
+                    [{"regime": "occupancy_transition", "revision": 1}] if context.hour >= 1 else []
+                )
             output = (
                 json.dumps({"unexpected": True})
                 if self.reject_executor_output
-                else json.dumps(
-                    {
-                        "patch": [
-                            {
-                                "op": "no_change",
-                                "rationale": (
-                                    "y" * 500 if self.overlong_executor_rationale else "hold"
-                                ),
-                            }
-                        ]
-                    }
-                )
+                else json.dumps(root)
             )
         else:
-            output = json.dumps(
-                {
-                    "pairs": (
-                        [
-                            {
-                                "zone": "zone1",
-                                "insight_text": "PMV 1.0125 and cost 0.0 remained stable.",
-                            }
-                        ]
-                        if self.reflector_decimal_insight
-                        else []
-                    )
-                }
+            lesson = (
+                "PMV 1.0125 and cost 0.0 remained stable."
+                if self.reflector_decimal_insight
+                else "The observed response remained stable."
             )
+            root = {"hourly_lessons": [{"zone": "zone1", "lesson": lesson}]}
+            if "memory_operations" in system:
+                if context.hour == 0:
+                    operation = {
+                        "zone": "zone1",
+                        "op": "add",
+                        "regime": "occupancy_transition",
+                        "experience": "Cooling response is gradual during occupancy entry.",
+                    }
+                elif context.hour == 1:
+                    operation = {
+                        "zone": "zone1",
+                        "op": "add",
+                        "regime": "steady_state_occupancy",
+                        "experience": "Cooling response remains gradual during sustained occupancy.",
+                    }
+                else:
+                    operation = {
+                        "zone": "zone1",
+                        "op": "replace",
+                        "regime": "steady_state_occupancy",
+                        "expected_revision": context.hour - 1,
+                        "experience": "Sustained occupancy retains a gradual cooling response.",
+                    }
+                root["memory_operations"] = [operation]
+            output = json.dumps(root)
         request_contract = model_request_contract(
             model=self.model,
             system=system,
@@ -357,7 +375,7 @@ def _hydronic_baseline() -> RunPlan:
     )
 
 
-def _agent() -> RunPlan:
+def _agent(*, long_term_memory: bool = False) -> RunPlan:
     return RunPlan(
         profile="SZ_Air",
         controller="h3c_agent",
@@ -367,6 +385,7 @@ def _agent() -> RunPlan:
         thinking_policy="occupancy_routed",
         graph_mutation=None,
         evaluation_hours=6,
+        long_term_memory=long_term_memory,
     )
 
 
@@ -736,6 +755,64 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
     assert corrupted["checks"]["deterministic_settlement"] is False
 
 
+def test_optional_three_regime_memory_replays_without_changing_control(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
+    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    result = execute_serial(
+        [_agent(long_term_memory=True)],
+        suite="fake-regime-memory",
+        output_root=tmp_path,
+        physical_factory=lambda endpoint: FakePhysicalClient(),
+        model_factory=lambda artifacts, model: FakeModelClient(
+            artifacts, model, _shared_power_edge_id()
+        ),
+    )
+    run_dir = Path(result["completed_runs"][0]["completion"]).parent
+    verification = verify_run(run_dir)
+    assert verification["passed"]
+    assert verification["checks"]["caol_replayed"]
+    assert verification["checks"]["memory_store_replayed"]
+    assert verification["checks"]["memory_refs_valid"]
+    assert verification["checks"]["memory_crud_clean"]
+    crud = _read_jsonl(run_dir / "long_term_memory_crud.jsonl")
+    assert len(crud) == 6
+    assert crud[0]["requested_operation"]["op"] == "add"
+    assert crud[-1]["after"]["steady_state_occupancy"]["revision"] == 5
+    updates = _read_jsonl(run_dir / "program_updates.jsonl")
+    assert updates[0]["memory_refs"]["reported"] == []
+    assert updates[1]["memory_refs"]["valid"] == [{"regime": "occupancy_transition", "revision": 1}]
+
+
+def test_finish_length_is_execution_healthy_model_contract_degradation(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
+    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    result = execute_serial(
+        [_agent()],
+        suite="fake-finish-length-classification",
+        output_root=tmp_path,
+        physical_factory=lambda endpoint: FakePhysicalClient(),
+        model_factory=lambda artifacts, model: FakeModelClient(
+            artifacts, model, _shared_power_edge_id()
+        ),
+    )
+    run_dir = Path(result["completed_runs"][0]["completion"]).parent
+    for filename in ("agent_calls.jsonl", "raw_model_io.jsonl"):
+        rows = _read_jsonl(run_dir / filename)
+        rows[0]["finish_reason"] = "length"
+        _write_jsonl(run_dir / filename, rows)
+    verification = verify_run(run_dir, require_completion=False)
+    assert verification["execution_integrity"] is True
+    assert verification["model_contract_clean"] is False
+    assert verification["completion_eligible"] is True
+    assert verification["classification"] == "EXECUTION-HEALTHY-MODEL-CONTRACT-DEGRADED"
+
+
 def test_verifier_joins_parallel_model_evidence_by_identity_not_file_order(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -902,7 +979,13 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
         elif active_role[0] == "executor":
             output = json.dumps({"patch": [{"op": "no_change", "rationale": "hold"}]})
         else:
-            output = json.dumps({"pairs": []})
+            output = json.dumps(
+                {
+                    "hourly_lessons": [
+                        {"zone": "zone1", "lesson": "The observed response remained stable."}
+                    ]
+                }
+            )
         return {
             "model": "deepseek-v4-flash",
             "choices": [{"message": {"content": output}, "finish_reason": "stop"}],
@@ -1537,7 +1620,7 @@ def test_decimal_reflector_insight_survives_real_contract_and_verifier(
     )
     run_dir = Path(result["completed_runs"][0]["completion"]).parent
     decisions = _read_jsonl(run_dir / "hourly_decisions.jsonl")
-    expected = [{"zone": "zone1", "insight_text": "PMV 1.0125 and cost 0.0 remained stable."}]
+    expected = [{"zone": "zone1", "lesson": "PMV 1.0125 and cost 0.0 remained stable."}]
     assert all(row["reflector_summary"] == expected for row in decisions)
     assert all(row["reflector_contract"]["status"] == "accepted" for row in decisions)
     verification = verify_run(run_dir)

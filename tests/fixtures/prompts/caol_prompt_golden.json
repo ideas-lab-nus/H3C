@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "executor_off_en": {"length": 2488, "sha256": "6bbb6bc4291873c5df30ed735427f0a33d33f51f11d39a3784d1542d7b7788a9"},
+  "executor_off_zh": {"length": 1444, "sha256": "4c230e203322cba1444773d7f31c1bc2430a488b23804b5af37fcbcfc2b60c0f"},
+  "executor_on_en": {"length": 2760, "sha256": "9689f5df02f8e6acdbb3d9285128c5c8934e0652bfa84b42bb50b76d686d6daf"},
+  "executor_on_zh": {"length": 1592, "sha256": "1a24d861e8e6f2214991822d78bc1b5e08b1afbbc119077467fcfe44d060e666"},
+  "orchestrator_off_en": {"length": 1403, "sha256": "bbc4570495ae2a304582154b083161e18e06d33160cb7f01efdfd245e49f5c47"},
+  "orchestrator_off_zh": {"length": 618, "sha256": "46e94b6b476621cdf507beb3de3e0b8b207ec8054392a7083c54d95566d2ec3c"},
+  "reflector_off_en": {"length": 808, "sha256": "08e8bebb3ca53e5463047125b93be435cb0343dcb6b96bb5beee5373d792a74d"},
+  "reflector_off_zh": {"length": 333, "sha256": "d4671e0a78969dedc401a162c6d1bb7d56f712c1ce9ee8aa59eb96cbcfa741a0"},
+  "reflector_on_en": {"length": 1594, "sha256": "80b5501b4025ca79f6f9cadcf4880813194444598e913c02b8977f838e839712"},
+  "reflector_on_zh": {"length": 777, "sha256": "aa9b9ada8b535d70eadb833004e996d547d864612092707692c5eb121dd9cfc4"}
+}

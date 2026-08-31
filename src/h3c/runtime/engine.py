@@ -34,14 +34,21 @@ from h3c.control.validation import validate_candidate
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import load_profile, repository_root
 from h3c.experiments.settings import load_runtime_contract
+from h3c.memory.caol import (
+    ReflectorResolution,
+    active_experiences,
+    apply_memory_operations,
+    attach_hourly_lessons,
+    build_hourly_cao,
+    empty_regime_store,
+    reflector_slot_view,
+    select_caol_working_memory,
+    validate_memory_refs,
+)
 from h3c.memory.ledger import ProgramLedger
 from h3c.memory.working import (
     completed_executor_records,
     completed_summary_frame,
-    recent_outcome_summary,
-    reflector_results_view,
-    select_completed_frames,
-    select_executor_records,
 )
 from h3c.outputs.artifacts import RunArtifacts
 from h3c.outputs.metrics import compute_run_metrics
@@ -361,8 +368,9 @@ async def _agent_hour(
     route: Mapping[str, Any],
     graph: ConfirmedGraph | None,
     programs: Mapping[str, ProgramLedger],
-    frames: Sequence[Mapping[str, Any]],
+    caol_records: Sequence[Mapping[str, Any]],
     executor_records: Sequence[Mapping[str, Any]],
+    long_term_store: Mapping[str, Mapping[str, Mapping[str, Any] | None]],
     client: ModelClient,
     artifacts: RunArtifacts,
     previous_allocation: Mapping[str, Any] | None,
@@ -402,8 +410,8 @@ async def _agent_hour(
             causal_edges=site_edges,
             previous_allocation=previous_allocation,
             previous_utilisation=previous_utilisation,
-            working_memory=select_completed_frames(
-                frames,
+            working_memory=select_caol_working_memory(
+                caol_records,
                 current_hour=hour,
                 zone=None,
                 working_memory_hours=plan.working_memory_hours,
@@ -454,12 +462,18 @@ async def _agent_hour(
 
     proposals: dict[str, dict[str, Any] | ModelContractError] = {}
     proposal_rationale_telemetry: dict[str, dict[str, Any] | None] = {}
+    proposal_memory_audit: dict[str, dict[str, Any]] = {}
 
     async def propose_for_zone(
         zone: str,
-    ) -> tuple[dict[str, Any] | ModelContractError, dict[str, Any] | None]:
+    ) -> tuple[
+        dict[str, Any] | ModelContractError,
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
         executor = Executor(client)
         allowance = None if ledger is None else ledger.snapshot(zone)
+        exposed = active_experiences(long_term_store, zone) if plan.long_term_memory else []
         user = executor.build_user(
             hour=hour,
             zone=zone,
@@ -467,18 +481,14 @@ async def _agent_hour(
             current_executable_program=programs[zone].prompt_view(),
             causal_edges=edges,
             allowance=allowance,
-            working_memory=select_executor_records(
-                executor_records,
-                current_step=step,
+            working_memory=select_caol_working_memory(
+                caol_records,
+                current_hour=hour,
                 zone=zone,
                 working_memory_hours=plan.working_memory_hours,
+                zones=zones,
             ),
-            recent_outcome_summary=recent_outcome_summary(
-                executor_records,
-                current_step=step,
-                zone=zone,
-                working_memory_hours=plan.working_memory_hours,
-            ),
+            long_term_experiences=exposed if plan.long_term_memory else None,
             rejection_feedback=last_rejection_by_zone[zone],
         )
         try:
@@ -495,10 +505,39 @@ async def _agent_hour(
                 causal_enabled=plan.causal_enabled,
                 coordination_enabled=plan.coordination_enabled,
                 thinking_mode=thinking_mode,
+                long_term_memory=plan.long_term_memory,
             )
-            return proposal, executor.last_rationale_telemetry
+            if plan.long_term_memory:
+                valid_refs, invalid_refs = validate_memory_refs(
+                    executor.last_memory_refs,
+                    exposed,
+                )
+                memory_audit: dict[str, Any] | None = {
+                    "available": True,
+                    "exposed": exposed,
+                    "reported": executor.last_memory_refs,
+                    "valid": valid_refs,
+                    "invalid": invalid_refs,
+                }
+            else:
+                memory_audit = None
+            return proposal, executor.last_rationale_telemetry, memory_audit
         except ModelContractError as error:
-            return error, None
+            return (
+                error,
+                None,
+                (
+                    {
+                        "available": False,
+                        "exposed": exposed,
+                        "reported": [],
+                        "valid": [],
+                        "invalid": [],
+                    }
+                    if plan.long_term_memory
+                    else None
+                ),
+            )
 
     # Every Executor receives an uncharged snapshot. All issued requests finish before any
     # proposal is settled, so response timing cannot influence budget or program state.
@@ -514,7 +553,13 @@ async def _agent_hour(
         elif isinstance(result, BaseException):
             other_failures.append(result)
         else:
-            proposals[zone], proposal_rationale_telemetry[zone] = result
+            (
+                proposals[zone],
+                proposal_rationale_telemetry[zone],
+                memory_audit,
+            ) = result
+            if memory_audit is not None:
+                proposal_memory_audit[zone] = memory_audit
     if transport_failures:
         artifacts.append_jsonl(
             "timing.jsonl",
@@ -568,6 +613,8 @@ async def _agent_hour(
                 "current_program_hash": hash_before,
                 "replay_verified": bool(programs[zone].replay()),
             }
+            if plan.long_term_memory:
+                rejected_row["memory_refs"] = proposal_memory_audit[zone]
             artifacts.append_jsonl("program_updates.jsonl", rejected_row)
             updates.append(rejected_row)
             last_rejection_by_zone[zone] = copy.deepcopy(rejected_row["rejection"])
@@ -594,6 +641,8 @@ async def _agent_hour(
             "program_version_before": version_before,
             "program_hash_before": hash_before,
         }
+        if plan.long_term_memory:
+            settled_row["memory_refs"] = proposal_memory_audit[zone]
         if validation.accepted and validation.patch["op"] != "no_change":
             update = programs[zone].commit(validation.patch, step=step, hour=hour)
             settled_row["accepted_update"] = update.as_dict()
@@ -639,26 +688,24 @@ async def _reflect_hour(
     step: int,
     zones: Sequence[str],
     route: Mapping[str, Any],
-    current_results: Mapping[str, Any],
-    frames: Sequence[Mapping[str, Any]],
+    current_cao: Sequence[Mapping[str, Any]],
+    long_term_store: Mapping[str, Mapping[str, Mapping[str, Any] | None]],
     client: ModelClient,
-) -> tuple[list[dict[str, str]], dict[str, Any]]:
+) -> tuple[ReflectorResolution, dict[str, Any]]:
     thinking_mode = (
         "disabled" if plan.thinking_policy == "all_roles_disabled" else str(route["thinking_mode"])
     )
     reflector = Reflector(client)
     user = reflector.build_user(
-        current_hour_results=current_results,
-        working_memory=select_completed_frames(
-            frames,
-            current_hour=hour,
-            zone=None,
-            working_memory_hours=plan.working_memory_hours,
-            zones=zones,
+        current_hour_cao=current_cao,
+        long_term_slots=(
+            {zone: reflector_slot_view(long_term_store, zone) for zone in zones}
+            if plan.long_term_memory
+            else None
         ),
     )
     try:
-        insights = await reflector.summarize(
+        resolution = await reflector.summarize(
             context=_model_context(
                 plan,
                 zones,
@@ -670,11 +717,22 @@ async def _reflect_hour(
             causal_enabled=plan.causal_enabled,
             thinking_mode=thinking_mode,
             zones=zones,
+            long_term_memory=plan.long_term_memory,
         )
-        return insights, {"status": "accepted", "rejection": None}
+        return resolution, {
+            "status": "accepted" if resolution.clean else "model_contract_degraded",
+            "issues": list(resolution.issues),
+            "rejection": None,
+        }
     except ModelContractError as error:
-        return [], {
+        resolution = ReflectorResolution(
+            lessons={},
+            operations={},
+            issues=tuple({"zone": zone, "code": "root_contract_rejected"} for zone in zones),
+        )
+        return resolution, {
             "status": "model_output_rejected",
+            "issues": list(resolution.issues),
             "rejection": {
                 "code": "reflector_model_contract_rejected",
                 "message": str(error),
@@ -736,6 +794,8 @@ async def _evaluate(
     metrics = MetricsAccumulator()
     frames: list[dict[str, Any]] = []
     executor_records: list[dict[str, Any]] = []
+    caol_records: list[dict[str, Any]] = []
+    long_term_store = empty_regime_store(zones)
     previous_allocation: Mapping[str, Any] | None = None
     previous_utilisation: Mapping[str, Any] | None = None
     hour_results: list[dict[str, Any]] = []
@@ -783,8 +843,9 @@ async def _evaluate(
                     route=route,
                     graph=graph,
                     programs=programs,
-                    frames=frames,
+                    caol_records=caol_records,
                     executor_records=executor_records,
+                    long_term_store=long_term_store,
                     client=model,
                     artifacts=artifacts,
                     previous_allocation=previous_allocation,
@@ -869,10 +930,11 @@ async def _evaluate(
         last_occupancy = current_occ
 
         if step % 4 == 3:
-            insights: list[dict[str, str]] = []
+            lessons: list[dict[str, str]] = []
             reflector_contract: dict[str, Any] | None = None
             new_frames: list[dict[str, Any]] = []
             new_executor_records: list[dict[str, Any]] = []
+            new_cao: list[dict[str, Any]] = []
             for zone in zones:
                 zone_rows = [row for row in hour_results if row["zone"] == zone]
                 decision = next(
@@ -904,24 +966,57 @@ async def _evaluate(
                         program_decision=decision,
                     )
                 )
+                new_cao.append(
+                    build_hourly_cao(
+                        hour=hour,
+                        zone=zone,
+                        step_rows=zone_rows,
+                        program_decision=decision,
+                    )
+                )
             if plan.controller == "h3c_agent":
                 assert model is not None
-                insights, reflector_contract = await _reflect_hour(
+                resolution, reflector_contract = await _reflect_hour(
                     plan=plan,
                     hour=hour,
                     step=step,
                     zones=zones,
                     route=route,
-                    current_results=reflector_results_view(new_frames, hour_program_decisions),
-                    frames=frames,
+                    current_cao=new_cao,
+                    long_term_store=long_term_store,
                     client=model,
                 )
+                lessons = [
+                    {"zone": zone, "lesson": resolution.lessons[zone]}
+                    for zone in zones
+                    if zone in resolution.lessons
+                ]
+                if plan.long_term_memory:
+                    observed_regimes = {
+                        str(row["zone"]): list(row["context"]["regime_step_coverage"])
+                        for row in new_cao
+                    }
+                    long_term_store, memory_audits = apply_memory_operations(
+                        long_term_store,
+                        resolution.operations,
+                        zones=zones,
+                        hour=hour,
+                        observed_regimes=observed_regimes,
+                    )
+                    for audit in memory_audits:
+                        artifacts.append_jsonl("long_term_memory_crud.jsonl", audit)
+                completed_caol = attach_hourly_lessons(new_cao, resolution.lessons)
+            else:
+                completed_caol = new_cao
+            for record in completed_caol:
+                artifacts.append_jsonl("caol_records.jsonl", record)
+            caol_records.extend(completed_caol)
             frames.extend(new_frames)
             executor_records.extend(new_executor_records)
             hourly: dict[str, Any] = {
                 "hour": hour,
                 "route": route,
-                "reflector_summary": insights,
+                "reflector_summary": lessons,
                 "reflector_contract": reflector_contract,
                 "program_replay": {
                     zone: {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -18,13 +19,13 @@ from h3c.agents.dynamic_prompt import (
     executor_observation_view,
     merged_block,
     parameter_rule_limits,
-    render_executor_working_memory,
     strip_audit_fields,
     visible_glossary_lines,
 )
 from h3c.agents.prompts import Role, system_prompt
 from h3c.control.budget import validate_allocation
 from h3c.control.program import validate_patch_shape
+from h3c.memory.caol import ReflectorResolution, resolve_reflector_payload
 
 
 @dataclass(frozen=True)
@@ -114,14 +115,34 @@ def resolve_orchestrator_model_output(
     return allocation, telemetry
 
 
-def resolve_executor_model_output(
-    raw: str, *, causal_enabled: bool
-) -> tuple[dict[str, Any], dict[str, Any]]:
+def _resolve_executor_model_output(
+    raw: str, *, causal_enabled: bool, long_term_memory: bool = False
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     """Resolve one raw Executor response without applying a control decision."""
     try:
         root = parse_bare_json(raw)
         root_fields = set(root)
-        if root_fields == {"patch", "rationale"}:
+        memory_refs: list[dict[str, Any]] = []
+        if long_term_memory:
+            if root_fields != {"patch", "memory_refs"} or not isinstance(root["memory_refs"], list):
+                raise ValueError("Executor output does not match the memory-enabled root contract")
+            for reference in root["memory_refs"]:
+                if (
+                    not isinstance(reference, Mapping)
+                    or set(reference) != {"regime", "revision"}
+                    or reference["regime"]
+                    not in {
+                        "unoccupied",
+                        "occupancy_transition",
+                        "steady_state_occupancy",
+                    }
+                    or not isinstance(reference["revision"], int)
+                    or isinstance(reference["revision"], bool)
+                    or int(reference["revision"]) < 1
+                ):
+                    raise ValueError("Executor memory_refs entry is structurally invalid")
+                memory_refs.append(copy.deepcopy(dict(reference)))
+        elif root_fields == {"patch", "rationale"}:
             audit_rationale = root["rationale"]
             if not isinstance(audit_rationale, str) or not audit_rationale.strip():
                 raise ValueError("Executor root rationale must be a nonempty audit string")
@@ -148,7 +169,30 @@ def resolve_executor_model_output(
         telemetry = rationale_length_telemetry("executor", {"operation": patch["rationale"]})
     except (KeyError, TypeError, ValueError) as error:
         raise ModelContractError(str(error), raw) from error
-    return dict(patch), telemetry
+    return dict(patch), telemetry, memory_refs
+
+
+def resolve_executor_model_output(
+    raw: str, *, causal_enabled: bool
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve the memory-off Executor contract used by the default architecture."""
+    patch, telemetry, _ = _resolve_executor_model_output(
+        raw,
+        causal_enabled=causal_enabled,
+        long_term_memory=False,
+    )
+    return patch, telemetry
+
+
+def resolve_executor_memory_model_output(
+    raw: str, *, causal_enabled: bool
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Resolve the optional memory-enabled root without validating reference existence."""
+    return _resolve_executor_model_output(
+        raw,
+        causal_enabled=causal_enabled,
+        long_term_memory=True,
+    )
 
 
 @dataclass
@@ -190,7 +234,7 @@ class Orchestrator:
                 block("ALLOCATION LIMITS", allocation_limits),
                 block("CONTROL DOMAIN", COOLING_CONTROL_DOMAIN),
                 block("WHAT SOME OF THE FIELD NAMES MEAN", glossary),
-                block("WORKING MEMORY", memory, tabular=True),
+                block("CAOL WORKING MEMORY", memory, tabular=True),
                 merged_block("CROSS-ZONE CONSTRAINTS", (("zone coupling", coupling, False),)),
                 merged_block(
                     "PREVIOUS ALLOCATION AND UTILISATION",
@@ -236,6 +280,7 @@ class Orchestrator:
 class Executor:
     client: ModelClient
     last_rationale_telemetry: dict[str, Any] | None = field(init=False, default=None)
+    last_memory_refs: list[dict[str, Any]] = field(init=False, default_factory=list)
 
     @staticmethod
     def build_user(
@@ -247,7 +292,7 @@ class Executor:
         causal_edges: Sequence[Mapping[str, Any]] | None,
         allowance: Mapping[str, Any] | None,
         working_memory: Sequence[Mapping[str, Any]] | None,
-        recent_outcome_summary: Mapping[str, Any] | None = None,
+        long_term_experiences: Sequence[Mapping[str, Any]] | None = None,
         rejection_feedback: Mapping[str, Any] | None = None,
     ) -> str:
         del hour, zone
@@ -256,7 +301,7 @@ class Executor:
         edges = strip_audit_fields(causal_edges)
         budget = strip_audit_fields(allowance)
         memory = strip_audit_fields(working_memory)
-        summary = strip_audit_fields(recent_outcome_summary)
+        experiences = strip_audit_fields(long_term_experiences)
         rejection = strip_audit_fields(rejection_feedback)
         limits = parameter_rule_limits()
         glossary = visible_glossary_lines(
@@ -264,11 +309,10 @@ class Executor:
             program_view,
             *([{"allocation": budget}] if budget is not None else []),
             memory,
-            summary,
+            experiences,
             rejection,
             limits,
         )
-        rendered_memory = render_executor_working_memory(memory)
         return "".join(
             (
                 block("CURRENT EXECUTABLE PROGRAM P_h", program_view),
@@ -277,8 +321,8 @@ class Executor:
                 block("CONTROL DOMAIN", COOLING_CONTROL_DOMAIN),
                 block("WHAT SOME OF THE FIELD NAMES MEAN", glossary),
                 block("ALLOCATION", {"allocation": budget} if budget is not None else None),
-                block("WORKING MEMORY", rendered_memory),
-                block("RECENT OUTCOME SUMMARY", summary),
+                block("CAOL WORKING MEMORY", memory, tabular=True),
+                block("ACTIVE LONG-TERM EXPERIENCES", experiences, tabular=True),
                 block("LAST REJECTION", rejection),
                 block("ZONE OBSERVATION", observation_view),
             )
@@ -292,6 +336,7 @@ class Executor:
         causal_enabled: bool,
         coordination_enabled: bool,
         thinking_mode: str,
+        long_term_memory: bool = False,
     ) -> dict[str, Any]:
         raw = await self.client.complete(
             context=context,
@@ -300,14 +345,22 @@ class Executor:
                 "executor",
                 causal_enabled=causal_enabled,
                 coordination_enabled=coordination_enabled,
+                long_term_memory=long_term_memory,
             ),
             user=user,
             thinking_mode=thinking_mode,
         )
         self.last_rationale_telemetry = None
-        patch, self.last_rationale_telemetry = resolve_executor_model_output(
-            raw, causal_enabled=causal_enabled
-        )
+        self.last_memory_refs = []
+        if long_term_memory:
+            patch, self.last_rationale_telemetry, self.last_memory_refs = (
+                resolve_executor_memory_model_output(raw, causal_enabled=causal_enabled)
+            )
+        else:
+            patch, self.last_rationale_telemetry = resolve_executor_model_output(
+                raw,
+                causal_enabled=causal_enabled,
+            )
         return patch
 
 
@@ -337,17 +390,17 @@ class Reflector:
     @staticmethod
     def build_user(
         *,
-        current_hour_results: Mapping[str, Any],
-        working_memory: Sequence[Mapping[str, Any]] | None,
+        current_hour_cao: Sequence[Mapping[str, Any]],
+        long_term_slots: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     ) -> str:
-        results = strip_audit_fields(current_hour_results)
-        memory = strip_audit_fields(working_memory)
-        glossary = visible_glossary_lines(results, memory)
+        cao = strip_audit_fields(current_hour_cao)
+        slots = strip_audit_fields(long_term_slots)
+        glossary = visible_glossary_lines(cao, slots)
         return "".join(
             (
                 block("WHAT SOME OF THE FIELD NAMES MEAN", glossary),
-                block("CURRENT HOUR RESULTS", results, tabular=True),
-                block("WORKING MEMORY", memory, tabular=True),
+                block("CURRENT HOUR DETERMINISTIC CAO", cao, tabular=True),
+                block("CURRENT THREE-REGIME EXPERIENCE SLOTS", slots),
             )
         )
 
@@ -359,29 +412,26 @@ class Reflector:
         causal_enabled: bool,
         thinking_mode: str,
         zones: Sequence[str],
-    ) -> list[dict[str, str]]:
+        long_term_memory: bool = False,
+    ) -> ReflectorResolution:
         raw = await self.client.complete(
             context=context,
             role="reflector",
-            system=system_prompt("reflector", causal_enabled=causal_enabled),
+            system=system_prompt(
+                "reflector",
+                causal_enabled=causal_enabled,
+                long_term_memory=long_term_memory,
+            ),
             user=user,
             thinking_mode=thinking_mode,
         )
         try:
             payload = parse_bare_json(raw)
-            if set(payload) != {"pairs"} or not isinstance(payload["pairs"], list):
-                raise ValueError("Reflector output must contain exactly a pairs list")
-            accepted: list[dict[str, str]] = []
-            seen: set[str] = set()
-            for pair in payload["pairs"]:
-                if not isinstance(pair, Mapping) or set(pair) != {"zone", "insight_text"}:
-                    raise ValueError("Reflector pair does not match the exact contract")
-                zone = pair["zone"]
-                insight = clean_insight(pair["insight_text"])
-                if zone not in zones or zone in seen or insight is None:
-                    raise ValueError("Reflector pair has an invalid zone or insight")
-                seen.add(str(zone))
-                accepted.append({"zone": str(zone), "insight_text": insight})
+            resolution = resolve_reflector_payload(
+                payload,
+                zones=zones,
+                long_term_memory=long_term_memory,
+            )
         except ValueError as error:
             raise ModelContractError(str(error), raw) from error
-        return accepted
+        return resolution

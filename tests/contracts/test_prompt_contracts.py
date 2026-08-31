@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import re
@@ -14,18 +13,39 @@ from h3c.agents.roles import Executor, Orchestrator, Reflector
 from h3c.memory.ledger import ProgramLedger
 
 
-@pytest.mark.parametrize("role", ["orchestrator", "executor", "reflector"])
-def test_canonical_system_prompt_matches_oracle_bytes(
-    role: Role, oracle_fixture: dict[str, Any]
+@pytest.mark.parametrize(
+    ("role", "language", "long_term_memory"),
+    [
+        (role, language, enabled)
+        for language in ("en", "zh")
+        for role in ("orchestrator", "executor", "reflector")
+        for enabled in (False, True)
+        if not (role == "orchestrator" and enabled)
+    ],
+)
+def test_canonical_system_prompt_matches_caol_golden(
+    role: Role,
+    language: Language,
+    long_term_memory: bool,
+    repository_root: Path,
 ) -> None:
-    prompt = system_prompt(role)
-    expected = oracle_fixture["system_prompts"][role]
+    prompt = system_prompt(
+        role,
+        language=language,
+        long_term_memory=long_term_memory,
+    )
+    golden = json.loads(
+        (repository_root / "tests/fixtures/prompts/caol_prompt_golden.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected = golden[f"{role}_{'on' if long_term_memory else 'off'}_{language}"]
     assert len(prompt) == expected["length"]
     assert hashlib.sha256(prompt.encode("utf-8")).hexdigest() == expected["sha256"]
 
 
 @pytest.mark.parametrize("language", ["en", "zh"])
-def test_rationale_prompt_has_no_length_semantics_while_reflector_is_unchanged(
+def test_rationale_prompt_has_no_length_semantics_and_reflector_uses_lessons(
     language: Language,
 ) -> None:
     orchestrator = system_prompt("orchestrator", language=language)
@@ -37,7 +57,7 @@ def test_rationale_prompt_has_no_length_semantics_while_reflector_is_unchanged(
     assert "简短理由" not in orchestrator + executor
     assert "nonempty string" in orchestrator
     assert "nonempty rationale" in executor if language == "en" else "非空理由" in executor
-    assert "short sentence" in reflector if language == "en" else "短句" in reflector
+    assert "single-line Lesson" in reflector if language == "en" else "单行 Lesson" in reflector
 
 
 @pytest.mark.parametrize("role", ["orchestrator", "executor", "reflector"])
@@ -117,84 +137,40 @@ def test_missing_blocks_are_omitted_not_rendered(canonical_program: dict[str, An
     )
     assert "CONFIRMED CAUSAL EDGES" not in user
     assert "ALLOWANCE" not in user
-    assert "WORKING MEMORY" not in user
+    assert "CAOL WORKING MEMORY" not in user
+    assert "ACTIVE LONG-TERM EXPERIENCES" not in user
     assert "N/A" not in user and "null" not in user
 
 
-def _dynamic_prompt_inputs(repository_root: Path) -> tuple[str, str, str]:
-    fixture = json.loads(
-        (
-            repository_root / "tests" / "fixtures" / "prompts" / "representative_input.json"
-        ).read_text(encoding="utf-8")
-    )
-    orchestrator_input = fixture["orchestrator"]
-    budget_box = orchestrator_input["budget_box"]
-    orchestrator = Orchestrator.build_user(
-        hour=orchestrator_input["hour"],
-        zones=orchestrator_input["zones"],
-        site_state=orchestrator_input["site_nodes"],
-        zone_coupling=orchestrator_input["zone_coupling"],
-        causal_edges=orchestrator_input["site_edges"],
-        previous_allocation=orchestrator_input["previous_allocation"],
-        previous_utilisation=orchestrator_input["previous_utilisation"],
-        working_memory=orchestrator_input["working_memory"],
-        allocation_limits={
-            "zones": orchestrator_input["zones"],
-            "site_cap_c": budget_box["site_max_c"],
-            "per_zone_cap_c": budget_box["per_zone_max_c"],
-        },
-    )
+def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only() -> None:
+    forbidden = ("long-term", "memory_refs", "memory_operations", "expected_revision")
+    executor_off = system_prompt("executor")
+    reflector_off = system_prompt("reflector")
+    assert all(token not in (executor_off + reflector_off) for token in forbidden)
 
-    executor_input = fixture["executor"]
-    exposed_observation = executor_input["observations"]
-    exposed_to_runtime = {
-        "occupancy_next_steps": "occ_ahead",
-        "zone_temp_c": "zone_temperature_c",
-        "last_setpoint_c": "last_setpoint",
-        "price_now": "electricity_price",
-    }
-    observation = {
-        exposed_to_runtime.get(key, key): value for key, value in exposed_observation.items()
-    }
-    memory = copy.deepcopy(executor_input["working_memory"])
-    for record in memory:
-        shield = record["validation"]["shield"]
-        shield["actuator_limit_applied"] = shield.pop("s" + "1")
-        shield["rate_limit_applied"] = shield.pop("s" + "2")
-        shield["comfort_interlock_applied"] = shield.pop("s" + "3")
-    program = fixture["program"]
-    executor = Executor.build_user(
-        hour=executor_input["step"] // 4,
-        zone=executor_input["zone"],
-        observation=observation,
-        current_executable_program={
-            "program_version": executor_input["program_version"],
-            "params": program["params"],
-            "rules": program["rules"],
-        },
-        causal_edges=executor_input["edges"],
-        allowance=executor_input["budget"],
-        working_memory=memory,
-        recent_outcome_summary=executor_input["recent_outcome_summary"],
-        rejection_feedback=executor_input["repair_info"],
-    )
-    reflector_input = fixture["reflector"]
-    reflector = Reflector.build_user(
-        current_hour_results=reflector_input["current_hour_results"],
-        working_memory=reflector_input["working_memory"],
-    )
-    return orchestrator, executor, reflector
+    executor_on = system_prompt("executor", long_term_memory=True)
+    reflector_on = system_prompt("reflector", long_term_memory=True)
+    orchestrator = system_prompt("orchestrator")
+    assert "memory_refs" in executor_on
+    assert "memory_operations" in reflector_on
+    assert all(token not in orchestrator for token in forbidden)
 
+    caol = [{"hour": 6, "zone": "zone1", "context": {}, "action": {}, "outcome": {}}]
+    executor_user_off = Executor.build_user(
+        hour=7,
+        zone="zone1",
+        observation={"last_pmv": 0.0},
+        current_executable_program={"program_version": 0, "params": {}, "rules": []},
+        causal_edges=None,
+        allowance=None,
+        working_memory=caol,
+    )
+    assert "CAOL WORKING MEMORY" in executor_user_off
+    assert "ACTIVE LONG-TERM EXPERIENCES" not in executor_user_off
 
-def test_dynamic_user_prompts_match_read_only_final_w_oracle_bytes(
-    repository_root: Path,
-) -> None:
-    rendered = _dynamic_prompt_inputs(repository_root)
-    fixture_root = repository_root / "tests" / "fixtures" / "prompts"
-    names = ("orchestrator_old.txt", "executor_old.txt", "reflector_old.txt")
-    for actual, name in zip(rendered, names, strict=True):
-        expected = (fixture_root / name).read_text(encoding="utf-8")
-        assert actual == expected
+    reflector_user_off = Reflector.build_user(current_hour_cao=caol)
+    assert "CURRENT HOUR DETERMINISTIC CAO" in reflector_user_off
+    assert "CURRENT THREE-REGIME EXPERIENCE SLOTS" not in reflector_user_off
 
 
 def test_dynamic_prompt_fixture_provenance_is_self_consistent(repository_root: Path) -> None:

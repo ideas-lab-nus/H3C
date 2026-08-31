@@ -55,67 +55,99 @@ def test_clean_insight_rejects_non_string_input() -> None:
     assert clean_insight(1.0125) is None
 
 
-def test_reflector_contract_accepts_decimal_insight_without_coercion() -> None:
-    output = json.dumps(
-        {
-            "pairs": [
-                {
-                    "zone": "zone1",
-                    "insight_text": "PMV 1.0125 and cost 0.0 remained stable.",
-                }
-            ]
-        }
-    )
-    reflector = Reflector(StaticModelClient(output))
-    insights = asyncio.run(
-        reflector.summarize(
-            context=ModelCallContext(0, 3, 0),
-            user="CURRENT HOUR RESULTS",
-            causal_enabled=True,
-            thinking_mode="disabled",
-            zones=["zone1"],
-        )
-    )
-    assert insights == [
-        {"zone": "zone1", "insight_text": "PMV 1.0125 and cost 0.0 remained stable."}
-    ]
-def test_experimental_reflector_requires_one_card_for_every_zone_without_length_gate() -> None:
-    long_card = "Observed relation " + "x" * 1000
+def test_reflector_off_contract_accepts_one_lesson_per_zone() -> None:
     reflector = Reflector(
         StaticModelClient(
             json.dumps(
                 {
-                    "pairs": [
-                        {"zone": "zone1", "insight_text": long_card},
-                        {"zone": "zone2", "insight_text": "Stable relation"},
+                    "hourly_lessons": [
+                        {
+                            "zone": "zone1",
+                            "lesson": "PMV 1.0125 and cost 0.0 remained stable.",
+                        }
                     ]
                 }
             )
         )
     )
-    insights = asyncio.run(
+    result = asyncio.run(
         reflector.summarize(
             context=ModelCallContext(0, 3, 0),
-            user="CURRENT HOUR RESULTS",
+            user="CURRENT HOUR DETERMINISTIC CAO",
+            causal_enabled=True,
+            thinking_mode="disabled",
+            zones=["zone1"],
+        )
+    )
+    assert result.clean
+    assert result.lessons == {"zone1": "PMV 1.0125 and cost 0.0 remained stable."}
+    assert result.operations == {}
+
+
+def test_reflector_memory_contract_is_structured_and_zone_isolated() -> None:
+    reflector = Reflector(
+        StaticModelClient(
+            json.dumps(
+                {
+                    "hourly_lessons": [
+                        {"zone": "zone1", "lesson": "The zone retained heat."},
+                        {"zone": "zone2", "lesson": "The response stayed stable."},
+                    ],
+                    "memory_operations": [
+                        {
+                            "zone": "zone1",
+                            "op": "add",
+                            "regime": "steady_state_occupancy",
+                            "experience": "Cooling response is gradual during sustained occupancy.",
+                        },
+                        {"zone": "zone2", "op": "invalid"},
+                    ],
+                }
+            )
+        )
+    )
+    result = asyncio.run(
+        reflector.summarize(
+            context=ModelCallContext(0, 3, 0),
+            user="CURRENT HOUR DETERMINISTIC CAO",
             causal_enabled=True,
             thinking_mode="disabled",
             zones=["zone1", "zone2"],
-            reflector_long_term_memory=True,
+            long_term_memory=True,
         )
     )
-    assert insights[0]["insight_text"] == long_card
+    assert result.lessons == {
+        "zone1": "The zone retained heat.",
+        "zone2": "The response stayed stable.",
+    }
+    assert result.operations == {
+        "zone1": {
+            "zone": "zone1",
+            "op": "add",
+            "regime": "steady_state_occupancy",
+            "experience": "Cooling response is gradual during sustained occupancy.",
+        }
+    }
+    assert {issue["code"] for issue in result.issues} == {
+        "invalid_operation_shape",
+        "missing_memory_operation",
+    }
 
-    incomplete = Reflector(
-        StaticModelClient(json.dumps({"pairs": [{"zone": "zone1", "insight_text": "Only one"}]}))
+
+def test_reflector_rejects_wrong_root_for_active_mode() -> None:
+    reflector = Reflector(
+        StaticModelClient(
+            json.dumps({"hourly_lessons": [{"zone": "zone1", "lesson": "Only a Lesson."}]})
+        )
     )
-    with pytest.raises(ModelContractError, match="exactly one card"):
+    with pytest.raises(ModelContractError, match="active root contract"):
         asyncio.run(
-            incomplete.summarize(
+            reflector.summarize(
                 context=ModelCallContext(0, 3, 0),
-                user="CURRENT HOUR RESULTS",
+                user="CURRENT HOUR DETERMINISTIC CAO",
                 causal_enabled=True,
                 thinking_mode="disabled",
-                zones=["zone1", "zone2"],
-                reflector_long_term_memory=True,
+                zones=["zone1"],
+                long_term_memory=True,
             )
         )

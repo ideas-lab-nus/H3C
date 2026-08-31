@@ -4,7 +4,7 @@ This file is the persistent operating contract for the standalone H3C repository
 
 ## Scientific scope
 
-- H3C is a cooling-only, hierarchical causal-constrained building-control framework. The production architecture is Orchestrator → zone Executors → Reflector, with confirmed causal graphs, shared energy budget, bounded working memory, weather-aware rules, and the mandatory action-assurance chain.
+- H3C is a cooling-only, hierarchical causal-constrained building-control framework. The production architecture is Orchestrator → zone Executors → deterministic settlement and actions → Reflector, with confirmed causal graphs, shared energy budget, CAOL working memory, weather-aware rules, and the mandatory action-assurance chain. Optional three-regime long-term experience is an explicitly configured ablation; when disabled, its Prompt, schema, runtime and evidence surface is absent.
 - Case differences belong in `configs/`; do not add case-name branches to production code or case-specific instructions to shared prompts.
 - Causal constraints bound admissible program changes; they are not a hidden control law. Natural-language rationale is audit text and never directly changes allocation, patches, actions, or acceptance.
 - Mapping and causal discovery are optional offline onboarding capabilities. They use Microsoft Agent Framework and real human review. Online control remains on H3C's deterministic runtime.

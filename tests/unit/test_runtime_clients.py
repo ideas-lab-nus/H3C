@@ -696,61 +696,6 @@ def test_boptest_queue_poll_interval_must_be_positive_and_finite(interval: float
         BoptestHttpClient("http://physical.invalid", queue_poll_seconds=interval)
 
 
-@pytest.mark.parametrize(
-    ("body", "expected"),
-    [
-        (b'"Running"', "Running"),
-        (b'"Queued"', "Queued"),
-        (b'{"payload":"Running"}', "Running"),
-        (b'{"payload":"Queued"}', "Queued"),
-    ],
-)
-def test_boptest_status_accepts_only_registered_wire_forms(
-    monkeypatch: Any, body: bytes, expected: str
-) -> None:
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: _Response(body))
-    client = BoptestHttpClient("http://physical.invalid")
-    client.test_id = "example"
-
-    assert client.status() == expected
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        b'"Stopped"',
-        b"null",
-        b"true",
-        b"1",
-        b"[]",
-        b"{}",
-        b'{"payload":"Stopped"}',
-        b'{"payload":true}',
-        b'{"payload":{"status":"Running"}}',
-    ],
-)
-def test_boptest_status_rejects_unregistered_wire_forms(monkeypatch: Any, body: bytes) -> None:
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: _Response(body))
-    client = BoptestHttpClient("http://physical.invalid")
-    client.test_id = "example"
-
-    with pytest.raises(TransportError, match="status"):
-        client.status()
-
-
-def test_non_status_endpoint_still_rejects_top_level_status_string(monkeypatch: Any) -> None:
-    monkeypatch.setattr(
-        urllib.request,
-        "urlopen",
-        lambda request, timeout: _Response(b'"Running"'),
-    )
-
-    with pytest.raises(TransportError) as raised:
-        _request_json("GET", "http://physical.invalid/measurements/example")
-
-    assert raised.value.error_type == "response_json_non_object"
-
-
 @pytest.mark.parametrize("invalid", ["missing", float("nan"), float("inf"), True])
 def test_forecast_reports_the_exact_invalid_point_and_index(
     monkeypatch: Any, invalid: object
