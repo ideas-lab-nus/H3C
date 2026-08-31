@@ -68,6 +68,37 @@ def test_execution_invalid_verification_cannot_publish_completion(tmp_path: Path
     assert not (artifacts.run_dir / "completion.json").exists()
 
 
+def test_failure_is_atomic_terminal_and_mutually_exclusive_with_completion(
+    tmp_path: Path,
+) -> None:
+    artifacts = RunArtifacts(tmp_path, "main", "Demo", "failed-run")
+    artifacts.create({}, {"run_identity": "identity"})
+    artifacts.write_metrics({})
+    artifacts.write_verification({"completion_eligible": False, "classification": "RUN-INVALID"})
+
+    failure_path = artifacts.publish_failure(
+        {
+            "status": "failed",
+            "classification": "RUN-INVALID",
+            "run_identity": "identity",
+            "failure_type": "terminal_transport_error",
+        }
+    )
+
+    assert json.loads(failure_path.read_text(encoding="utf-8"))["status"] == "failed"
+    assert not (artifacts.run_dir / ".failure.pending").exists()
+    with pytest.raises(ArtifactError, match="completion has already been attempted"):
+        artifacts.publish_completion(
+            {
+                "status": "complete",
+                "classification": "RUN-INVALID",
+                "run_identity": "identity",
+            }
+        )
+    with pytest.raises(ArtifactError, match="current run state"):
+        artifacts.replace_manifest({"run_identity": "changed"})
+
+
 def test_existing_execution_lock_reports_path_and_pid_without_deleting(
     tmp_path: Path,
 ) -> None:

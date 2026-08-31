@@ -49,3 +49,7 @@ For each H3C provider, report 06:00–09:00 and 06:00–12:00 schema/finish/fall
 For both H3C arms and fresh eRBC, report reward, cost, energy, zone-hours, PMV-hours, occupied peak absolute PMV, total variation, and reversals. Audit allocation, patch/no-change, validation disposition, Lesson-to-next-working-memory propagation, program/action propagation, fallback, and model-format degradation. A historical 06:00–12:00 slice may be contextual only and is not a matched arm.
 
 Final labels are `PROVIDER-COMPATIBLE` or `PROVIDER-INCOMPATIBLE`, `FASTER` or `NOT-FASTER`, `LOWER-COST` or `NOT-LOWER-COST`, and `CONTEXT-BEHAVIOR-HEALTHY` or `METHOD-DEGRADED`. After the three-arm report, stop for user review. Do not launch the seven-day MZ Air arms, push, or modify the paper.
+
+## Registered mechanical launch correction
+
+The first Official dispatch from source `9b29b58b2b0607fab1e3ee0689e10d3e40e26ca0` selected and initialized fresh test `6fa415fd-c43e-435d-96a5-8b75b33c4cb9`, then failed before the first physical advance because the external PowerShell launcher copied the quoted `.env` endpoint literally. Run `20260831T151912243957Z-ad0f8757561a` is preserved as adverse launch-wiring evidence and is not an experimental result. The fresh recovery uses a standards-aware `.env` parse and the unchanged registered protocol. The runtime also publishes an atomic `failure.json` for future terminal transport failures. No Prompt, method, model request, control, KPI, or acceptance rule changes in this correction.

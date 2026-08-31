@@ -106,7 +106,12 @@ class RunArtifacts:
     def replace_manifest(self, manifest: Mapping[str, Any]) -> None:
         path = self.run_dir / "manifest.json"
         pending = self.run_dir / ".manifest.pending"
-        if not path.is_file() or pending.exists() or (self.run_dir / "completion.json").exists():
+        if (
+            not path.is_file()
+            or pending.exists()
+            or (self.run_dir / "completion.json").exists()
+            or (self.run_dir / "failure.json").exists()
+        ):
             raise ArtifactError("manifest cannot be replaced in the current run state")
         with pending.open("x", encoding="utf-8", newline="\n") as file:
             file.write(_json_text(manifest) + "\n")
@@ -117,7 +122,7 @@ class RunArtifacts:
     def _replace_runtime_state(self, name: str, value: Mapping[str, Any]) -> None:
         if name not in {"dispatch_state.json", "completed_hour_checkpoint.json"}:
             raise ArtifactError("unknown runtime-state artifact")
-        if (self.run_dir / "completion.json").exists():
+        if (self.run_dir / "completion.json").exists() or (self.run_dir / "failure.json").exists():
             raise ArtifactError("runtime state cannot change after completion")
         path = self.run_dir / name
         pending = self.run_dir / f".{name}.pending"
@@ -145,6 +150,8 @@ class RunArtifacts:
         self._write_new_json("verification.json", verification)
 
     def publish_completion(self, completion: Mapping[str, Any]) -> Path:
+        if (self.run_dir / "failure.json").exists():
+            raise ArtifactError("completion has already been attempted")
         verification = json.loads((self.run_dir / "verification.json").read_text(encoding="utf-8"))
         if verification.get("completion_eligible") is not True:
             raise ArtifactError("completion is forbidden for an execution-invalid run")
@@ -162,6 +169,23 @@ class RunArtifacts:
             os.fsync(file.fileno())
         pending.replace(completion_path)
         return completion_path
+
+    def publish_failure(self, failure: Mapping[str, Any]) -> Path:
+        if (
+            not (self.run_dir / "metrics.json").is_file()
+            or not (self.run_dir / "verification.json").is_file()
+        ):
+            raise ArtifactError("metrics and verification must exist before failure")
+        failure_path = self.run_dir / "failure.json"
+        pending = self.run_dir / ".failure.pending"
+        if failure_path.exists() or pending.exists() or (self.run_dir / "completion.json").exists():
+            raise ArtifactError("failure has already been attempted")
+        with pending.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(_json_text(failure) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        pending.replace(failure_path)
+        return failure_path
 
     def record_incomplete(
         self, *, metrics: Mapping[str, Any], verification: Mapping[str, Any]

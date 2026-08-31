@@ -1405,6 +1405,20 @@ async def _execute_one(
         artifacts.write_metrics(metrics)
         verification = verify_run(artifacts.run_dir, require_completion=False)
         artifacts.record_incomplete(metrics=metrics, verification=verification)
+        artifacts.publish_failure(
+            {
+                "status": "failed",
+                "classification": verification["classification"],
+                "run_identity": run_identity,
+                "finished_at": datetime.now(UTC).isoformat(),
+                "elapsed_seconds": time.perf_counter() - started,
+                "failure_type": "terminal_transport_error",
+                "error_type": terminal_transport_error.error_type,
+                "retryable": terminal_transport_error.retryable,
+                "provider_response_received": (terminal_transport_error.provider_response_received),
+                "failure_count": int(getattr(terminal_transport_error, "failure_count", 1)),
+            }
+        )
         raise terminal_transport_error
     raise AssertionError("execution exited without a result or terminal transport error")
 

@@ -1907,6 +1907,11 @@ def test_transport_failure_hard_stops_serial_matrix_without_retry(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["transport_error_count"] == 1
     assert list(tmp_path.rglob("completion.json")) == []
+    failure_path = next(tmp_path.rglob("failure.json"))
+    failure = json.loads(failure_path.read_text(encoding="utf-8"))
+    assert failure["status"] == "failed"
+    assert failure["failure_type"] == "terminal_transport_error"
+    assert failure["error_type"] == "transport_contract_error"
 
 
 def test_forecast_failure_records_successful_initialize_before_stop(
@@ -1932,3 +1937,4 @@ def test_forecast_failure_records_successful_initialize_before_stop(
     assert physical.initialize_count == physical.stop_count == 1
     assert physical.forecast_count == 1
     assert list(tmp_path.rglob("completion.json")) == []
+    assert next(tmp_path.rglob("failure.json")).is_file()
