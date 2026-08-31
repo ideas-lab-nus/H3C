@@ -1,6 +1,6 @@
 {
   "fixture_schema": "h3c_caol_complete_hour",
-  "schema_version": 1,
+  "schema_version": 2,
   "profile": "MZ_Air",
   "hour": 42,
   "first_step": 168,
@@ -101,6 +101,13 @@
     "nor": {"en": "The occupied hold branch coincided with small temperature and PMV changes.", "zh": "占用保持分支与较小的温度和 PMV 变化同时出现。"},
     "sou": {"en": "The occupied hold branch retained positive warm-side headroom under elevated solar input.", "zh": "在较高太阳辐射下，占用保持分支仍保留了正向暖侧余量。"},
     "wes": {"en": "Stable actions coincided with a gradual occupied temperature response and bounded PMV.", "zh": "稳定动作与渐进的占用温度响应及有界 PMV 同时出现。"}
+  },
+  "lesson_evidence_pointers": {
+    "cor": ["/action/actual_setpoints_c", "/outcome/pmv", "/context/observed_context_history/temp_rise_to_warm_pmv_edge_c"],
+    "eas": ["/action/proposal/to", "/outcome/pmv", "/context/abs_pmv_score_limit"],
+    "nor": ["/action/matched_rules", "/outcome/zone_temperatures_c", "/outcome/pmv"],
+    "sou": ["/action/matched_rules", "/context/observed_context_history/solar_irradiance_w_m2", "/context/observed_context_history/temp_rise_to_warm_pmv_edge_c"],
+    "wes": ["/action/actual_setpoints_c", "/outcome/zone_temperatures_c", "/outcome/pmv"]
   },
   "memory_operations": {
     "cor": {"op": "no_change"},

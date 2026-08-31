@@ -27,11 +27,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nAllocate cross-zone allowance over action_times in control_interval.\n\nDECISION\nBalance comfort and energy cost from the supplied state, forecast, working memory and previous Budget use. Output allocation, priority and per-zone rationales.\n\nHARD BOUNDARIES\nFor accepted program changes, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); not cumulative action, power or pre-cooling offset.\n\nOUTPUT\nBare JSON only. Keys exactly: site_cap_c, zone_budgets_c, priority, rationale_per_zone, causal_edge_ids. site_cap_c=input. zone_budgets_c: keys=zones; each finite in [0,5]; sum≤cap; unused allowed. priority=permutation(zones), highest first. rationale_per_zone: keys=zones; values nonempty. causal_edge_ids: unique, nonempty, visible-ID subset including a site edge.\n",
+      "content": "ROLE\nAllocate cross-zone allowance over action_times in control_interval.\n\nDECISION\nBalance comfort and energy cost from the supplied state, forecast, working memory and previous Budget use. Output allocation, priority and per-zone rationales.\n\nHARD BOUNDARIES\nFor accepted program changes, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); not cumulative action, power or pre-cooling offset.\n\nOUTPUT\nBare JSON only. Keys exactly: site_cap_c, zone_budgets_c, priority, rationale_per_zone, causal_edge_ids. site_cap_c=input. zone_budgets_c: keys=zones; each finite in [0,per_zone_reserved_cap_c]; sum≤cap; unused allowed. priority=permutation(zones), highest first. rationale_per_zone: keys=zones; values nonempty. causal_edge_ids: unique, nonempty, visible-ID subset including at least one visible edge with target=power_meters.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT SITE STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\nprice_at_interval_end: 0.16842\n\n### SITE FORECAST\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CURRENT ZONE STATE\ncommon:\noccupancy: 1.0\nsetpoint_c: 25.0\nrows:\n| zone | temp_c | pmv | temp_rise_to_warm_pmv_edge_c | temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- |\n| cor | 24.31 | 0.34 | 0.62 | 2.45 |\n| eas | 24.58 | 0.43 | 0.34 | 2.72 |\n| nor | 24.22 | 0.31 | 0.72 | 2.36 |\n| sou | 24.47 | 0.39 | 0.45 | 2.61 |\n| wes | 24.36 | 0.36 | 0.57 | 2.5 |\n\n### ZONE CONTROL CONTEXT\ncommon:\noccupancy_at_interval_end: 1.0\nprecool_offset_from_unoccupied_base_c: -5.0\nresulting_precool_setpoint_c: 25.0\nrows:\n| zone |\n| --- |\n| cor |\n| eas |\n| nor |\n| sou |\n| wes |\n\n### CAUSAL EVIDENCE\ncommon:\ntarget: power_meters\nundirected: false\nrows:\n| id | source | relation | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | Immediate | Strong Impact |\n\n### ALLOCATION LIMITS\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\nsite_cap_c: 10.0\nper_zone_cap_c: 5.0\n\n### CONTROL DOMAIN\ndomain_id: cooling\ncontrolled_setpoint: zone cooling setpoint\nunit: degC\nhard_bounds_c: [20.0,30.0]\noccupied_base_c: 25.0\nunoccupied_base_c: 30.0\nabs_pmv_score_limit: 0.5\npreconditioning: {\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0}\nenergy_intensive_setpoint_direction: decrease\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\noccupancy: 1.0\nsetpoint_c: 25.0\nconstant_by_zone:\n{\"zone\":\"cor\",\"temp_c\":24.31,\"pmv\":0.34}\n{\"zone\":\"eas\",\"temp_c\":24.58,\"pmv\":0.43}\n{\"zone\":\"nor\",\"temp_c\":24.22,\"pmv\":0.31}\n{\"zone\":\"sou\",\"temp_c\":24.47,\"pmv\":0.39}\n{\"zone\":\"wes\",\"temp_c\":24.36,\"pmv\":0.36}\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | occupied_peak_abs_pmv |\n| --- | --- |\n| cor | 0.34 |\n| eas | 0.43 |\n| nor | 0.31 |\n| sou | 0.39 |\n| wes | 0.36 |\n\n### PREVIOUS BUDGET USE\nsite_cap_c: 10.0\nreserved_allowance_by_zone_c: {\"cor\":1.0,\"eas\":2.0,\"nor\":1.0,\"sou\":1.0,\"wes\":1.0}\nreserved_consumption_by_zone_c: {\"cor\":0.0,\"eas\":2.0,\"nor\":0.0,\"sou\":0.0,\"wes\":0.0}\ntotal_reserved_allowance_c: 6.0\ntotal_reserved_consumption_c: 2.0\nreserved_utilisation: 0.3333\ninitial_shared_unreserved_pool_c: 4.0\nshared_pool_consumption_by_zone_c: {\"eas\":0.3}\nremaining_shared_unreserved_pool_c: 3.7\nprevious_priority: [\"eas\",\"sou\",\"wes\",\"cor\",\"nor\"]\nprevious_rationale_per_zone: {\"cor\":\"Core conditions were stable.\",\"eas\":\"East had the smallest warm-side headroom.\",\"nor\":\"North conditions were stable.\",\"sou\":\"South had moderate warm-side headroom.\",\"wes\":\"West had moderate warm-side headroom.\"}\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT SITE STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\nprice_at_interval_end: 0.16842\n\n### SITE FORECAST\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CURRENT ZONE STATE\nvalues_shared_by_all_rows:\noccupancy: 1.0\nsetpoint_c: 25.0\nrows:\n| zone | temp_c | pmv | temp_rise_to_warm_pmv_edge_c | temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- |\n| cor | 24.31 | 0.34 | 0.62 | 2.45 |\n| eas | 24.58 | 0.43 | 0.34 | 2.72 |\n| nor | 24.22 | 0.31 | 0.72 | 2.36 |\n| sou | 24.47 | 0.39 | 0.45 | 2.61 |\n| wes | 24.36 | 0.36 | 0.57 | 2.5 |\n\n### ZONE CONTROL CONTEXT\nvalues_shared_by_all_rows:\noccupancy_at_interval_end: 1.0\nprecool_offset_from_unoccupied_base_c: -5.0\nresulting_precool_setpoint_c: 25.0\nrows:\n| zone |\n| --- |\n| cor |\n| eas |\n| nor |\n| sou |\n| wes |\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\ntarget: power_meters\nundirected: false\nrows:\n| id | source | relation | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | Immediate | Strong Impact |\n\n### ALLOCATION LIMITS\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\nsite_cap_c: 10.0\nper_zone_reserved_cap_c: 5.0\n\n### CONTROL DOMAIN\ndomain_id: cooling\ncontrolled_setpoint: zone cooling setpoint\nunit: degC\nhard_bounds_c: [20.0,30.0]\noccupied_base_c: 25.0\nunoccupied_base_c: 30.0\nabs_pmv_score_limit: 0.5\npreconditioning: {\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0}\nenergy_intensive_setpoint_direction: decrease\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nsetpoint_c: 25.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"temp_c\":24.31,\"pmv\":0.34}\n{\"zone\":\"eas\",\"temp_c\":24.58,\"pmv\":0.43}\n{\"zone\":\"nor\",\"temp_c\":24.22,\"pmv\":0.31}\n{\"zone\":\"sou\",\"temp_c\":24.47,\"pmv\":0.39}\n{\"zone\":\"wes\",\"temp_c\":24.36,\"pmv\":0.36}\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 13:15 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 13:30 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 13:45 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | occupied_peak_abs_pmv |\n| --- | --- |\n| cor | 0.34 |\n| eas | 0.43 |\n| nor | 0.31 |\n| sou | 0.39 |\n| wes | 0.36 |\n\n### PREVIOUS BUDGET USE\nsite_cap_c: 10.0\nreserved_allowance_by_zone_c: {\"cor\":1.0,\"eas\":2.0,\"nor\":1.0,\"sou\":1.0,\"wes\":1.0}\nreserved_consumption_by_zone_c: {\"cor\":0.0,\"eas\":2.0,\"nor\":0.0,\"sou\":0.0,\"wes\":0.0}\ntotal_reserved_allowance_c: 6.0\ntotal_reserved_consumption_c: 2.0\nreserved_utilisation: 0.3333\ninitial_shared_unreserved_pool_c: 4.0\nshared_pool_consumption_by_zone_c: {\"eas\":0.3}\nremaining_shared_unreserved_pool_c: 3.7\nprevious_priority: [\"eas\",\"sou\",\"wes\",\"cor\",\"nor\"]\n",
       "role": "user"
     }
   ],
@@ -99,11 +99,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn bare JSON {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs cites only active experiences used and may be empty. No prose, fence or extra fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: cor\nzone_temperature_c: 24.31\npmv: 0.34\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.62\ntemp_drop_to_cool_pmv_edge_c: 2.45\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":4}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"cor\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\ntemp_c: 24.31\npmv: 0.34\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"cor\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.34\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCES\ncommon:\nrevision: 2\nexperience: Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: cor\nzone_temperature_c: 24.31\npmv: 0.34\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.62\ntemp_drop_to_cool_pmv_edge_c: 2.45\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":4}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"cor\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\ntemp_c: 24.31\npmv: 0.34\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 |\n| 13:15 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 |\n| 13:30 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 |\n| 13:45 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.34\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 2\nexperience: Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -152,11 +152,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn bare JSON {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs cites only active experiences used and may be empty. No prose, fence or extra fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":2.0,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"eas\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\ntemp_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"eas\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.43\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCES\ncommon:\nrevision: 1\nexperience: East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":2.0,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"eas\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\ntemp_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 13:15 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 13:30 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 13:45 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.43\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 1\nexperience: East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -225,11 +225,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn bare JSON {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs cites only active experiences used and may be empty. No prose, fence or extra fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: nor\nzone_temperature_c: 24.22\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.72\ntemp_drop_to_cool_pmv_edge_c: 2.36\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":5}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"nor\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\ntemp_c: 24.22\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"nor\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.31\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: nor\nzone_temperature_c: 24.22\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.72\ntemp_drop_to_cool_pmv_edge_c: 2.36\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":5}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"nor\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\ntemp_c: 24.22\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.1423 | 0.72 | 2.36 |\n| 13:15 | 31.4 | 612.0 | 0.1423 | 0.72 | 2.36 |\n| 13:30 | 31.4 | 612.0 | 0.1423 | 0.72 | 2.36 |\n| 13:45 | 31.4 | 612.0 | 0.1423 | 0.72 | 2.36 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.31\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n",
       "role": "user"
     }
   ],
@@ -272,11 +272,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn bare JSON {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs cites only active experiences used and may be empty. No prose, fence or extra fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: sou\nzone_temperature_c: 24.47\npmv: 0.39\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.45\ntemp_drop_to_cool_pmv_edge_c: 2.61\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":2}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"sou\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\ntemp_c: 24.47\npmv: 0.39\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"sou\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.39\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCES\ncommon:\nrevision: 2\nexperience: South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: sou\nzone_temperature_c: 24.47\npmv: 0.39\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.45\ntemp_drop_to_cool_pmv_edge_c: 2.61\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":2}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"sou\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\ntemp_c: 24.47\npmv: 0.39\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.1423 | 0.45 | 2.61 |\n| 13:15 | 31.4 | 612.0 | 0.1423 | 0.45 | 2.61 |\n| 13:30 | 31.4 | 612.0 | 0.1423 | 0.45 | 2.61 |\n| 13:45 | 31.4 | 612.0 | 0.1423 | 0.45 | 2.61 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.39\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 2\nexperience: South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -325,11 +325,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn bare JSON {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs cites only active experiences used and may be empty. No prose, fence or extra fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: wes\nzone_temperature_c: 24.36\npmv: 0.36\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.57\ntemp_drop_to_cool_pmv_edge_c: 2.5\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":3}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\ntemp_c: 24.36\npmv: 0.36\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"wes\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.36\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCES\ncommon:\nrevision: 1\nexperience: West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: wes\nzone_temperature_c: 24.36\npmv: 0.36\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.57\ntemp_drop_to_cool_pmv_edge_c: 2.5\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.0,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":3}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"wes\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\ntemp_c: 24.36\npmv: 0.36\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.1423 | 0.57 | 2.5 |\n| 13:15 | 31.4 | 612.0 | 0.1423 | 0.57 | 2.5 |\n| 13:30 | 31.4 | 612.0 | 0.1423 | 0.57 | 2.5 |\n| 13:45 | 31.4 | 612.0 | 0.1423 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.36\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 1\nexperience: West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -1159,13 +1159,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.6,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 628.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1258,13 +1258,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.6,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 628.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1357,13 +1357,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.6,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 628.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1456,13 +1456,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.6,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 628.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1555,13 +1555,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.6,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 628.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1659,13 +1659,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.8,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 646.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1758,13 +1758,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.8,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 646.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1857,13 +1857,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.8,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 646.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -1956,13 +1956,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.8,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 646.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2055,13 +2055,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 31.8,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 646.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2159,13 +2159,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 32.0,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 668.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2258,13 +2258,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 32.0,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 668.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2357,13 +2357,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 32.0,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 668.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2456,13 +2456,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 32.0,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 668.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2555,13 +2555,13 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
             1.0,
             1.0
           ],
-          "outdoor_temp_c": 31.4,
+          "outdoor_temp_c": 32.0,
           "outdoor_temp_change_next_1h_c": 0.8,
           "outdoor_temp_threshold_candidates_c": [
             30.0,
             32.0
           ],
-          "solar_irr": 612.0,
+          "solar_irr": 668.0,
           "solar_irr_max_next_1h_w_m2": 668.0,
           "solar_irr_mean_next_1h_w_m2": 642.5,
           "solar_irr_threshold_candidates_w_m2": [
@@ -2615,11 +2615,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nInterpret the deterministic results for the supplied completed control interval.\n\nEVIDENCE\nFor each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome. Compare it with shown eligible regime slots; select at most one memory operation.\n\nHARD BOUNDARIES\nLessons are evidence-grounded observations, relationships or trade-offs, not commands, targets or unsupported claims. Experiences describe the zone's run-wide thermal response, control preference or trade-off for the named regime. Modify only a shown eligible regime; replace/delete uses its revision.\n\nOUTPUT\nBare JSON only: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}],\"memory_operations\":[...]}. Each zone appears once per list. Every memory operation requires zone and op; additional fields:\n| op | required |\n| --- | --- |\n| no_change | — |\n| add | regime, experience |\n| replace | regime, expected_revision, experience |\n| delete | regime, expected_revision |\nNo prose, fence or extra fields.\n",
+      "content": "ROLE\nDerive zone Lessons from the completed control interval.\n\nEVIDENCE\nFor each zone, derive one observed relationship or trade-off from completed Context, Action and Outcome; compare shown eligible slots and select at most one operation.\n\nHARD BOUNDARIES\nThe completed interval is the sole Lesson evidence; slots are comparison-only. Experiences summarize run-wide thermal response, control preference or trade-off by regime. No commands, targets or unsupported claims. Modify a shown regime only; replace/delete uses its revision.\n\nOUTPUT\nBare JSON: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}],\"memory_operations\":[...]}. Each zone once per list. Operations require zone,op; extra fields:\n| op | required |\n| --- | --- |\n| no_change | — |\n| add | regime, experience |\n| replace | regime, expected_revision, experience |\n| delete | regime, expected_revision |\nNo prose, fence or extra fields.\n",
       "role": "system"
     },
     {
-      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\ncommon:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\ncommon:\noccupancy: 1.0\nconstant_by_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nconstant_by_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\ncommon:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime | revision | experience |\n| --- | --- | --- | --- |\n| cor | steady_state_occupancy | 2 | Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive. |\n| eas | steady_state_occupancy | 1 | East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone. |\n| sou | steady_state_occupancy | 2 | South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions. |\n| wes | steady_state_occupancy | 1 | West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions. |\n\n### EMPTY LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime |\n| --- | --- |\n| nor | steady_state_occupancy |\n",
+      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nno_change_rows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\nset_param_rows:\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime | revision | experience |\n| --- | --- | --- | --- |\n| cor | steady_state_occupancy | 2 | Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive. |\n| eas | steady_state_occupancy | 1 | East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone. |\n| sou | steady_state_occupancy | 2 | South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions. |\n| wes | steady_state_occupancy | 1 | West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions. |\n\n### EMPTY LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime |\n| --- | --- |\n| nor | steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -2751,6 +2751,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -2763,6 +2764,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.31
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.45,
+          2.45,
+          2.45,
+          2.45
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.62,
+          0.62,
+          0.62,
+          0.62
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -2896,6 +2929,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -2908,6 +2942,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.58
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.72,
+          2.72,
+          2.72,
+          2.72
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.34,
+          0.34,
+          0.34,
+          0.34
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3006,6 +3072,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3018,6 +3085,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.22
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.36,
+          2.36,
+          2.36,
+          2.36
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.72,
+          0.72,
+          0.72,
+          0.72
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3116,6 +3215,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3128,6 +3228,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.47
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.61,
+          2.61,
+          2.61,
+          2.61
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.45,
+          0.45,
+          0.45,
+          0.45
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3226,6 +3358,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3238,6 +3371,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.36
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.5,
+          2.5,
+          2.5,
+          2.5
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.57,
+          0.57,
+          0.57,
+          0.57
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3342,6 +3507,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3354,6 +3520,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.31
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.45,
+          2.45,
+          2.45,
+          2.45
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.62,
+          0.62,
+          0.62,
+          0.62
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3487,6 +3685,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3499,6 +3698,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.58
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.72,
+          2.72,
+          2.72,
+          2.72
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.34,
+          0.34,
+          0.34,
+          0.34
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3597,6 +3828,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3609,6 +3841,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.22
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.36,
+          2.36,
+          2.36,
+          2.36
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.72,
+          0.72,
+          0.72,
+          0.72
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3707,6 +3971,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3719,6 +3984,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.47
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.61,
+          2.61,
+          2.61,
+          2.61
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.45,
+          0.45,
+          0.45,
+          0.45
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3817,6 +4114,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3829,6 +4127,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.36
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.5,
+          2.5,
+          2.5,
+          2.5
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.57,
+          0.57,
+          0.57,
+          0.57
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -3968,6 +4298,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
       ]
     },
     "context": {
+      "abs_pmv_score_limit": 0.5,
       "initial_observation": {
         "current_occupancy": 1.0,
         "last_occupancy": 1.0,
@@ -3980,6 +4311,38 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
           1.0
         ],
         "zone_temperature_c": 24.58
+      },
+      "observed_context_history": {
+        "electricity_price": [
+          0.1423,
+          0.1423,
+          0.1423,
+          0.1423
+        ],
+        "outdoor_temperature_c": [
+          31.4,
+          31.6,
+          31.8,
+          32.0
+        ],
+        "solar_irradiance_w_m2": [
+          612.0,
+          628.0,
+          646.0,
+          668.0
+        ],
+        "temp_drop_to_cool_pmv_edge_c": [
+          2.72,
+          2.72,
+          2.72,
+          2.72
+        ],
+        "temp_rise_to_warm_pmv_edge_c": [
+          0.34,
+          0.34,
+          0.34,
+          0.34
+        ]
       },
       "regime_step_coverage": {
         "steady_state_occupancy": [
@@ -4299,11 +4662,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn bare JSON {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs cites only active experiences used and may be empty. No prose, fence or extra fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 15:00\ncontrol_interval: [15:00, 16:00)\naction_times: [\"15:00\",\"15:15\",\"15:30\",\"15:45\"]\nforecast_outcome_times: [\"15:15\",\"15:30\",\"15:45\",\"16:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.24\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 15:15 | 31.6 | 628.0 |\n| 15:30 | 31.8 | 646.0 |\n| 15:45 | 32.0 | 668.0 |\n| 16:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 1\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.4 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.7,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [14:00, 15:00)\nzones: [\"eas\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"set_param\",\"rationale\":\"Tighten the active upper PMV threshold while East has the smallest warm-side headroom.\",\"param\":\"pmv_band_hi\",\"to\":0.4},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":1}\nlesson: A tighter upper threshold preceded a bounded cooling response while occupied PMV stayed within the comfort band.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\noccupancy: 1.0\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\ntime_varying_measurements:\n| state_time | eas.temp_c | eas.pmv | eas.setpoint_c |\n| --- | --- | --- | --- |\n| 14:00 | 24.58 | 0.43 | 25.0 |\n| 14:15 | 24.4 | 0.36 | 24.7 |\n| 14:30 | 24.25 | 0.3 | 24.7 |\n| 14:45 | 24.18 | 0.28 | 24.7 |\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nterminal_outcome_state: shown once in the current-state section at 15:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"eas\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.06\ntemp_delta_1h_c: -0.34\ntemp_slope_c_per_hour: -0.34\npmv_delta_15min: 0.03\npmv_delta_1h: -0.12\nsetpoint_delta_15min_c: 0.3\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.36\nsetpoint_tv_c: 0.3\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCES\ncommon:\nrevision: 2\nexperience: East has repeatedly shown limited occupied warm-side comfort headroom and a bounded cooling response after tighter upper-threshold admission.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 15:00\ncontrol_interval: [15:00, 16:00)\naction_times: [\"15:00\",\"15:15\",\"15:30\",\"15:45\"]\nforecast_outcome_times: [\"15:15\",\"15:30\",\"15:45\",\"16:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.24\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 15:15 | 31.6 | 628.0 |\n| 15:30 | 31.8 | 646.0 |\n| 15:45 | 32.0 | 668.0 |\n| 16:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 1\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.4 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.7,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [14:00, 15:00)\nzones: [\"eas\"]\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"set_param\",\"rationale\":\"Tighten the active upper PMV threshold while East has the smallest warm-side headroom.\",\"param\":\"pmv_band_hi\",\"to\":0.4},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":1}\nlesson: A tighter upper threshold preceded a bounded cooling response while occupied PMV stayed within the comfort band.\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\ntime_varying_measurements:\n| state_time | eas.temp_c | eas.pmv | eas.setpoint_c |\n| --- | --- | --- | --- |\n| 14:00 | 24.58 | 0.43 | 25.0 |\n| 14:15 | 24.4 | 0.36 | 24.7 |\n| 14:30 | 24.25 | 0.3 | 24.7 |\n| 14:45 | 24.18 | 0.28 | 24.7 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.34 | 2.72 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.34 | 2.72 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.34 | 2.72 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.06\ntemp_delta_1h_c: -0.34\ntemp_slope_c_per_hour: -0.34\npmv_delta_15min: 0.03\npmv_delta_1h: -0.12\nsetpoint_delta_15min_c: 0.3\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.36\nsetpoint_tv_c: 0.3\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 2\nexperience: East has repeatedly shown limited occupied warm-side comfort headroom and a bounded cooling response after tighter upper-threshold admission.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -4329,7 +4692,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
     "memory_refs"
   ],
   "executor_user_removed": [
-    "ACTIVE LONG-TERM EXPERIENCES"
+    "ACTIVE LONG-TERM EXPERIENCE SLOTS"
   ],
   "orchestrator_removed": [],
   "reflector_output_removed": [
@@ -4340,7 +4703,8 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
     "CRUD operation contract"
   ],
   "reflector_user_removed": [
-    "ELIGIBLE LONG-TERM EXPERIENCE SLOTS"
+    "ACTIVE LONG-TERM EXPERIENCE SLOTS",
+    "EMPTY LONG-TERM EXPERIENCE SLOTS"
   ],
   "runtime_output_removed": [
     "long-term CRUD rows",
@@ -4355,11 +4719,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nUse the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.\n\nHARD BOUNDARIES\nFor an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.\n\nOUTPUT\nReturn exactly one bare root JSON object: {\"patch\":[{...}]}. Return no prose, Markdown fence or unknown fields. Operation contract:\npatch: list of exactly one operation.\nCommon required fields: op, rationale.\nModifying operation also requires causal_edge_ids.\n| op | additional required | optional |\n| --- | --- | --- |\n| no_change | — | — |\n| set_param | param, to | — |\n| add_rule | rule | index |\n| replace_rule | rule | — |\n| remove_rule | id | — |\n| move_rule | id, to_index | — |\nrule: id, when, then. when item: field, op, value. then: op, plus value for set_residual or step_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nBare JSON only; no prose, fence or extra fields.\npatch contains exactly one operation. Common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\ncommon:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}\n{\"id\":\"precool\",\"when\":[{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"unoccupied_hold\",\"when\":[],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\ncommon_when: {\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[],\"then\":{\"op\":\"hold_setpoint\"}}\nrule_value_references: {\"param\":\"named parameter value\",\"neg_param\":\"negative named parameter value\"}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\ncommon:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":2.0,\"shared_unreserved_allowance_c\":4.0,\"shared_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"eas\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\ncommon:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrecent_state_history:\ncommon:\ntemp_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nterminal_outcome_state: shown once in the current-state section at 14:00\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"eas\"]\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\ncommon:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.43\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 14:00\ncontrol_interval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\nforecast_outcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 14:15 | 31.6 | 628.0 |\n| 14:30 | 31.8 | 646.0 |\n| 14:45 | 32.0 | 668.0 |\n| 15:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 0\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":2.0,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [13:00, 14:00)\nzones: [\"eas\"]\nsite_result: {\"site_cost\":3.02,\"site_energy_kwh\":21.1}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"no_change\",\"rationale\":\"completed-interval fixture\"},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":0}\nlesson: Stable occupied conditions coincided with positive warm-side comfort headroom.\nrecent_state_history:\nvalues_shared_by_all_rows:\ntemp_c: 24.58\npmv: 0.43\noccupancy: 1.0\nsetpoint_c: 25.0\nstate_times: [\"13:00\",\"13:15\",\"13:30\",\"13:45\"]\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 13:00 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 13:15 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 13:30 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 13:45 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nsetpoint_c: 25.0\nmatched_rule: occupied_hold\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time |\n| --- | --- |\n| 13:00 | 13:15 |\n| 13:15 | 13:30 |\n| 13:30 | 13:45 |\n| 13:45 | 14:00 |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"13:15\",\"13:30\",\"13:45\",\"14:00\"]\nderived_feature_interval: [13:00, 14:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.0\ntemp_delta_1h_c: 0.0\ntemp_slope_c_per_hour: 0.0\npmv_delta_15min: 0.0\npmv_delta_1h: 0.0\nsetpoint_delta_15min_c: 0.0\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.43\nsetpoint_tv_c: 0.0\nsetpoint_reversals: 0\n",
       "role": "user"
     }
   ],
@@ -4396,11 +4760,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nInterpret the deterministic results for the supplied completed control interval.\n\nEVIDENCE\nFrom each zone's completed Context, Action and Outcome, derive one Lesson that captures a useful observed relationship or trade-off for later control.\n\nHARD BOUNDARIES\nGround each Lesson in the completed-interval evidence. Express an observation, relationship or trade-off rather than an action command, target or unsupported causal claim.\n\nOUTPUT\nReturn one bare JSON object of the form {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}]}. Include every supplied zone exactly once. Return no prose, Markdown fence or unknown fields.\n",
+      "content": "ROLE\nDerive zone Lessons from the completed control interval.\n\nEVIDENCE\nFor each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome.\n\nHARD BOUNDARIES\nThe completed interval is the sole Lesson evidence. Write observations or trade-offs, not commands, targets or unsupported claims.\n\nOUTPUT\nBare JSON only: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}]}. Each zone once; no extra fields.\n",
       "role": "system"
     },
     {
-      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\ncommon:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nrows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\ncommon:\noccupancy: 1.0\nconstant_by_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\ncontrol_action_history:\ncommon:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nconstant_by_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\ncommon:\noccupancy: 1.0\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\ncommon:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n",
+      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nno_change_rows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\nset_param_rows:\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n",
       "role": "user"
     }
   ],
@@ -4475,7 +4839,7 @@ rows:
 | 15:00 | 32.2 | 628.0 |
 
 ### CURRENT ZONE STATE
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
 setpoint_c: 25.0
 rows:
@@ -4488,7 +4852,7 @@ rows:
 | wes | 24.36 | 0.36 | 0.57 | 2.5 |
 
 ### ZONE CONTROL CONTEXT
-common:
+values_shared_by_all_rows:
 occupancy_at_interval_end: 1.0
 precool_offset_from_unoccupied_base_c: -5.0
 resulting_precool_setpoint_c: 25.0
@@ -4502,7 +4866,7 @@ rows:
 | wes |
 
 ### CAUSAL EVIDENCE
-common:
+values_shared_by_all_rows:
 target: power_meters
 undirected: false
 rows:
@@ -4516,7 +4880,7 @@ rows:
 ### ALLOCATION LIMITS
 zones: ["cor","eas","nor","sou","wes"]
 site_cap_c: 10.0
-per_zone_cap_c: 5.0
+per_zone_reserved_cap_c: 5.0
 
 ### CONTROL DOMAIN
 domain_id: cooling
@@ -4532,26 +4896,32 @@ energy_intensive_setpoint_direction: decrease
 ### WORKING MEMORY
 completed_interval: [13:00, 14:00)
 zones: ["cor","eas","nor","sou","wes"]
-control_period: 15 min
 site_result: {"site_cost":3.02,"site_energy_kwh":21.1}
 completed_decision:
-common:
-action: {"proposal":{"op":"no_change","rationale":"completed-interval fixture"},"admission":{"status":"accepted"},"program_version_before":0,"program_version_after":0}
+values_shared_by_all_rows:
+action: {"proposal":{"op":"no_change"},"admission":{"status":"accepted"},"program_version_before":0,"program_version_after":0}
 lesson: Stable occupied conditions coincided with positive warm-side comfort headroom.
-context: {"initial_observation":{"last_occupancy":1.0}}
 recent_state_history:
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
 setpoint_c: 25.0
-constant_by_zone:
+values_constant_within_each_zone:
 {"zone":"cor","temp_c":24.31,"pmv":0.34}
 {"zone":"eas","temp_c":24.58,"pmv":0.43}
 {"zone":"nor","temp_c":24.22,"pmv":0.31}
 {"zone":"sou","temp_c":24.47,"pmv":0.39}
 {"zone":"wes","temp_c":24.36,"pmv":0.36}
 state_times: ["13:00","13:15","13:30","13:45"]
+OBSERVED CONTEXT HISTORY:
+abs_pmv_score_limit: 0.5
+| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 13:00 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
+| 13:15 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
+| 13:30 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
+| 13:45 | 31.4 | 612.0 | 0.14231 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
 control_action_history:
-common:
+values_shared_by_all_rows:
 regime: steady_state_occupancy
 setpoint_c: 25.0
 matched_rule: occupied_hold
@@ -4565,15 +4935,13 @@ time_varying_actions:
 | 13:15 | 13:30 |
 | 13:30 | 13:45 |
 | 13:45 | 14:00 |
-terminal_outcome_state: shown once in the current-state section at 14:00
 previous_decision_forecast:
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
-zones: ["cor","eas","nor","sou","wes"]
 outcome_times: ["13:15","13:30","13:45","14:00"]
 derived_feature_interval: [13:00, 14:00)
 derived_features:
-common:
+values_shared_by_all_rows:
 temp_delta_15min_c: 0.0
 temp_delta_1h_c: 0.0
 temp_slope_c_per_hour: 0.0
@@ -4605,18 +4973,17 @@ initial_shared_unreserved_pool_c: 4.0
 shared_pool_consumption_by_zone_c: {"eas":0.3}
 remaining_shared_unreserved_pool_c: 3.7
 previous_priority: ["eas","sou","wes","cor","nor"]
-previous_rationale_per_zone: {"cor":"Core conditions were stable.","eas":"East had the smallest warm-side headroom.","nor":"North conditions were stable.","sou":"South had moderate warm-side headroom.","wes":"West had moderate warm-side headroom."}
 ### Orchestrator audit view
 
 ```json
 {
-  "canonical_sha256": "1c7b71656e8a1be2985ebad11542f64a647f53e3b0e50342df7937be5415d9da",
-  "compact_sha256": "6b4c33066de0356adb7bceb557fe67fabe06385f9165a120d7f4aa967ee96f93",
+  "canonical_sha256": "cb82f96ad5aba904985bd2cd36d9ad9f738da684f14acdde726074d83b6b5feb",
+  "compact_sha256": "e25e8eb9322ea7ffdb0f511ab809517a938c96729a7f8214164ab5854aee2bf1",
   "field_manifest": {
     "ALLOCATION LIMITS": [
       "/zones/[]",
       "/site_cap_c",
-      "/per_zone_cap_c"
+      "/per_zone_reserved_cap_c"
     ],
     "CAUSAL EVIDENCE": [
       "/[]/id",
@@ -4685,12 +5052,7 @@ previous_rationale_per_zone: {"cor":"Core conditions were stable.","eas":"East h
       "/initial_shared_unreserved_pool_c",
       "/shared_pool_consumption_by_zone_c/eas",
       "/remaining_shared_unreserved_pool_c",
-      "/previous_priority/[]",
-      "/previous_rationale_per_zone/cor",
-      "/previous_rationale_per_zone/eas",
-      "/previous_rationale_per_zone/nor",
-      "/previous_rationale_per_zone/sou",
-      "/previous_rationale_per_zone/wes"
+      "/previous_priority/[]"
     ],
     "SITE FORECAST": [
       "/[]/forecast_outcome_time",
@@ -4701,6 +5063,12 @@ previous_rationale_per_zone: {"cor":"Core conditions were stable.","eas":"East h
       "/[]/hour",
       "/[]/zone",
       "/[]/context/regime_step_coverage/steady_state_occupancy/[]",
+      "/[]/context/abs_pmv_score_limit",
+      "/[]/context/observed_context_history/outdoor_temperature_c/[]",
+      "/[]/context/observed_context_history/solar_irradiance_w_m2/[]",
+      "/[]/context/observed_context_history/electricity_price/[]",
+      "/[]/context/observed_context_history/temp_rise_to_warm_pmv_edge_c/[]",
+      "/[]/context/observed_context_history/temp_drop_to_cool_pmv_edge_c/[]",
       "/[]/context/initial_observation/zone_temperature_c",
       "/[]/context/initial_observation/current_occupancy",
       "/[]/context/initial_observation/last_occupancy",
@@ -4881,7 +5249,7 @@ solar_irr_max_next_1h_w_m2: 668.0
 solar_irr_mean_next_1h_w_m2: 642.5
 
 ### ZONE FORECAST
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
 rows:
 | forecast_outcome_time | outdoor_temp_c | solar_irr |
@@ -4902,20 +5270,17 @@ parameters:
 | pmv_band_hi | 0.45 | -0.5 | 0.5 | PMV evaluation range |
 | pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |
 rules:
-common_when: {"field":"occupied_now","op":"==","value":0}
-{"id":"precool","when":[{"field":"precool_due","op":"==","value":1}],"then":{"op":"set_residual","value":{"param":"precool_residual_c"}}}
-{"id":"unoccupied_hold","when":[],"then":{"op":"set_residual","value":0.0}}
-common_when: {"field":"occupied_now","op":"==","value":1}
-{"id":"pmv_raise","when":[{"field":"last_pmv","op":"<","value":{"param":"pmv_band_lo"}}],"then":{"op":"step_setpoint","value":{"param":"pmv_step_c"}}}
-{"id":"pmv_lower","when":[{"field":"last_pmv","op":">","value":{"param":"pmv_band_hi"}}],"then":{"op":"step_setpoint","value":{"neg_param":"pmv_step_c"}}}
-{"id":"anchor","when":[{"field":"occupied_last","op":"==","value":0}],"then":{"op":"set_residual","value":0.0}}
-{"id":"occupied_hold","when":[],"then":{"op":"hold_setpoint"}}
-rule_value_references: {"param":"named parameter value","neg_param":"negative named parameter value"}
+{"id":"precool","when":[{"field":"occupied_now","op":"==","value":0},{"field":"precool_due","op":"==","value":1}],"then":{"op":"set_residual","value":{"param":"precool_residual_c"}}}
+{"id":"pmv_raise","when":[{"field":"occupied_now","op":"==","value":1},{"field":"last_pmv","op":"<","value":{"param":"pmv_band_lo"}}],"then":{"op":"step_setpoint","value":{"param":"pmv_step_c"}}}
+{"id":"pmv_lower","when":[{"field":"occupied_now","op":"==","value":1},{"field":"last_pmv","op":">","value":{"param":"pmv_band_hi"}}],"then":{"op":"step_setpoint","value":{"neg_param":"pmv_step_c"}}}
+{"id":"anchor","when":[{"field":"occupied_now","op":"==","value":1},{"field":"occupied_last","op":"==","value":0}],"then":{"op":"set_residual","value":0.0}}
+{"id":"occupied_hold","when":[{"field":"occupied_now","op":"==","value":1}],"then":{"op":"hold_setpoint"}}
+{"id":"unoccupied_hold","when":[{"field":"occupied_now","op":"==","value":0}],"then":{"op":"set_residual","value":0.0}}
 rule_and_weather_limits: {"new_rule":{"condition_fields":["last_pmv","occupied_last","occupied_now","outdoor_temp_change_next_1h_c","precool_due","solar_irr_max_next_1h_w_m2","solar_irr_mean_next_1h_w_m2"],"comparisons":["<","<=",">",">=","==","!="],"comparison_value":"number or parameter name","action_types":["set_residual","step_setpoint","hold_setpoint"],"max_rules":8},"weather_literals":{"must_be":"finite numbers","parameter_refs":"forbidden"}}
 control_domain: {"domain_id":"cooling","controlled_setpoint":"zone cooling setpoint","unit":"degC","hard_bounds_c":[20.0,30.0],"occupied_base_c":25.0,"unoccupied_base_c":30.0,"abs_pmv_score_limit":0.5,"preconditioning":{"label":"precool","lead_steps":4,"target_c":25.0},"energy_intensive_setpoint_direction":"decrease"}
 
 ### CAUSAL EVIDENCE
-common:
+values_shared_by_all_rows:
 undirected: false
 rows:
 | id | source | relation | target | tags_1 | tags_2 |
@@ -4930,27 +5295,33 @@ rows:
 | ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |
 
 ### ALLOCATION
-allocation: {"zone_reserved_allowance_c":2.0,"shared_unreserved_allowance_c":4.0,"shared_priority_rank":1}
+allocation: {"zone_reserved_allowance_c":2.0,"shared_pool_available_before_settlement_c":4.0,"shared_settlement_priority_rank":1}
 
 ### WORKING MEMORY
 completed_interval: [13:00, 14:00)
 zones: ["eas"]
-control_period: 15 min
 site_result: {"site_cost":3.02,"site_energy_kwh":21.1}
 completed_decision:
-common:
+values_shared_by_all_rows:
 action: {"proposal":{"op":"no_change","rationale":"completed-interval fixture"},"admission":{"status":"accepted"},"program_version_before":0,"program_version_after":0}
 lesson: Stable occupied conditions coincided with positive warm-side comfort headroom.
-context: {"initial_observation":{"last_occupancy":1.0}}
 recent_state_history:
-common:
+values_shared_by_all_rows:
 temp_c: 24.58
 pmv: 0.43
 occupancy: 1.0
 setpoint_c: 25.0
 state_times: ["13:00","13:15","13:30","13:45"]
+OBSERVED CONTEXT HISTORY:
+abs_pmv_score_limit: 0.5
+| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c |
+| --- | --- | --- | --- | --- | --- |
+| 13:00 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |
+| 13:15 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |
+| 13:30 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |
+| 13:45 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |
 control_action_history:
-common:
+values_shared_by_all_rows:
 regime: steady_state_occupancy
 setpoint_c: 25.0
 matched_rule: occupied_hold
@@ -4964,15 +5335,13 @@ time_varying_actions:
 | 13:15 | 13:30 |
 | 13:30 | 13:45 |
 | 13:45 | 14:00 |
-terminal_outcome_state: shown once in the current-state section at 14:00
 previous_decision_forecast:
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
-zones: ["eas"]
 outcome_times: ["13:15","13:30","13:45","14:00"]
 derived_feature_interval: [13:00, 14:00)
 derived_features:
-common:
+values_shared_by_all_rows:
 temp_delta_15min_c: 0.0
 temp_delta_1h_c: 0.0
 temp_slope_c_per_hour: 0.0
@@ -4986,8 +5355,8 @@ occupied_peak_abs_pmv: 0.43
 setpoint_tv_c: 0.0
 setpoint_reversals: 0
 
-### ACTIVE LONG-TERM EXPERIENCES
-common:
+### ACTIVE LONG-TERM EXPERIENCE SLOTS
+values_shared_by_all_rows:
 revision: 1
 experience: East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone.
 rows:
@@ -4998,18 +5367,18 @@ rows:
 
 ```json
 {
-  "canonical_sha256": "6b507ee6816aaac96f0c368e7b3d91c5a960d144d54bb1d3bc4aa2c476bd053c",
-  "compact_sha256": "d51b5ae3a515856eb253634a06a9eea8110b81c2a1a3594692de2d5147f6ff1b",
+  "canonical_sha256": "07d1e429a4e3b83362d3d72ab1a90e4053a914534f7d0a4897667f7094115462",
+  "compact_sha256": "29f8366d69a97d9d8f6392296c54775f8cbe04cf44abc8d875863bd740507fda",
   "field_manifest": {
-    "ACTIVE LONG-TERM EXPERIENCES": [
+    "ACTIVE LONG-TERM EXPERIENCE SLOTS": [
       "/[]/regime",
       "/[]/revision",
       "/[]/experience"
     ],
     "ALLOCATION": [
       "/allocation/zone_reserved_allowance_c",
-      "/allocation/shared_unreserved_allowance_c",
-      "/allocation/shared_priority_rank"
+      "/allocation/shared_pool_available_before_settlement_c",
+      "/allocation/shared_settlement_priority_rank"
     ],
     "CAUSAL EVIDENCE": [
       "/[]/id",
@@ -5035,8 +5404,6 @@ rows:
       "/rules/[]/when/[]/value/param",
       "/rules/[]/then/value/neg_param",
       "/rules/[]/then/value",
-      "/rule_value_references/param",
-      "/rule_value_references/neg_param",
       "/rule_and_weather_limits/a_rule_you_add/conditions_may_test/[]",
       "/rule_and_weather_limits/a_rule_you_add/comparisons/[]",
       "/rule_and_weather_limits/a_rule_you_add/compared_against",
@@ -5090,6 +5457,12 @@ rows:
       "/[]/hour",
       "/[]/zone",
       "/[]/context/regime_step_coverage/steady_state_occupancy/[]",
+      "/[]/context/abs_pmv_score_limit",
+      "/[]/context/observed_context_history/outdoor_temperature_c/[]",
+      "/[]/context/observed_context_history/solar_irradiance_w_m2/[]",
+      "/[]/context/observed_context_history/electricity_price/[]",
+      "/[]/context/observed_context_history/temp_rise_to_warm_pmv_edge_c/[]",
+      "/[]/context/observed_context_history/temp_drop_to_cool_pmv_edge_c/[]",
       "/[]/context/initial_observation/zone_temperature_c",
       "/[]/context/initial_observation/current_occupancy",
       "/[]/context/initial_observation/last_occupancy",
@@ -5169,23 +5542,24 @@ zones: ["cor","eas","nor","sou","wes"]
 control_period: 15 min
 site_result: {"site_cost":3.1214,"site_energy_kwh":21.9425}
 completed_decision:
-common:
+values_shared_by_all_rows:
 action: {"admission":{"status":"accepted"},"program_version_before":0}
 context: {"initial_observation":{"last_occupancy":1.0}}
-rows:
+no_change_rows:
 | zone | op | rationale | program_version_after |
 | --- | --- | --- | --- |
 | cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |
 | nor | no_change | The current program matched the observed stable occupied conditions. | 0 |
 | sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |
 | wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |
+set_param_rows:
 | zone | op | rationale | program_version_after | param | to |
 | --- | --- | --- | --- | --- | --- |
 | eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |
 recent_state_history:
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
-constant_by_zone:
+values_constant_within_each_zone:
 {"zone":"cor","setpoint_c":25.0}
 {"zone":"nor","setpoint_c":25.0}
 {"zone":"sou","setpoint_c":25.0}
@@ -5199,13 +5573,21 @@ time_varying_measurements:
 | 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |
 | 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |
 | 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |
+OBSERVED CONTEXT HISTORY:
+abs_pmv_score_limit: 0.5
+| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
+| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
+| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
+| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |
 control_action_history:
-common:
+values_shared_by_all_rows:
 regime: steady_state_occupancy
 actuator_bounds: false
 setpoint_rate_limit: false
 comfort_recovery: false
-constant_by_zone:
+values_constant_within_each_zone:
 {"zone":"cor","setpoint_c":25.0,"matched_rule":"occupied_hold"}
 {"zone":"nor","setpoint_c":25.0,"matched_rule":"occupied_hold"}
 {"zone":"sou","setpoint_c":25.0,"matched_rule":"occupied_hold"}
@@ -5218,13 +5600,12 @@ time_varying_actions:
 | 14:30 | 14:45 | 24.7 | occupied_hold |
 | 14:45 | 15:00 | 25.0 | pmv_raise |
 previous_decision_forecast:
-common:
+values_shared_by_all_rows:
 occupancy: 1.0
-zones: ["cor","eas","nor","sou","wes"]
 outcome_times: ["14:15","14:30","14:45","15:00"]
 derived_feature_interval: [14:00, 15:00)
 derived_features:
-common:
+values_shared_by_all_rows:
 setpoint_delta_1h_c: 0.0
 discomfort_zone_h: 0.0
 discomfort_pmv_h: 0.0
@@ -5256,8 +5637,8 @@ rows:
 
 ```json
 {
-  "canonical_sha256": "5d01672ba636a87a6c780caa79c4d9b17a79b97f2bb81a2b92ea4e597de42a6e",
-  "compact_sha256": "bdd392dfa55e7285f989614368512621f34d02944319da8b2ff86cbc896435d1",
+  "canonical_sha256": "3eef8d12505228391699fe60abea9c21f400800863369f2481264918525bb4d3",
+  "compact_sha256": "fe8c7cca80f411d46d0c8f0978c725769e0deb29274d867efaa1c5c675482d3b",
   "field_manifest": {
     "ACTIVE LONG-TERM EXPERIENCE SLOTS": [
       "/[]/zone",
@@ -5269,6 +5650,12 @@ rows:
       "/[]/hour",
       "/[]/zone",
       "/[]/context/regime_step_coverage/steady_state_occupancy/[]",
+      "/[]/context/abs_pmv_score_limit",
+      "/[]/context/observed_context_history/outdoor_temperature_c/[]",
+      "/[]/context/observed_context_history/solar_irradiance_w_m2/[]",
+      "/[]/context/observed_context_history/electricity_price/[]",
+      "/[]/context/observed_context_history/temp_rise_to_warm_pmv_edge_c/[]",
+      "/[]/context/observed_context_history/temp_drop_to_cool_pmv_edge_c/[]",
       "/[]/context/initial_observation/zone_temperature_c",
       "/[]/context/initial_observation/current_occupancy",
       "/[]/context/initial_observation/last_occupancy",

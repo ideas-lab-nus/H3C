@@ -156,7 +156,7 @@ class FakeModelClient:
             if self.zero_allocation:
                 assert 'zones: ["zone1"]' in user
                 assert "site_cap_c: 2.5" in user
-                assert "per_zone_cap_c: 5.0" in user
+                assert "per_zone_reserved_cap_c: 5.0" in user
             if self.reject_orchestrator_output:
                 output = json.dumps(
                     {

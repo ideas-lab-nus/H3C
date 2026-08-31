@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from h3c.agents.contracts import DEFAULT_PER_ZONE_RESERVED_CAP_C
 from h3c.agents.roles import (
     Executor,
     ModelCallContext,
@@ -403,6 +404,7 @@ async def _agent_hour(
     fallback_source: str | None = None
     orchestrator_rationale_telemetry: dict[str, Any] | None = None
     resolved_site_cap = site_cap_max(zones)
+    resolved_per_zone_reserved_cap = DEFAULT_PER_ZONE_RESERVED_CAP_C
     if plan.coordination_enabled:
         orchestrator = Orchestrator(client)
         user = orchestrator.build_user(
@@ -424,7 +426,7 @@ async def _agent_hour(
             allocation_limits={
                 "zones": list(zones),
                 "site_cap_c": resolved_site_cap,
-                "per_zone_cap_c": 5.0,
+                "per_zone_reserved_cap_c": resolved_per_zone_reserved_cap,
             },
         )
         try:
@@ -443,6 +445,7 @@ async def _agent_hour(
                 allowed_causal_edge_ids=allowed_edge_ids,
                 site_causal_edge_ids=shared_power_edge_ids,
                 expected_site_cap_c=resolved_site_cap,
+                expected_per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
             )
             orchestrator_rationale_telemetry = orchestrator.last_rationale_telemetry
         except ModelContractError as error:
@@ -461,9 +464,14 @@ async def _agent_hour(
                 ),
                 allowed_causal_edge_ids=allowed_edge_ids,
                 site_causal_edge_ids=shared_power_edge_ids,
+                per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
             )
             fallback_used = True
-        ledger = BudgetLedger(allocation, zones)
+        ledger = BudgetLedger(
+            allocation,
+            zones,
+            per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
+        )
 
     proposals: dict[str, dict[str, Any] | ModelContractError] = {}
     proposal_rationale_telemetry: dict[str, dict[str, Any] | None] = {}

@@ -9,6 +9,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from h3c.runtime.comfort import COMFORT_BAND
+
 Regime = Literal[
     "unoccupied",
     "occupancy_transition",
@@ -128,11 +130,51 @@ def build_hourly_cao(
         abs(right - left) for left, right in zip(setpoints, setpoints[1:], strict=False)
     )
 
+    observed_context_history: dict[str, list[float]] = {}
+    scalar_observation_fields = {
+        "outdoor_temperature_c": "outdoor_temp_c",
+        "solar_irradiance_w_m2": "solar_irr",
+        "electricity_price": "electricity_price",
+    }
+    for output_name, observation_name in scalar_observation_fields.items():
+        values = [row["observation"].get(observation_name) for row in rows]
+        if all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in values
+        ):
+            observed_context_history[output_name] = [float(value) for value in values]
+    headroom_fields = {
+        "temp_rise_to_warm_pmv_edge_c": "warmer_c",
+        "temp_drop_to_cool_pmv_edge_c": "cooler_c",
+    }
+    for output_name, headroom_name in headroom_fields.items():
+        values = []
+        for row in rows:
+            headroom = row["observation"].get("comfort_headroom_c")
+            values.append(headroom.get(headroom_name) if isinstance(headroom, Mapping) else None)
+        if all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            for value in values
+        ):
+            observed_context_history[output_name] = [float(value) for value in values]
+
     cao = {
         "hour": hour,
         "zone": zone,
         "context": {
             "regime_step_coverage": covered,
+            **(
+                {
+                    "abs_pmv_score_limit": COMFORT_BAND,
+                    "observed_context_history": observed_context_history,
+                }
+                if observed_context_history
+                else {}
+            ),
             "initial_observation": {
                 "zone_temperature_c": rows[0]["observation"]["zone_temperature_c"],
                 "current_occupancy": rows[0]["observation"]["current_occupancy"],

@@ -170,3 +170,57 @@ def test_compact_view_is_independent_of_input_mutation() -> None:
     snapshot = copy.deepcopy(compiled.canonical_ir)
     record["lesson"] = "changed"
     assert compiled.canonical_ir == snapshot
+
+
+def test_orchestrator_projection_can_hide_prior_patch_rationale_without_data_loss() -> None:
+    record = _completed_record("EAS")
+    builder = ContextBuilder()
+    builder.add_working_memory(
+        "WORKING MEMORY",
+        [record],
+        decision_rationale_visible=False,
+    )
+    compiled = builder.build()
+    assert "温度 | 稳定" not in compiled.agent_view
+    assert (
+        compiled.canonical_ir["WORKING MEMORY"][0]["action"]["proposal"]["rationale"]
+        == "温度 | 稳定"
+    )
+    assert decode_compact_context(compiled.compact_view) == compiled.canonical_ir
+
+
+def test_completed_observed_context_history_is_clocked_and_lossless() -> None:
+    record = _completed_record("EAS")
+    record["context"].update(
+        {
+            "abs_pmv_score_limit": 0.5,
+            "observed_context_history": {
+                "outdoor_temperature_c": [30.0, 30.2, 30.4, 30.6],
+                "solar_irradiance_w_m2": [500.0, 520.0, 540.0, 560.0],
+                "electricity_price": [0.1, 0.11, 0.12, 0.13],
+                "temp_rise_to_warm_pmv_edge_c": [0.8, 0.7, 0.6, 0.5],
+                "temp_drop_to_cool_pmv_edge_c": [2.0, 2.1, 2.2, 2.3],
+            },
+        }
+    )
+    builder = ContextBuilder()
+    builder.add_working_memory(
+        "COMPLETED CONTROL INTERVAL",
+        [record],
+        reference_hour=10,
+        reference_time_seconds=14 * 3600,
+        presentation="completed_interval",
+    )
+    compiled = builder.build()
+    assert decode_compact_context(compiled.compact_view) == compiled.canonical_ir
+    assert "OBSERVED CONTEXT HISTORY" in compiled.agent_view
+    for time in ("14:00", "14:15", "14:30", "14:45"):
+        assert time in compiled.agent_view
+    for field in (
+        "outdoor_temperature_c",
+        "solar_irradiance_w_m2",
+        "electricity_price",
+        "EAS.temp_rise_to_warm_pmv_edge_c",
+        "EAS.temp_drop_to_cool_pmv_edge_c",
+    ):
+        assert field in compiled.agent_view

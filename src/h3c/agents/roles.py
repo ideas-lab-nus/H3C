@@ -10,6 +10,7 @@ from typing import Any, Protocol, cast
 
 from h3c.agents.context_compiler import CompiledContext, ContextBuilder
 from h3c.agents.contracts import (
+    DEFAULT_PER_ZONE_RESERVED_CAP_C,
     allocation_contract,
     rationale_length_telemetry,
 )
@@ -312,7 +313,6 @@ def _previous_budget_view(
         "shared_pool_consumption_by_zone_c": copy.deepcopy(dict(shared_used)),
         "remaining_shared_unreserved_pool_c": previous_utilisation["residual_left_c"],
         "previous_priority": copy.deepcopy(previous_allocation["priority"]),
-        "previous_rationale_per_zone": copy.deepcopy(previous_allocation["rationale_per_zone"]),
         **(
             {"previous_causal_edge_ids": copy.deepcopy(previous_allocation["causal_edge_ids"])}
             if "causal_edge_ids" in previous_allocation
@@ -351,10 +351,6 @@ def _control_specification(program: Mapping[str, Any], limits: Mapping[str, Any]
         "program_version": specification.pop("program_version"),
         "parameters": parameter_rows,
         "rules": specification.pop("rules"),
-        "rule_value_references": {
-            "param": "use the named parameter value",
-            "neg_param": "use the opposite sign of the named parameter value",
-        },
         "rule_and_weather_limits": remaining_limits,
         "control_domain": copy.deepcopy(COOLING_CONTROL_DOMAIN),
         **specification,
@@ -369,6 +365,7 @@ def resolve_orchestrator_model_output(
     allowed_causal_edge_ids: set[str] | None = None,
     site_causal_edge_ids: set[str] | None = None,
     expected_site_cap_c: float | None = None,
+    expected_per_zone_reserved_cap_c: float = DEFAULT_PER_ZONE_RESERVED_CAP_C,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Resolve one raw Orchestrator response through the production contract."""
     try:
@@ -387,6 +384,7 @@ def resolve_orchestrator_model_output(
             allowed_causal_edge_ids=allowed_causal_edge_ids,
             site_causal_edge_ids=site_causal_edge_ids,
             expected_site_cap_c=expected_site_cap_c,
+            expected_per_zone_reserved_cap_c=expected_per_zone_reserved_cap_c,
         )
         telemetry = rationale_length_telemetry("orchestrator", allocation["rationale_per_zone"])
     except ValueError as error:
@@ -493,7 +491,7 @@ class Orchestrator:
         working_memory: Sequence[Mapping[str, Any]] | None,
         allocation_limits: Mapping[str, Any],
     ) -> CompiledContext:
-        expected_limits = {"zones", "site_cap_c", "per_zone_cap_c"}
+        expected_limits = {"zones", "site_cap_c", "per_zone_reserved_cap_c"}
         if set(allocation_limits) != expected_limits:
             raise ValueError("allocation limits must use the exact resolved cooling fields")
         if list(allocation_limits["zones"]) != list(zones):
@@ -561,6 +559,7 @@ class Orchestrator:
                 cast(Sequence[Mapping[str, Any]], memory),
                 reference_hour=hour,
                 reference_time_seconds=resolved_time,
+                decision_rationale_visible=False,
             )
         builder.add_json(
             "PREVIOUS BUDGET USE",
@@ -611,6 +610,7 @@ class Orchestrator:
         allowed_causal_edge_ids: set[str] | None = None,
         site_causal_edge_ids: set[str] | None = None,
         expected_site_cap_c: float | None = None,
+        expected_per_zone_reserved_cap_c: float = DEFAULT_PER_ZONE_RESERVED_CAP_C,
     ) -> dict[str, Any]:
         self.last_rationale_telemetry = None
         raw = await self.client.complete(
@@ -627,6 +627,7 @@ class Orchestrator:
             allowed_causal_edge_ids=allowed_causal_edge_ids,
             site_causal_edge_ids=site_causal_edge_ids,
             expected_site_cap_c=expected_site_cap_c,
+            expected_per_zone_reserved_cap_c=expected_per_zone_reserved_cap_c,
         )
         return allocation
 
@@ -716,7 +717,7 @@ class Executor:
             )
         if experiences:
             builder.add_common_rows(
-                "ACTIVE LONG-TERM EXPERIENCES",
+                "ACTIVE LONG-TERM EXPERIENCE SLOTS",
                 cast(Sequence[Mapping[str, Any]], display(experiences)),
                 identity_fields=("regime",),
             )

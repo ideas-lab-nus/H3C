@@ -9,7 +9,13 @@ from typing import Any
 import pytest
 
 from h3c.agents.prompts import Language, Role, assert_causal_disabled_text_clean, system_prompt
-from h3c.agents.roles import Executor, Orchestrator, Reflector
+from h3c.agents.roles import (
+    Executor,
+    ModelContractError,
+    Orchestrator,
+    Reflector,
+    resolve_orchestrator_model_output,
+)
 from h3c.memory.ledger import ProgramLedger
 
 
@@ -61,9 +67,9 @@ def test_rationale_prompt_has_no_length_semantics_and_reflector_uses_lessons(
         else ("理由不能为空" in orchestrator)
     )
     assert (
-        "Common required fields: op, rationale" in executor
+        "Common fields: op, rationale" in executor
         if language == "en"
-        else "所有 operation 公共必填：op、rationale" in executor
+        else "公共字段：op、rationale" in executor
     )
     assert "single-line Lesson" not in reflector and "单行 Lesson" not in reflector
 
@@ -87,13 +93,37 @@ def test_orchestrator_dynamic_limits_match_final_w_cooling_projection() -> None:
         allocation_limits={
             "zones": ["zoneB", "zoneA"],
             "site_cap_c": 5.0,
-            "per_zone_cap_c": 5.0,
+            "per_zone_reserved_cap_c": 3.25,
         },
     )
     assert 'zones: ["zoneB","zoneA"]' in user
     assert "site_cap_c: 5.0" in user
-    assert "per_zone_cap_c: 5.0" in user
+    assert "per_zone_reserved_cap_c: 3.25" in user
     assert "site_cap_max_c" not in user and "priority_contract" not in user
+
+    valid = {
+        "site_cap_c": 5.0,
+        "zone_budgets_c": {"zoneB": 3.25, "zoneA": 1.75},
+        "priority": ["zoneB", "zoneA"],
+        "rationale_per_zone": {"zoneB": "first", "zoneA": "second"},
+    }
+    parsed, _ = resolve_orchestrator_model_output(
+        json.dumps(valid),
+        ["zoneB", "zoneA"],
+        causal_enabled=False,
+        expected_site_cap_c=5.0,
+        expected_per_zone_reserved_cap_c=3.25,
+    )
+    assert parsed == valid
+    valid["zone_budgets_c"] = {"zoneB": 3.26, "zoneA": 1.74}
+    with pytest.raises(ModelContractError, match="zone allocation is outside its bound"):
+        resolve_orchestrator_model_output(
+            json.dumps(valid),
+            ["zoneB", "zoneA"],
+            causal_enabled=False,
+            expected_site_cap_c=5.0,
+            expected_per_zone_reserved_cap_c=3.25,
+        )
 
 
 def test_orchestrator_allocation_limits_have_one_exact_role_builder_owner() -> None:
@@ -146,7 +176,7 @@ def test_missing_blocks_are_omitted_not_rendered(canonical_program: dict[str, An
     assert "CONFIRMED CAUSAL EDGES" not in user
     assert "ALLOWANCE" not in user
     assert "WORKING MEMORY" not in user
-    assert "ACTIVE LONG-TERM EXPERIENCES" not in user
+    assert "ACTIVE LONG-TERM EXPERIENCE SLOTS" not in user
     assert "N/A" not in user and "null" not in user
 
 
@@ -222,7 +252,7 @@ def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only
         working_memory=completed_hour,
     )
     assert "WORKING MEMORY" in executor_user_off
-    assert "ACTIVE LONG-TERM EXPERIENCES" not in executor_user_off
+    assert "ACTIVE LONG-TERM EXPERIENCE SLOTS" not in executor_user_off
     for internal_coordinate in (
         "decision_hour",
         "sample_index",

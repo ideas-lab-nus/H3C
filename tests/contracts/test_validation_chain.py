@@ -153,12 +153,14 @@ def test_orchestrator_causal_references_are_unique_known_and_formatted(
         )
 
 
-def test_orchestrator_reference_must_reach_shared_power_surface(repository_root: Path) -> None:
+def test_orchestrator_reference_must_reach_visible_power_meter_surface(
+    repository_root: Path,
+) -> None:
     graph = load_graph(repository_root / "configs" / "graphs" / "sz_air_confirmed.json")
     zone_edge = next(edge for edge in graph.edges if edge.target == "zone_temp")
     allocation = _allocation(graph)
     allocation["causal_edge_ids"] = [zone_edge.identifier]
-    with pytest.raises(ValueError, match="shared-power site edge"):
+    with pytest.raises(ValueError, match="target=power_meters"):
         validate_allocation(
             allocation,
             ["zone1"],
@@ -168,6 +170,25 @@ def test_orchestrator_reference_must_reach_shared_power_surface(repository_root:
                 edge.identifier for edge in graph.edges if edge.target == "power_meters"
             },
         )
+
+
+def test_orchestrator_accepts_any_visible_edge_targeting_power_meters(
+    repository_root: Path,
+) -> None:
+    graph = load_graph(repository_root / "configs" / "graphs" / "sz_air_confirmed.json")
+    power_edges = [edge for edge in graph.edges if edge.target == "power_meters"]
+    non_actuator_power_edge = next(
+        edge for edge in power_edges if edge.source != "cooling_setpoint"
+    )
+    allocation = _allocation(graph)
+    allocation["causal_edge_ids"] = [non_actuator_power_edge.identifier]
+    validate_allocation(
+        allocation,
+        ["zone1"],
+        causal_enabled=True,
+        allowed_causal_edge_ids=set(graph.by_id),
+        site_causal_edge_ids={edge.identifier for edge in power_edges},
+    )
 
 
 def test_rationale_length_never_changes_allocation_or_patch_acceptance(

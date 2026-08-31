@@ -1,13 +1,13 @@
 {
-  "schema_version": 2,
-  "executor_off_en": {"length": 1148, "sha256": "730f43a3ace9198ea5a0b7c0824e8b27f7ee3d31c81a8dca0badb01e46b5dd59"},
-  "executor_on_en": {"length": 1216, "sha256": "952f9150ea52dc3f36b1a959d43b9d29c028e402b6fa60bf636c96d5dc853ac9"},
-  "executor_off_zh": {"length": 713, "sha256": "3da891bb95ee544b198f87bf16aeff1b9980b55820a2c204d0814f71fc60f4ce"},
-  "executor_on_zh": {"length": 782, "sha256": "6039bcbc7f5798535ea5a0813b785fd9493d681b08ea8612ba1d84db0d7bf1d1"},
-  "orchestrator_off_en": {"length": 800, "sha256": "74b98c20cee7e3231b07dbd17f7454d1a0df3154beb214f41409607ecec326ca"},
-  "orchestrator_off_zh": {"length": 464, "sha256": "a2af9ed8c8039fead439af40fcedf17df52d382c6f333d8781e8ea55d1fad7d6"},
-  "reflector_off_en": {"length": 625, "sha256": "48b022bde5cb6b82eb0f95977f26575157956f78d9d3834212f90625650981f3"},
-  "reflector_on_en": {"length": 1007, "sha256": "066d9ea7d34c10dde7630b27d888f13bae9b89132e5d0cc9096a46e1eb3a53f7"},
-  "reflector_off_zh": {"length": 265, "sha256": "b9a89c0988e53e5ca9f30677b64a83bfaeb2b38884805c8af7a2ff8d9efc3e9e"},
-  "reflector_on_zh": {"length": 543, "sha256": "5faef00e03204d5f0b613c9fe7c246c37208faa933daf0d0a4f29ecb4f5b5460"}
+  "schema_version": 3,
+  "executor_off_en": {"length": 1230, "sha256": "89128e9cce7a5f3217df8715dc53a8d986ff2949d7a912b904f0e40763a1c3f0"},
+  "executor_on_en": {"length": 1352, "sha256": "e5a654e894ecf493d26ccd659d6e957d885eca0219b0038202a6ea34fc83efe0"},
+  "executor_off_zh": {"length": 818, "sha256": "bc447f02066edb4c071bf5f9394925a27df507e6f535c0105f6f5cd7bc3baeaf"},
+  "executor_on_zh": {"length": 867, "sha256": "7a0d2ed8ac298efb7b731633fe35d6fab8bb0127e247f6551b7b09125c642896"},
+  "orchestrator_off_en": {"length": 861, "sha256": "ca603f79832b015e719f178e263c4be048dd4c29b127b729d3ff81b41211bb8c"},
+  "orchestrator_off_zh": {"length": 513, "sha256": "5cfaa3eee16f2cc7f473aa718d9c874e4cc8e90e11782c4eab0472b24f325fb9"},
+  "reflector_off_en": {"length": 437, "sha256": "21324a106af2f62b9f56d3b801f24a8eaccfa8b91214fab60be53efbde005bad"},
+  "reflector_on_en": {"length": 897, "sha256": "f19c279287d60259f29503c4ab5fcf5fe5173a40fd4731d01a320ec231ae626d"},
+  "reflector_off_zh": {"length": 198, "sha256": "423488cc7d515528ff08e3e027012adc5a9bbc88789d92e7f82ca0ee578683b0"},
+  "reflector_on_zh": {"length": 523, "sha256": "0c97aaaf9071bb516b0c9ea8f603a6d388422164804d146e5608f409b47f3b00"}
 }

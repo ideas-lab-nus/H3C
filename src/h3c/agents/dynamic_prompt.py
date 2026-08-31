@@ -13,11 +13,12 @@ from h3c.control.program import (
     RULE_OPERATORS,
     condition_fields,
 )
+from h3c.runtime.comfort import COMFORT_BAND
 
 DISPLAY_NAMES = {
-    "site_residual_c": "shared_unreserved_allowance_c",
+    "site_residual_c": "shared_pool_available_before_settlement_c",
     "remaining_c": "zone_reserved_allowance_c",
-    "priority_rank": "shared_priority_rank",
+    "priority_rank": "shared_settlement_priority_rank",
     "granted_c": "total_reserved_allowance_c",
     "used_c": "total_reserved_consumption_c",
     "residual_initial_c": "initial_shared_unreserved_pool_c",
@@ -97,7 +98,7 @@ COOLING_CONTROL_DOMAIN = {
     "hard_bounds_c": [20.0, 30.0],
     "occupied_base_c": 25.0,
     "unoccupied_base_c": 30.0,
-    "abs_pmv_score_limit": 0.5,
+    "abs_pmv_score_limit": COMFORT_BAND,
     "preconditioning": {"label": "precool", "lead_steps": 4, "target_c": 25.0},
     "energy_intensive_setpoint_direction": "decrease",
 }

@@ -23,9 +23,14 @@ Every request is compiled from one normalized typed context into:
 - Repeated site cost/energy or Budget owners that disagree fail closed.
 - Table cells are scalar; nested programs and patches remain structured objects outside table cells.
 - Memory-off prompts, input and output contracts contain no long-term slot, revision, CRUD operation or memory reference.
+- `values_shared_by_all_rows` and `values_constant_within_each_zone` are self-describing; stale `common`, `constant_by_zone` and `common_when` labels are absent.
+- Orchestrator model input excludes previous natural-language rationale while the canonical/audit view retains it.
+- Reflector receives only completed-action-time outdoor temperature, irradiance, price and comfort-headroom history; no future or cross-zone evidence is introduced.
+- Documentation Lesson pointers resolve against canonical completed-interval records and are not part of the model wire.
+- The dynamic reserved cap and causal allocation rule are shared by renderer and validator owners.
 
 ## Boundary
 
 No API or physical simulation was run. Final status:
 
-`DATA-LOSSLESS / CONTRACT-ALIGNED / TIME-EXPLICIT / SEMANTICALLY-EXPLICIT / BEHAVIOR-UNVERIFIED`
+`DATA-LOSSLESS / CONTRACT-ALIGNED / TIME-EXPLICIT / SEMANTICALLY-EXPLICIT / EVIDENCE-CLOSED / BEHAVIOR-UNVERIFIED`

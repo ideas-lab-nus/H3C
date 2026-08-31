@@ -53,6 +53,17 @@ def _hour_rows() -> list[dict[str, object]]:
         _observation(1, 1, [1, 1, 1, 1]),
     )
     for step, observation in enumerate(occupancies):
+        observation.update(
+            {
+                "outdoor_temp_c": 30.0 + step,
+                "solar_irr": 500.0 + 10.0 * step,
+                "electricity_price": 0.1 + 0.01 * step,
+                "comfort_headroom_c": {
+                    "warmer_c": 0.8 - 0.1 * step,
+                    "cooler_c": 2.0 + 0.1 * step,
+                },
+            }
+        )
         setpoint = (26.0, 25.5, 25.0, 25.5)[step]
         rows.append(
             {
@@ -98,6 +109,14 @@ def test_cao_is_deterministic_and_lesson_is_a_separate_attachment() -> None:
     assert cao["context"]["regime_step_coverage"] == {
         "occupancy_transition": [0, 1, 2],
         "steady_state_occupancy": [3],
+    }
+    assert cao["context"]["abs_pmv_score_limit"] == 0.5
+    assert cao["context"]["observed_context_history"] == {
+        "outdoor_temperature_c": [30.0, 31.0, 32.0, 33.0],
+        "solar_irradiance_w_m2": [500.0, 510.0, 520.0, 530.0],
+        "electricity_price": [0.1, 0.11, 0.12, 0.13],
+        "temp_rise_to_warm_pmv_edge_c": [0.8, 0.7, 0.6, 0.5],
+        "temp_drop_to_cool_pmv_edge_c": [2.0, 2.1, 2.2, 2.3],
     }
     assert cao["outcome"]["site_energy_kwh"] == 1.0
     assert cao["outcome"]["discomfort_zone_hours"] == 0.25

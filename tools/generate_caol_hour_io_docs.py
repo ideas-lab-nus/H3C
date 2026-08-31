@@ -31,6 +31,7 @@ from h3c.memory.caol import (
 )
 from h3c.memory.ledger import ProgramLedger
 from h3c.runtime.clients import model_request_contract
+from h3c.runtime.comfort import COMFORT_BAND
 
 Language = Literal["en", "zh"]
 
@@ -52,6 +53,21 @@ def _load_fixture(root: Path) -> dict[str, Any]:
     return value
 
 
+def _observed_context(fixture: Mapping[str, Any], zone: str) -> dict[str, Any]:
+    site = fixture["site_state"]
+    zone_state = fixture["zone_state"][zone]
+    return {
+        "abs_pmv_score_limit": COMFORT_BAND,
+        "observed_context_history": {
+            "outdoor_temperature_c": [site["outdoor_temp_c"]] * 4,
+            "solar_irradiance_w_m2": [site["solar_irr"]] * 4,
+            "electricity_price": [site["price_now"]] * 4,
+            "temp_rise_to_warm_pmv_edge_c": [zone_state["comfort_headroom_c"]["warmer_c"]] * 4,
+            "temp_drop_to_cool_pmv_edge_c": [zone_state["comfort_headroom_c"]["cooler_c"]] * 4,
+        },
+    }
+
+
 def _previous_caol(fixture: Mapping[str, Any], language: Language) -> list[dict[str, Any]]:
     hour = int(fixture["hour"]) - 1
     first_step = int(fixture["first_step"]) - 4
@@ -71,6 +87,7 @@ def _previous_caol(fixture: Mapping[str, Any], language: Language) -> list[dict[
                     "regime_step_coverage": {
                         "steady_state_occupancy": list(range(first_step, first_step + 4))
                     },
+                    **_observed_context(fixture, zone),
                     "initial_observation": {
                         "zone_temperature_c": state["zone_temperature_c"],
                         "current_occupancy": 1.0,
@@ -130,8 +147,14 @@ def _observation(
     zone_temperature_c: float,
     last_pmv: float,
     last_setpoint: float,
+    action_offset: int = 0,
 ) -> dict[str, Any]:
     site = fixture["site_state"]
+    weather = (
+        {"outdoor_temp_c": site["outdoor_temp_c"], "solar_irr": site["solar_irr"]}
+        if action_offset == 0
+        else site["weather_next_steps"][action_offset - 1]
+    )
     return {
         "zone_temperature_c": zone_temperature_c,
         "current_occupancy": 1.0,
@@ -141,8 +164,8 @@ def _observation(
         "last_occupancy": 1.0,
         "next_hour_occupancy": 1.0,
         "electricity_price": site["price_now"],
-        "outdoor_temp_c": site["outdoor_temp_c"],
-        "solar_irr": site["solar_irr"],
+        "outdoor_temp_c": weather["outdoor_temp_c"],
+        "solar_irr": weather["solar_irr"],
         "comfort_headroom_c": fixture["zone_state"][zone]["comfort_headroom_c"],
         "outdoor_temp_change_next_1h_c": site["outdoor_temp_change_next_1h_c"],
         "solar_irr_max_next_1h_w_m2": site["solar_irr_max_next_1h_w_m2"],
@@ -227,6 +250,59 @@ def _reflector_output(
             operations.append(operation)
         root["memory_operations"] = operations
     return root
+
+
+def _render_lesson_evidence_report(fixture: Mapping[str, Any]) -> str:
+    lines = [
+        "# Reflector Lesson evidence support\n",
+        "This audit-only map binds each documentation Lesson to canonical completed-interval "
+        "fields. The pointers are not sent to the model and do not change the Reflector wire.\n",
+        "Result: `EVIDENCE-CLOSED` for the frozen documentation fixture.\n",
+        "| zone | English Lesson | canonical evidence pointers |",
+        "| --- | --- | --- |",
+    ]
+    for zone in fixture["zones"]:
+        lesson = str(fixture["lessons"][zone]["en"]).replace("|", "\\|")
+        pointers = "<br>".join(
+            f"`{pointer}`" for pointer in fixture["lesson_evidence_pointers"][zone]
+        )
+        lines.append(f"| {zone} | {lesson} | {pointers} |")
+    lines.extend(
+        (
+            "",
+            "Acceptance requires every pointer to resolve in the production-generated canonical "
+            "record for that zone. Long-term experience slots are excluded from this support map "
+            "because they are CRUD comparison material rather than completed-interval facts.",
+            "",
+        )
+    )
+    return "\n".join(lines)
+
+
+def _resolve_pointer(value: Mapping[str, Any], pointer: str) -> Any:
+    current: Any = value
+    if not pointer.startswith("/"):
+        raise ValueError(f"invalid Lesson evidence pointer: {pointer}")
+    for raw_part in pointer[1:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, Mapping) or part not in current:
+            raise ValueError(f"unresolved Lesson evidence pointer: {pointer}")
+        current = current[part]
+    return current
+
+
+def _validate_lesson_evidence_pointers(
+    fixture: Mapping[str, Any], completed_records: list[dict[str, Any]]
+) -> None:
+    by_zone = {str(record["zone"]): record for record in completed_records}
+    if set(by_zone) != set(fixture["zones"]):
+        raise ValueError("Lesson evidence records do not cover the fixture zones")
+    for zone in fixture["zones"]:
+        pointers = fixture["lesson_evidence_pointers"].get(zone)
+        if not isinstance(pointers, list) or not pointers:
+            raise ValueError(f"Lesson evidence pointers are missing for {zone}")
+        for pointer in pointers:
+            _resolve_pointer(by_zone[zone], str(pointer))
 
 
 def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
@@ -344,7 +420,11 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         previous_allocation=fixture["previous_allocation"],
         previous_utilisation=previous_utilisation,
         working_memory=previous_caol,
-        allocation_limits={"zones": zones, "site_cap_c": 10.0, "per_zone_cap_c": 5.0},
+        allocation_limits={
+            "zones": zones,
+            "site_cap_c": 10.0,
+            "per_zone_reserved_cap_c": 5.0,
+        },
     )
     orchestrator_user = orchestrator_context.agent_view
     allocation = _allocation(fixture, language, site_edge_id)
@@ -459,6 +539,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
                 zone_temperature_c=temperatures[zone],
                 last_pmv=last_pmvs[zone],
                 last_setpoint=last_setpoints[zone],
+                action_offset=offset,
             )
             for zone in zones
         }
@@ -495,6 +576,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         )
         for zone in zones
     ]
+    _validate_lesson_evidence_pointers(fixture, current_cao)
     reflector_context = Reflector.build_context(
         current_hour_cao=current_cao,
         interval_start_time_seconds=int(fixture["action_time_seconds"]),
@@ -674,10 +756,13 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         _code(
             {
                 "executor_system_removed": ["long-term experience semantics", "memory_refs"],
-                "executor_user_removed": ["ACTIVE LONG-TERM EXPERIENCES"],
+                "executor_user_removed": ["ACTIVE LONG-TERM EXPERIENCE SLOTS"],
                 "executor_output_removed": ["memory_refs"],
                 "reflector_system_removed": ["three-regime comparison", "CRUD operation contract"],
-                "reflector_user_removed": ["ELIGIBLE LONG-TERM EXPERIENCE SLOTS"],
+                "reflector_user_removed": [
+                    "ACTIVE LONG-TERM EXPERIENCE SLOTS",
+                    "EMPTY LONG-TERM EXPERIENCE SLOTS",
+                ],
                 "reflector_output_removed": ["memory_operations"],
                 "runtime_output_removed": [
                     "long-term CRUD rows",
@@ -745,6 +830,16 @@ def main() -> int:
                 mismatches.append(str(target))
         else:
             target.write_text(rendered, encoding="utf-8", newline="\n")
+    evidence_target = root / "docs" / "h3c_reflector_lesson_evidence_report.md"
+    evidence_report = _render_lesson_evidence_report(fixture)
+    if args.check:
+        if (
+            not evidence_target.is_file()
+            or evidence_target.read_text(encoding="utf-8") != evidence_report
+        ):
+            mismatches.append(str(evidence_target))
+    else:
+        evidence_target.write_text(evidence_report, encoding="utf-8", newline="\n")
     if mismatches:
         raise SystemExit("generated complete-hour documents are stale: " + ", ".join(mismatches))
     return 0

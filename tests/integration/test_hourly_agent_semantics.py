@@ -142,7 +142,7 @@ def test_two_phase_proposals_use_uncharged_snapshots_then_priority_settlement(
     ]
     executor_users = [user for role, _, user in model.calls if role == "executor"]
     assert len(executor_users) == 2
-    assert all('"shared_unreserved_allowance_c":5.0' in user for user in executor_users)
+    assert all('"shared_pool_available_before_settlement_c":5.0' in user for user in executor_users)
     assert all('"zone_reserved_allowance_c":0.0' in user for user in executor_users)
     assert audit is not None and audit["settlement_order"] == priority
     by_zone = {row["zone"]: row for row in updates}

@@ -153,3 +153,131 @@ def test_exact_direction_proof_fails_before_combinatorial_witness_expansion(
             causal_enabled=False,
         )
     assert captured.value.code == "direction_proof_complexity_limit"
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"op": "no_change", "rationale": "retain the current program"},
+        {
+            "op": "set_param",
+            "param": "pmv_band_hi",
+            "to": 0.4,
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "change one existing parameter",
+        },
+        {
+            "op": "add_rule",
+            "index": 0,
+            "rule": {
+                "id": "weather_observed",
+                "when": [
+                    {
+                        "field": "outdoor_temp_change_next_1h_c",
+                        "op": ">=",
+                        "value": 0.5,
+                    }
+                ],
+                "then": {"op": "set_residual", "value": 0.2},
+            },
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "add a uniquely identified rule at a zero-based index",
+        },
+        {
+            "op": "replace_rule",
+            "rule": {
+                "id": "occupied_hold",
+                "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+                "then": {"op": "set_residual", "value": 0.2},
+            },
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "replace one existing rule by its identifier",
+        },
+        {
+            "op": "remove_rule",
+            "id": "anchor",
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "remove one existing rule by its identifier",
+        },
+        {
+            "op": "move_rule",
+            "id": "unoccupied_hold",
+            "to_index": 0,
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "move one existing rule to a zero-based index",
+        },
+    ],
+    ids=("no-change", "set-param", "add-rule", "replace-rule", "remove-rule", "move-rule"),
+)
+def test_all_six_documented_patch_operations_follow_the_runtime_contract(
+    canonical_program: dict[str, Any], patch: dict[str, Any]
+) -> None:
+    candidate = apply_patch(canonical_program, patch)
+    if patch["op"] == "no_change":
+        assert candidate == canonical_program
+    else:
+        assert program_hash(candidate) != program_hash(canonical_program)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {
+            "op": "add_rule",
+            "index": -1,
+            "rule": {
+                "id": "new_rule",
+                "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+                "then": {"op": "hold_setpoint"},
+            },
+            "rationale": "invalid negative insertion index",
+        },
+        {
+            "op": "add_rule",
+            "rule": {
+                "id": "occupied_hold",
+                "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+                "then": {"op": "hold_setpoint"},
+            },
+            "rationale": "identifier is not new",
+        },
+        {
+            "op": "replace_rule",
+            "rule": {
+                "id": "missing_rule",
+                "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+                "then": {"op": "hold_setpoint"},
+            },
+            "rationale": "identifier does not exist",
+        },
+        {
+            "op": "move_rule",
+            "id": "occupied_hold",
+            "to_index": 99,
+            "rationale": "destination is outside the zero-based range",
+        },
+        {
+            "op": "replace_rule",
+            "rule": {
+                "id": "occupied_hold",
+                "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+                "then": {"op": "hold_setpoint", "value": 0.0},
+            },
+            "rationale": "hold setpoint cannot carry a value",
+        },
+        {
+            "op": "replace_rule",
+            "rule": {
+                "id": "occupied_hold",
+                "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+                "then": {"op": "set_residual", "value": {"param": "unknown"}},
+            },
+            "rationale": "parameter reference must name a visible parameter",
+        },
+    ],
+)
+def test_patch_identifier_index_and_value_contracts_fail_closed(
+    canonical_program: dict[str, Any], patch: dict[str, Any]
+) -> None:
+    with pytest.raises(ProgramError):
+        apply_patch(canonical_program, patch, causal_enabled=False)

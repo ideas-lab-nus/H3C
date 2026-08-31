@@ -95,21 +95,21 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "decision",
             "DECISION",
-            "Use the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.",
+            "From current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.",
             "决策",
-            "使用当前观测、舒适余量、因果证据、额度与 WORKING MEMORY，提出一个原子操作。在保持 |PMV| ≤ 0.5 的前提下，探索节能机会。不要计算解释器结果。",
+            "根据当前状态、舒适余量、因果证据、额度与 WORKING MEMORY，选择一个原子规格操作，权衡能耗与 |PMV| ≤ 0.5。",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "For an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.",
+            "charge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.",
             "硬边界",
-            "获准程序修改的 charge_c = 证明状态空间中 max(0, 修改前设定点 - 修改后设定点) 的最大值；不是累计动作、功率或预冷偏移。只通过控制规格和操作契约修改，不输出直接设定点。",
+            "charge_c=证明状态中 max(0,修改前设定点-修改后设定点) 的最大值，不含累计动作、功率或预冷偏移。保留额度仅属本区；站点共享池在全部提案后按 shared_settlement_priority_rank 升序结算。只修改给定规格，不输出直接设定点。",
         ),
         _unit(
             "output",
             "OUTPUT",
-            'Return exactly one bare root JSON object: {"patch":[{...}]}. Return no prose, Markdown fence or unknown fields. Operation contract:\n',
+            "Bare JSON only; no prose, fence or extra fields.\n",
             "输出",
             '只返回一个精确的 root JSON 对象：{"patch":[{...}]}。不要返回解释文字、Markdown 围栏或未知字段。操作契约：\n',
         ),
@@ -118,31 +118,31 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "role",
             "ROLE",
-            "Interpret the deterministic results for the supplied completed control interval.",
+            "Derive zone Lessons from the completed control interval.",
             "角色",
-            "解释输入中已完成控制时段的确定性结果。",
+            "从已完成控制时段提炼每区 Lesson。",
         ),
         _unit(
             "evidence",
             "EVIDENCE",
-            "From each zone's completed Context, Action and Outcome, derive one Lesson that captures a useful observed relationship or trade-off for later control.",
+            "For each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome.",
             "证据",
-            "从每个区域已完成的 Context、Action 与 Outcome 中提炼一条 Lesson，概括对后续控制有意义的已观察关系或权衡。",
+            "从每区已完成的 Context、Action 与 Outcome 中提炼一条有用的已观察关系或权衡。",
             "information",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Ground each Lesson in the completed-interval evidence. Express an observation, relationship or trade-off rather than an action command, target or unsupported causal claim.",
+            "The completed interval is the sole Lesson evidence. Write observations or trade-offs, not commands, targets or unsupported claims.",
             "硬边界",
-            "每条 Lesson 都应基于已完成控制时段的证据，表达观察、关系或权衡，而不是动作命令、目标或无证据因果结论。",
+            "Lesson 事实只来自已完成时段；表达观察或权衡，不写命令、目标或无证据结论。",
         ),
         _unit(
             "output",
             "OUTPUT",
-            'Return one bare JSON object of the form {"hourly_lessons":[{"zone":...,"lesson":...}]}. Include every supplied zone exactly once. Return no prose, Markdown fence or unknown fields.',
+            'Bare JSON only: {"hourly_lessons":[{"zone":...,"lesson":...}]}. Each zone once; no extra fields.',
             "输出",
-            '返回形如 {"hourly_lessons":[{"zone":...,"lesson":...}]} 的裸 JSON 对象。每个给定区域必须恰好出现一次。不返回解释文字、Markdown 围栏或未知字段。',
+            '只返回裸 JSON：{"hourly_lessons":[{"zone":...,"lesson":...}]}。每区一次，无额外字段。',
         ),
     ],
 }
@@ -216,41 +216,40 @@ def system_prompt(
             body += _machine_contract(role, causal_enabled, language)
         if role == "executor" and unit["id"] == "output" and long_term_memory:
             body = (
-                'Return bare JSON {"patch":[{...}],"memory_refs":'
-                '[{"regime":...,"revision":...}]}. memory_refs cites only active experiences '
-                "used and may be empty. No prose, fence or "
-                "extra fields. Operation contract:\n"
+                'JSON only: {"patch":[{...}],"memory_refs":'
+                '[{"regime":...,"revision":...}]}. memory_refs lists each shown active '
+                "experience used at most once; [] allowed. No extra fields.\n"
                 if language == "en"
-                else '返回裸 JSON：{"patch":[{...}],"memory_refs":'
-                '[{"regime":...,"revision":...}]}。包含一个操作。memory_refs 只引用实际使用的'
-                "有效经验，也可为空。不返回解释文字、Markdown 围栏或额外字段。操作契约：\n"
+                else '只返回 JSON：{"patch":[{...}],"memory_refs":'
+                '[{"regime":...,"revision":...}]}。memory_refs 只列出实际使用的已展示有效经验，'
+                "每条最多一次；允许 []，无额外字段。\n"
             )
             body += _machine_contract(role, causal_enabled, language)
         if role == "reflector" and unit["id"] == "evidence" and long_term_memory:
             body = (
-                "For each zone, derive one useful observed relationship or trade-off from "
-                "completed Context, Action and Outcome. Compare it with shown eligible regime "
-                "slots; select at most one memory operation."
+                "For each zone, derive one observed relationship or trade-off from completed "
+                "Context, Action and Outcome; compare shown eligible slots and select at most "
+                "one operation."
                 if language == "en"
-                else "对每个区域，从已完成的 Context、Action 与 Outcome 中提炼一条有用的已观察关系"
-                "或权衡；将其与展示的合格状态槽比较，并最多选择一个记忆操作。"
+                else "每区从已完成的 Context、Action 与 Outcome 提炼一条已观察关系"
+                "或权衡；比较展示的合格状态槽，最多选一个操作。"
             )
         if role == "reflector" and unit["id"] == "hard_boundaries" and long_term_memory:
             body = (
-                "Lessons are evidence-grounded observations, relationships or trade-offs, not "
-                "commands, targets or unsupported claims. Experiences describe the zone's "
-                "run-wide thermal response, control preference or trade-off for the named regime. "
-                "Modify only a shown eligible regime; replace/delete uses its revision."
+                "The completed interval is the sole Lesson evidence; slots are comparison-only. "
+                "Experiences summarize run-wide thermal response, control preference or trade-off "
+                "by regime. No commands, targets or unsupported claims. Modify a shown regime "
+                "only; replace/delete uses its revision."
                 if language == "en"
-                else "Lesson 是基于证据的观察、关系或权衡，不是命令、目标或无依据结论。存储经验"
-                "描述该区域在指定状态下贯穿运行的热响应、控制偏好或权衡。只修改展示的合格状态；"
-                "replace/delete 使用其 revision。"
+                else "已完成时段是 Lesson 唯一事实来源，经验槽只用于比较。经验按状态"
+                "概括全程热响应、控制偏好或权衡，不写命令、目标或无证据结论。只修改"
+                "展示状态；replace/delete 使用其 revision。"
             )
         if role == "reflector" and unit["id"] == "output" and long_term_memory:
             body = (
-                'Bare JSON only: {"hourly_lessons":[{"zone":...,"lesson":...}],'
-                '"memory_operations":[...]}. Each zone appears once per list. Every memory '
-                "operation requires zone and op; additional fields:\n"
+                'Bare JSON: {"hourly_lessons":[{"zone":...,"lesson":...}],'
+                '"memory_operations":[...]}. Each zone once per list. Operations require zone,op; '
+                "extra fields:\n"
                 "| op | required |\n| --- | --- |\n| no_change | — |\n"
                 "| add | regime, experience |\n| replace | regime, expected_revision, experience |\n"
                 "| delete | regime, expected_revision |\nNo prose, fence or extra fields."

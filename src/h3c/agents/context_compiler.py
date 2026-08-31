@@ -30,6 +30,13 @@ _DERIVED_OUTCOME_FIELDS = (
     "setpoint_total_variation_c",
     "setpoint_direction_reversals",
 )
+_OBSERVED_CONTEXT_FIELDS = (
+    "outdoor_temperature_c",
+    "solar_irradiance_w_m2",
+    "electricity_price",
+    "temp_rise_to_warm_pmv_edge_c",
+    "temp_drop_to_cool_pmv_edge_c",
+)
 
 
 def _normalize(value: Any) -> JsonValue:
@@ -255,6 +262,7 @@ def compile_working_memory(
     reference_hour: int | None = None,
     reference_time_seconds: int | None = None,
     presentation: Literal["decision_history", "completed_interval"] = "decision_history",
+    decision_rationale_visible: bool = True,
 ) -> dict[str, JsonValue]:
     """Compile completed records into time, state, action, and derived-feature layers."""
     canonical = cast(list[dict[str, JsonValue]], _normalize(list(records)))
@@ -286,6 +294,7 @@ def compile_working_memory(
         base_records: list[dict[str, JsonValue]] = []
         state_history_rows: list[dict[str, JsonValue]] = []
         action_history_rows: list[dict[str, JsonValue]] = []
+        observed_context_rows: list[dict[str, JsonValue]] = []
         current_state_rows: list[dict[str, JsonValue]] = []
         derived_feature_rows: list[dict[str, JsonValue]] = []
         forecast_rows: list[JsonValue] = []
@@ -314,6 +323,29 @@ def compile_working_memory(
                     if step_number in regimes_by_step:
                         raise ValueError("a physical step has more than one regime owner")
                     regimes_by_step[step_number] = regime
+            observed_raw = _pop_path(base, "/context/observed_context_history")
+            score_limit = _pop_path(base, "/context/abs_pmv_score_limit")
+            if (observed_raw is None) != (score_limit is None):
+                raise ValueError(
+                    "observed context history and PMV score limit must appear together"
+                )
+            observed_arrays: dict[str, list[JsonValue]] = {}
+            if observed_raw is not None:
+                if not isinstance(observed_raw, dict) or not observed_raw:
+                    raise ValueError("observed context history must be a nonempty object")
+                unknown_observed = set(observed_raw) - set(_OBSERVED_CONTEXT_FIELDS)
+                if unknown_observed:
+                    raise ValueError(
+                        f"observed context history has unknown fields: {sorted(unknown_observed)}"
+                    )
+                for field, values in observed_raw.items():
+                    if not isinstance(values, list) or len(values) != 4:
+                        raise ValueError(
+                            f"observed context field {field} must contain four action-time values"
+                        )
+                    if any(not _is_scalar(value) for value in values):
+                        raise ValueError("observed context history values must be scalar")
+                    observed_arrays[str(field)] = copy.deepcopy(values)
             initial_raw = _pop_path(base, "/context/initial_observation")
             if not isinstance(initial_raw, dict):
                 raise ValueError("working-memory initial observation is missing")
@@ -396,6 +428,15 @@ def compile_working_memory(
                     "setpoint_rate_limit": raw_shield.get("setpoint_rate_limit"),
                     "comfort_recovery": raw_shield.get("comfort_recovery"),
                 }
+                if observed_arrays:
+                    observed_context_rows.append(
+                        {
+                            "zone": zone,
+                            "physical_step": step,
+                            "abs_pmv_score_limit": score_limit,
+                            **{field: values[index] for field, values in observed_arrays.items()},
+                        }
+                    )
                 if any(value is None for value in (*state_row.values(), *action_row.values())):
                     raise ValueError("working-memory history row is incomplete")
                 state_history_rows.append(state_row)
@@ -466,6 +507,16 @@ def compile_working_memory(
                 "action_history": factor_common_rows(
                     action_history_rows, identity_fields=("zone", "physical_step")
                 ),
+                **(
+                    {
+                        "observed_context_history": factor_common_rows(
+                            observed_context_rows,
+                            identity_fields=("zone", "physical_step"),
+                        )
+                    }
+                    if observed_context_rows
+                    else {}
+                ),
                 "occupancy_forecast": factor_common_rows(
                     cast(Sequence[Mapping[str, Any]], forecast_rows),
                     identity_fields=("zone", "step_ahead"),
@@ -478,6 +529,7 @@ def compile_working_memory(
     view: dict[str, JsonValue] = {
         "kind": "working_memory",
         "presentation": presentation,
+        "decision_rationale_visible": decision_rationale_visible,
         "hours": hours,
     }
     if decode_working_memory(view) != canonical:
@@ -501,6 +553,12 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
         action_index: dict[str, list[Mapping[str, Any]]] = {}
         for row in decode_common_rows(cast(Mapping[str, Any], raw_hour["action_history"])):
             action_index.setdefault(str(row["zone"]), []).append(row)
+        observed_index: dict[str, list[Mapping[str, Any]]] = {}
+        if "observed_context_history" in raw_hour:
+            for row in decode_common_rows(
+                cast(Mapping[str, Any], raw_hour["observed_context_history"])
+            ):
+                observed_index.setdefault(str(row["zone"]), []).append(row)
         derived_index = {
             str(row["zone"]): row
             for row in decode_common_rows(cast(Mapping[str, Any], raw_hour["derived_features"]))
@@ -511,9 +569,36 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
             forecast = sorted(forecast_index.pop(zone), key=lambda row: int(row["step_ahead"]))
             states = sorted(state_index.pop(zone), key=lambda row: int(row["sample_index"]))
             actions = sorted(action_index.pop(zone), key=lambda row: int(row["physical_step"]))
+            observed = sorted(
+                observed_index.pop(zone, []), key=lambda row: int(row["physical_step"])
+            )
             derived = derived_index.pop(zone)
             if len(forecast) != 4 or len(states) != 5 or len(actions) != 4:
                 raise ValueError("working-memory compact view lost a four-step sequence")
+            if observed:
+                if len(observed) != 4:
+                    raise ValueError("observed context history lost a four-step sequence")
+                limits = {row.get("abs_pmv_score_limit") for row in observed}
+                if len(limits) != 1 or None in limits:
+                    raise ValueError("observed context history PMV score limit disagrees")
+                _put(
+                    record,
+                    "/context/abs_pmv_score_limit",
+                    cast(JsonValue, next(iter(limits))),
+                )
+                observed_fields = [
+                    field
+                    for field in _OBSERVED_CONTEXT_FIELDS
+                    if any(field in row for row in observed)
+                ]
+                for field in observed_fields:
+                    if any(field not in row for row in observed):
+                        raise ValueError(f"observed context field {field} has a partial sequence")
+                    _put(
+                        record,
+                        f"/context/observed_context_history/{field}",
+                        [cast(JsonValue, row[field]) for row in observed],
+                    )
             _put(
                 record,
                 "/context/initial_observation/occupancy_next_steps",
@@ -587,7 +672,7 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
             _put(record, "/outcome/site_cost", site_result["site_cost"])
             _put(record, "/outcome/site_energy_kwh", site_result["site_energy_kwh"])
             decoded.append(record)
-        if forecast_index or state_index or action_index or derived_index:
+        if forecast_index or state_index or action_index or observed_index or derived_index:
             raise ValueError("working-memory step rows have no matching zone record")
         record_hours = [record["hour"] for record in records]
         if any(
@@ -721,14 +806,25 @@ def render_common_rows(view: Mapping[str, Any]) -> str:
             rendered_common = {
                 _DISPLAY_FIELD_ALIASES.get(field, field): value for field, value in common.items()
             }
-        parts.append("common:\n" + render_properties(cast(JsonValue, dict(rendered_common))))
+        parts.append(
+            "values_shared_by_all_rows:\n"
+            + render_properties(cast(JsonValue, dict(rendered_common)))
+        )
     grouped_rows: dict[tuple[str, ...], list[dict[str, JsonValue]]] = {}
     for row in rows:
         columns = tuple(row)
         grouped_rows.setdefault(columns, []).append(row)
-    row_tables = [_table(group, columns) for columns, group in grouped_rows.items()]
-    if row_tables:
-        parts.append("rows:\n" + "\n".join(row_tables))
+    grouped_items = list(grouped_rows.items())
+    for columns, group in grouped_items:
+        label = "rows"
+        if len(grouped_items) > 1:
+            operations = {str(row["op"]) for row in group if "op" in row}
+            if len(operations) == 1:
+                label = f"{next(iter(operations))}_rows"
+            else:
+                safe_columns = [re.sub(r"[^a-zA-Z0-9_]+", "_", column) for column in columns]
+                label = "rows_with_" + "_and_".join(safe_columns)
+        parts.append(label + ":\n" + _table(group, columns))
     if remaining_details:
         parts.append(
             "details:\n```json\n"
@@ -838,10 +934,10 @@ def _render_history(
     )
     parts = []
     if common:
-        parts.append("common:\n" + render_properties(cast(JsonValue, common)))
+        parts.append("values_shared_by_all_rows:\n" + render_properties(cast(JsonValue, common)))
     if constants:
         parts.append(
-            "constant_by_zone:\n"
+            "values_constant_within_each_zone:\n"
             + "\n".join(
                 json.dumps(row, ensure_ascii=False, separators=(",", ":")) for row in constants
             )
@@ -914,10 +1010,10 @@ def _render_action_history(
         variable_columns.insert(1, "outcome_time")
     parts = []
     if common:
-        parts.append("common:\n" + render_properties(cast(JsonValue, common)))
+        parts.append("values_shared_by_all_rows:\n" + render_properties(cast(JsonValue, common)))
     if constants:
         parts.append(
-            "constant_by_zone:\n"
+            "values_constant_within_each_zone:\n"
             + "\n".join(
                 json.dumps(row, ensure_ascii=False, separators=(",", ":")) for row in constants
             )
@@ -945,10 +1041,8 @@ def _render_occupancy_forecast(view: Mapping[str, Any], *, outcome_times: Sequen
     common = _direct_common(view)
     if "occupancy" in common:
         return (
-            "common:\n"
+            "values_shared_by_all_rows:\n"
             + render_properties(cast(JsonValue, common))
-            + "\nzones: "
-            + json.dumps(zones, ensure_ascii=False, separators=(",", ":"))
             + "\noutcome_times: "
             + json.dumps(list(outcome_times), ensure_ascii=False, separators=(",", ":"))
         )
@@ -978,13 +1072,69 @@ def _render_scoped_common_rows(view: Mapping[str, Any], *, omit_common: Sequence
                     _DISPLAY_FIELD_ALIASES.get(field, field): value
                     for field, value in common.items()
                 }
-            return "common:\n" + render_properties(cast(JsonValue, dict(rendered_common)))
+            return "values_shared_by_all_rows:\n" + render_properties(
+                cast(JsonValue, dict(rendered_common))
+            )
         return ""
     return render_common_rows(display_view)
 
 
+def _render_observed_context_history(
+    view: Mapping[str, Any], *, action_times: Sequence[str]
+) -> str:
+    """Render completed action-time conditions with site fields owned once per time."""
+    records = decode_common_rows(view)
+    ordered_steps = sorted(
+        {
+            cast(int, record["physical_step"])
+            for record in records
+            if isinstance(record.get("physical_step"), int)
+            and not isinstance(record.get("physical_step"), bool)
+        }
+    )
+    if len(ordered_steps) != 4 or len(action_times) != 4:
+        raise ValueError("observed context history requires four action-time rows")
+    time_by_step = {step: action_times[index] for index, step in enumerate(ordered_steps)}
+    zones = list(dict.fromkeys(str(record["zone"]) for record in records))
+    limits = {record.get("abs_pmv_score_limit") for record in records}
+    if len(limits) != 1 or None in limits:
+        raise ValueError("observed context history has no single PMV score limit owner")
+    site_fields = (
+        "outdoor_temperature_c",
+        "solar_irradiance_w_m2",
+        "electricity_price",
+    )
+    zone_fields = (
+        "temp_rise_to_warm_pmv_edge_c",
+        "temp_drop_to_cool_pmv_edge_c",
+    )
+    rows: list[dict[str, JsonValue]] = []
+    for step in ordered_steps:
+        step_records = [record for record in records if record.get("physical_step") == step]
+        by_zone = {str(record["zone"]): record for record in step_records}
+        if set(by_zone) != set(zones):
+            raise ValueError("observed context time row has an incomplete zone axis")
+        row: dict[str, JsonValue] = {"action_time": time_by_step[step]}
+        for field in site_fields:
+            present = [record[field] for record in step_records if field in record]
+            if present:
+                if len(present) != len(zones) or any(value != present[0] for value in present[1:]):
+                    raise ValueError(f"site observed context field {field} disagrees across zones")
+                row[field] = present[0]
+        for zone in zones:
+            for field in zone_fields:
+                if field in by_zone[zone]:
+                    row[f"{zone}.{field}"] = by_zone[zone][field]
+        rows.append(row)
+    columns = list(dict.fromkeys(field for row in rows for field in row))
+    return f"abs_pmv_score_limit: {_cell(next(iter(limits)))}\n" + _table(rows, columns)
+
+
 def _working_decision_agent_view(
     records: Sequence[Mapping[str, JsonValue]],
+    *,
+    rationale_visible: bool,
+    initial_context_visible: bool,
 ) -> dict[str, JsonValue]:
     """Project audit-only proof detail out of the next decision's model-facing history."""
     projected: list[dict[str, JsonValue]] = []
@@ -998,6 +1148,10 @@ def _working_decision_agent_view(
         record = copy.deepcopy(dict(source))
         for path in audit_only_paths:
             _pop_path(record, path)
+        if not rationale_visible:
+            _pop_path(record, "/action/proposal/rationale")
+        if not initial_context_visible:
+            _pop_path(record, "/context/initial_observation")
         projected.append(record)
     return factor_common_rows(projected, identity_fields=("zone",))
 
@@ -1027,13 +1181,19 @@ def render_working_memory(view: Mapping[str, Any]) -> str:
         else:
             parts.append(f"completed_interval: {interval}")
         parts.append("zones: " + json.dumps(zones, ensure_ascii=False, separators=(",", ":")))
-        parts.append("control_period: 15 min")
+        if presentation == "completed_interval":
+            parts.append("control_period: 15 min")
         site = cast(Mapping[str, JsonValue], raw_hour["site_result"])
         parts.append("site_result: " + json.dumps(site, ensure_ascii=False, separators=(",", ":")))
         parts.append(
             "completed_decision:\n"
             + _render_scoped_common_rows(
-                _working_decision_agent_view(decision_records), omit_common=("hour",)
+                _working_decision_agent_view(
+                    decision_records,
+                    rationale_visible=bool(view.get("decision_rationale_visible", True)),
+                    initial_context_visible=presentation == "completed_interval",
+                ),
+                omit_common=("hour",),
             )
         )
         parts.append(
@@ -1044,6 +1204,14 @@ def render_working_memory(view: Mapping[str, Any]) -> str:
                 include_terminal=presentation == "completed_interval",
             )
         )
+        if "observed_context_history" in raw_hour:
+            parts.append(
+                "OBSERVED CONTEXT HISTORY:\n"
+                + _render_observed_context_history(
+                    cast(Mapping[str, Any], raw_hour["observed_context_history"]),
+                    action_times=action_times,
+                )
+            )
         parts.append(
             "control_action_history:\n"
             + _render_action_history(
@@ -1052,11 +1220,6 @@ def render_working_memory(view: Mapping[str, Any]) -> str:
                 outcome_times=outcome_times,
             )
         )
-        if presentation == "decision_history":
-            parts.append(
-                "terminal_outcome_state: shown once in the current-state section at "
-                + str(outcome_times[-1])
-            )
         parts.append(
             "previous_decision_forecast:\n"
             + _render_occupancy_forecast(
@@ -1093,25 +1256,10 @@ def render_control_specification(view: Mapping[str, Any]) -> str:
         "parameters:\n" + _table(parameter_rows, ("param", "current", "min", "max", "source"))
     )
 
-    rule_groups: dict[str, tuple[dict[str, JsonValue], list[dict[str, JsonValue]]]] = {}
-    for raw_rule in rules:
-        rule = copy.deepcopy(dict(raw_rule))
-        when = cast(list[dict[str, JsonValue]], rule["when"])
-        first = when[0] if when else {}
-        group_key = json.dumps(first, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        if group_key not in rule_groups:
-            rule_groups[group_key] = (copy.deepcopy(first), [])
-        rule["when"] = [cast(JsonValue, condition) for condition in when[1:]]
-        rule_groups[group_key][1].append(rule)
-    rule_blocks: list[str] = []
-    for common_when, grouped_rules in rule_groups.values():
-        rule_blocks.append(
-            "common_when: " + json.dumps(common_when, ensure_ascii=False, separators=(",", ":"))
-        )
-        rule_blocks.extend(
-            json.dumps(rule, ensure_ascii=False, separators=(",", ":")) for rule in grouped_rules
-        )
-    parts.append("rules:\n" + "\n".join(rule_blocks))
+    parts.append(
+        "rules:\n"
+        + "\n".join(json.dumps(rule, ensure_ascii=False, separators=(",", ":")) for rule in rules)
+    )
     display_text = {
         "use the named parameter value": "named parameter value",
         "use the opposite sign of the named parameter value": "negative named parameter value",
@@ -1250,6 +1398,7 @@ class ContextBuilder:
         reference_hour: int | None = None,
         reference_time_seconds: int | None = None,
         presentation: Literal["decision_history", "completed_interval"] = "decision_history",
+        decision_rationale_visible: bool = True,
     ) -> None:
         canonical = _normalize(list(records))
         compact = compile_working_memory(
@@ -1257,6 +1406,7 @@ class ContextBuilder:
             reference_hour=reference_hour,
             reference_time_seconds=reference_time_seconds,
             presentation=presentation,
+            decision_rationale_visible=decision_rationale_visible,
         )
         self._add(title, "working_memory", canonical, cast(JsonValue, compact))
 

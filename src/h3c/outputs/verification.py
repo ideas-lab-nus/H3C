@@ -569,7 +569,6 @@ def _decision_clock_surface_is_valid(text: str, *, expect_working_memory: bool) 
             and "control_action_history:" in text
             and "previous_decision_forecast:" in text
             and "derived_features:" in text
-            and "terminal_outcome_state: shown once in the current-state section" in text
             and "RECENT OUTCOME SUMMARY" not in text
         )
     except (json.JSONDecodeError, ValueError):
@@ -689,6 +688,8 @@ def _caol_memory_checks(
 
     off_tokens = (
         "ACTIVE LONG-TERM EXPERIENCES",
+        "ACTIVE LONG-TERM EXPERIENCE SLOTS",
+        "EMPTY LONG-TERM EXPERIENCE SLOTS",
         "ELIGIBLE LONG-TERM EXPERIENCE SLOTS",
         "memory_refs",
         "memory_operations",

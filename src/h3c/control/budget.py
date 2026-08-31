@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from h3c.agents.contracts import ALLOCATION_CONTRACT_SPEC
+from h3c.agents.contracts import DEFAULT_PER_ZONE_RESERVED_CAP_C
 
 EDGE_IDENTIFIER = re.compile(r"^ce_[0-9a-f]{8}$")
 ALLOCATION_RATIONALE_ERROR = "allocation rationale must cover every zone with a nonempty string"
@@ -29,7 +29,7 @@ def site_cap_max(zones: Sequence[str], site_budget_fraction: float = 0.5) -> flo
         or not 0.0 < float(site_budget_fraction) <= 1.0
     ):
         raise ValueError("site budget fraction must satisfy zero < value <= one")
-    return 5.0 * len(zones) * float(site_budget_fraction)
+    return DEFAULT_PER_ZONE_RESERVED_CAP_C * len(zones) * float(site_budget_fraction)
 
 
 def validate_allocation(
@@ -40,6 +40,7 @@ def validate_allocation(
     allowed_causal_edge_ids: set[str] | None = None,
     site_causal_edge_ids: set[str] | None = None,
     expected_site_cap_c: float | None = None,
+    expected_per_zone_reserved_cap_c: float = DEFAULT_PER_ZONE_RESERVED_CAP_C,
 ) -> None:
     required = {"site_cap_c", "zone_budgets_c", "priority", "rationale_per_zone"}
     if causal_enabled:
@@ -59,12 +60,19 @@ def validate_allocation(
         float(cap), float(expected_site_cap_c), rel_tol=0.0, abs_tol=1e-9
     ):
         raise ValueError("site allocation must equal the supplied site cap")
+    if (
+        isinstance(expected_per_zone_reserved_cap_c, bool)
+        or not isinstance(expected_per_zone_reserved_cap_c, (int, float))
+        or not math.isfinite(float(expected_per_zone_reserved_cap_c))
+        or float(expected_per_zone_reserved_cap_c) < 0.0
+    ):
+        raise ValueError("per-zone reserved cap must be finite and nonnegative")
     if not isinstance(budgets, Mapping) or set(budgets) != set(zones):
         raise ValueError("zone allocations must cover exactly the configured zones")
     if any(
         isinstance(value, bool)
         or not isinstance(value, (int, float))
-        or not 0 <= value <= float(ALLOCATION_CONTRACT_SPEC["per_zone_cap_c"])
+        or not 0 <= value <= float(expected_per_zone_reserved_cap_c)
         for value in budgets.values()
     ):
         raise ValueError("zone allocation is outside its bound")
@@ -101,7 +109,7 @@ def validate_allocation(
         if allowed_causal_edge_ids is not None and not cited <= allowed_causal_edge_ids:
             raise ValueError("allocation cites an edge outside the resolved graph")
         if site_causal_edge_ids is not None and not cited & site_causal_edge_ids:
-            raise ValueError("allocation must cite a shared-power site edge")
+            raise ValueError("allocation must cite a visible edge with target=power_meters")
 
 
 def allocation_fallback_audit(
@@ -134,6 +142,7 @@ def validated_fallback_allocation(
     causal_edge_ids: Sequence[str] | None,
     allowed_causal_edge_ids: set[str] | None,
     site_causal_edge_ids: set[str] | None,
+    per_zone_reserved_cap_c: float = DEFAULT_PER_ZONE_RESERVED_CAP_C,
 ) -> tuple[dict[str, Any], str]:
     """Return a previous valid allocation or a validated deterministic equal split."""
     if previous_allocation is not None:
@@ -145,6 +154,7 @@ def validated_fallback_allocation(
                 causal_enabled=causal_enabled,
                 allowed_causal_edge_ids=allowed_causal_edge_ids,
                 site_causal_edge_ids=site_causal_edge_ids,
+                expected_per_zone_reserved_cap_c=per_zone_reserved_cap_c,
             )
         except ValueError:
             pass
@@ -171,6 +181,7 @@ def validated_fallback_allocation(
         causal_enabled=causal_enabled,
         allowed_causal_edge_ids=allowed_causal_edge_ids,
         site_causal_edge_ids=site_causal_edge_ids,
+        expected_per_zone_reserved_cap_c=per_zone_reserved_cap_c,
     )
     return allocation, "equal_split_current_zones"
 
@@ -178,8 +189,19 @@ def validated_fallback_allocation(
 class BudgetLedger:
     """One-hour ledger; unused allowance never carries into another hour."""
 
-    def __init__(self, allocation: Mapping[str, Any], zones: Sequence[str]) -> None:
-        validate_allocation(allocation, zones, causal_enabled="causal_edge_ids" in allocation)
+    def __init__(
+        self,
+        allocation: Mapping[str, Any],
+        zones: Sequence[str],
+        *,
+        per_zone_reserved_cap_c: float = DEFAULT_PER_ZONE_RESERVED_CAP_C,
+    ) -> None:
+        validate_allocation(
+            allocation,
+            zones,
+            causal_enabled="causal_edge_ids" in allocation,
+            expected_per_zone_reserved_cap_c=per_zone_reserved_cap_c,
+        )
         self.zones = list(zones)
         self.cap = float(allocation["site_cap_c"])
         self.granted = {zone: float(allocation["zone_budgets_c"][zone]) for zone in zones}
