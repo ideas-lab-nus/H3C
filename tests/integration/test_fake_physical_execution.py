@@ -154,9 +154,9 @@ class FakeModelClient:
         context_fields = context.as_mapping()
         if role == "orchestrator":
             if self.zero_allocation:
-                assert '"zones":["zone1"]' in user
-                assert '"site_cap_c":2.5' in user
-                assert '"per_zone_cap_c":5.0' in user
+                assert 'zones: ["zone1"]' in user
+                assert "site_cap_c: 2.5" in user
+                assert "per_zone_cap_c: 5.0" in user
             if self.reject_orchestrator_output:
                 output = json.dumps(
                     {
@@ -175,7 +175,7 @@ class FakeModelClient:
                 )
             else:
                 allocation = {
-                    "site_cap_c": 0.0 if self.zero_allocation else 2.5,
+                    "site_cap_c": 2.5,
                     "zone_budgets_c": {"zone1": 0.0 if self.zero_allocation else 2.5},
                     "priority": ["zone1"],
                     "rationale_per_zone": {
@@ -669,6 +669,17 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
     verification = verify_run(run_dir)
     assert verification["passed"]
     assert verification["checks"]["deterministic_settlement"]
+    clock_tamper_dir = tmp_path / "tampered-agent-clock"
+    shutil.copytree(run_dir, clock_tamper_dir)
+    raw_rows = _read_jsonl(clock_tamper_dir / "raw_model_io.jsonl")
+    orchestrator_row = next(row for row in raw_rows if row["role"] == "orchestrator")
+    orchestrator_row["user"] = orchestrator_row["user"].replace(
+        'forecast_outcome_times: ["00:15","00:30","00:45","01:00"]',
+        'forecast_outcome_times: ["00:15","00:30","00:45","00:45"]',
+    )
+    _write_jsonl(clock_tamper_dir / "raw_model_io.jsonl", raw_rows)
+    clock_tamper = verify_run(clock_tamper_dir, require_completion=False)
+    assert clock_tamper["checks"]["caol_working_memory_surface"] is False
     metrics = _read_json(run_dir / "metrics.json")
     assert set(metrics) == {
         "metrics_schema",
@@ -1387,7 +1398,10 @@ def test_zero_allocation_keeps_complete_priority_and_coordination_surface(
         == {"used": False, "reason": None, "source": None, "validated": False}
         for row in decisions
     )
-    assert all(row["energy_budget"]["site_cap_c"] == 0.0 for row in decisions)
+    assert all(row["energy_budget"]["site_cap_c"] == 2.5 for row in decisions)
+    assert all(
+        row["energy_budget"]["reserved_allowance_by_zone_c"] == {"zone1": 0.0} for row in decisions
+    )
     verification = verify_run(run_dir)
     assert verification["checks"]["json_schema"]
     assert verification["checks"]["coordination_surface"]

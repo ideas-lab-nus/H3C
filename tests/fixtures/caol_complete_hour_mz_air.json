@@ -4,7 +4,7 @@
   "profile": "MZ_Air",
   "hour": 42,
   "first_step": 168,
-  "action_time_seconds": 17510400,
+  "action_time_seconds": 17503200,
   "model": "deepseek-v4-flash",
   "zones": ["cor", "eas", "nor", "sou", "wes"],
   "site_state": {
@@ -41,15 +41,9 @@
       "wes": "West had moderate warm-side headroom."
     }
   },
-  "previous_utilisation": {
-    "granted_c": 6.0,
-    "used_c": 0.3,
-    "utilisation": 0.05,
-    "site_cap_c": 10.0,
-    "residual_initial_c": 4.0,
-    "residual_left_c": 3.7,
-    "residual_used_by": {"eas": 0.3}
-  },
+  "previous_budget_events": [
+    {"zone": "eas", "amount_c": 2.3, "parameter": "fixture_program_delta", "step": 167}
+  ],
   "allocation_output": {
     "site_cap_c": 10.0,
     "zone_budgets_c": {"cor": 1.0, "eas": 2.0, "nor": 1.0, "sou": 1.0, "wes": 1.0},

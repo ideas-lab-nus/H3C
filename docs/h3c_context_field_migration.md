@@ -1,62 +1,62 @@
-# H3C Agent Context Field Migration
+# H3C Agent Context Field Owners and Time Mapping
 
-This manifest maps every production input owner affected by the 2026-08-31 context compiler. The normalized canonical typed object remains the fact owner. Compact model rendering does not mutate runtime objects.
+## Time-owner mapping
 
-## Labels and role sections
+| Internal/audit owner | Agent-facing owner |
+|---|---|
+| decision `time_seconds` | `current_time`, `control_interval`, `action_times`, `forecast_outcome_times` |
+| completed record `hour` | `completed_interval` |
+| shield `step` / action `physical_step` | `action_time` and paired `outcome_time` |
+| state `sample_index` | `state_time` |
+| forecast `step_ahead` | `forecast_outcome_time` |
 
-| Previous model-visible label | New model-visible label | Change |
-|---|---|---|
-| `CAOL WORKING MEMORY` | `WORKING MEMORY` | Display name only; internal compatibility names are unchanged. |
-| `CURRENT HOUR DETERMINISTIC CAO` | `COMPLETED HOUR EVIDENCE` | Display name only. |
-| Repeated JSON/Markdown/escaped-JSON blocks | Typed `common`, scalar `rows`, and separate nested `details` | Values and order are retained. |
-| Executor program plus separate edit limits | `CONTROL SPECIFICATION` | One view; parser, patch wire contract, and validator remain unchanged. |
+For the frozen example, the decision is at `14:00`; actions occur at `14:00`, `14:15`, `14:30`, `14:45`; their corresponding outcomes occur at `14:15`, `14:30`, `14:45`, `15:00`. Working memory covers `[13:00, 14:00)`. Reflector evidence covers `[14:00, 15:00)`. No date or year is rendered.
+
+## Orchestrator field owners
+
+| Meaning | Sole model-facing owner |
+|---|---|
+| current outdoor temperature, irradiance and price | `CURRENT SITE STATE` |
+| deterministic weather/price summaries | `FORECAST SUMMARY` |
+| raw four-outcome weather trajectory | `SITE FORECAST` |
+| current zone temperature, PMV, occupancy, setpoint and comfort margins | `CURRENT ZONE STATE` |
+| end-of-interval occupancy and precooling program semantics | `ZONE CONTROL CONTEXT` |
+| prior completed evidence and Lesson | `WORKING MEMORY` |
+| reserved allowances/consumption and shared-pool consumption/remainder | `PREVIOUS BUDGET USE` |
+
+Comfort fields are explicit: `temp_rise_to_warm_pmv_edge_c` and `temp_drop_to_cool_pmv_edge_c`. The program value formerly exposed ambiguously as a residual is presented as `precool_offset_from_unoccupied_base_c`, together with `resulting_precool_setpoint_c`.
+
+## Executor field owners
+
+| Meaning | Sole model-facing owner |
+|---|---|
+| current zone temperature, PMV, occupancy, setpoint and comfort margins | `CURRENT DECISION STATE` |
+| previous occupancy needed for transition interpretation | `OCCUPANCY TRANSITION CONTEXT` |
+| current weather and price | `CURRENT EXTERNAL STATE` |
+| raw and derived forecast | `ZONE FORECAST` and `FORECAST SUMMARY` |
+| editable parameters, current rules and edit bounds | `CONTROL SPECIFICATION` |
+| zone reservation, unreserved shared pool and rank | `ALLOCATION` |
+| completed interval states/actions/outcomes/Lesson/features | `WORKING MEMORY` |
+| optional run-wide experience | `ACTIVE LONG-TERM EXPERIENCES`, memory-on only |
+
+`abs_pmv_score_limit=0.5` is the KPI objective boundary. `pmv_band_lo/hi` remain editable program thresholds and are not relabelled as the KPI boundary.
 
 ## Working-memory mapping
 
-| Canonical path | Model-facing owner |
+| Canonical content | Agent-facing representation |
 |---|---|
-| `hour` | Hour header and explicit time semantics. |
-| `zone` | Ordered zone scope and zone columns/rows. |
-| `context.initial_observation.zone_temperature_c` | Recent-state sample 0 temperature. |
-| `context.initial_observation.current_occupancy` | Recent-state sample 0 occupancy. |
-| `context.initial_observation.last_pmv` | Recent-state sample 0 PMV. |
-| `context.initial_observation.last_setpoint_c` | Recent-state sample 0 setpoint. |
-| `context.initial_observation.occupancy_next_steps` | Decision-time occupancy forecast with explicit `step_ahead`. |
-| Other `context.initial_observation` fields | Completed-hour decision context. |
-| `context.regime_step_coverage` | Control-action regime by physical step. |
-| `action.proposal` | Completed-hour decision, excluding proof-only duplicates in the next model view. |
-| `action.admission.status` | Completed-hour gate result. |
-| `action.program_version_before/after` | Completed-hour program transition. |
-| `action.actual_setpoints_c` | Control-action history by physical step. |
-| `action.matched_rules` | Control-action history by physical step. |
-| `action.shield` | Per-step assurance result; shared values are emitted once. |
-| `outcome.zone_temperatures_c` | Recent-state samples 1–4. |
-| `outcome.pmv` | Recent-state samples 1–4. |
-| `outcome.effective_occupancy` | Recent-state samples 1–4. |
-| `outcome.site_cost` and `outcome.site_energy_kwh` | One site-result owner per completed hour. |
-| `outcome.discomfort_zone_hours`, `outcome.discomfort_pmv_hours`, `outcome.occupied_peak_absolute_pmv`, `outcome.setpoint_total_variation_c`, `outcome.setpoint_direction_reversals` | Deterministic derived-feature block. |
-| `lesson` | Completed-hour decision summary; multi-sentence text is preserved after whitespace normalization. |
+| initial observation and four post-action outcomes | recent state history with explicit state clocks |
+| four actual setpoints, matched rules and assurance results | control action history with action/outcome clock pairs |
+| decision-time occupancy forecast | `previous_decision_forecast` with outcome clocks |
+| deterministic changes, slopes, discomfort and stability | `derived_features` for the named interval |
+| proposal, admission and program transition | completed decision, grouped by operation where heterogeneous |
+| site cost and energy | one `site_result` owner per interval |
+| Reflector text | `lesson` |
 
-The compiler additionally derives temperature, PMV, and setpoint changes over the last physical step and the completed hour, plus temperature slope per hour. These use only samples 0–4 of the completed record. They introduce no future signal, target, action recommendation, or control rule.
+The final outcome at the decision boundary is not repeated inside next-interval working-memory state rows; it is shown once in the role's current-state section. Internal proof fields stay in the reversible compact/audit representation.
 
-## Audit-only proof fields
+## Budget contract
 
-The following fields remain in canonical, human-debug, compact, and audit views, but are not repeated in the next Agent's rendered working history because they are verifier evidence rather than a new decision fact:
+`charge_c = max` over the validator proof-state space of `max(0, setpoint_before_c - setpoint_after_c)`. It is neither cumulative action movement, physical power nor the precooling offset. The previous-use fixture is generated by `BudgetLedger` events, not hand-entered arithmetic.
 
-- `action.admission.completed_validation_stages`;
-- `action.proposal.causal_edge_ids`;
-- `action.proposal.expected_effects`;
-- `action.proposal.consistent_program_direction_proof`.
-
-The model-facing completed decision still contains the proposal operation and rationale, admission disposition, program-version transition, applied actions, assurance results, and physical outcomes. No audit evidence is deleted from disk or from the reversible compiled representation.
-
-## Control specification aliases
-
-The audit view retains original field names. The Agent view uses shorter self-explaining display names only where the meaning is unchanged: `bounds_source → source`, `a_rule_you_add → new_rule`, `conditions_may_test → condition_fields`, `compared_against → comparison_value`, `actions → action_types`, `most_rules_at_once → max_rules`, `weather_condition_values → weather_literals`, and `parameter_references → parameter_refs`.
-
-## Long-term-experience modes
-
-- Memory off: no long-term-experience heading, slot, revision, CRUD operation, or `memory_refs` field is rendered.
-- Memory on: only regimes actually observed in the completed hour are shown, in first-observed-step order. The canonical three-slot store and append-only CRUD audit remain unchanged.
-
-No operation semantics, causal admission, Budget, Safety, interpreter behavior, settlement order, or physical action mapping changed.
+No controller rule, causal edge, Budget algorithm, Safety rule, output JSON field or action mapping changed.

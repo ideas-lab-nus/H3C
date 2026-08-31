@@ -15,12 +15,14 @@ from h3c.control.program import (
 )
 
 DISPLAY_NAMES = {
-    "comfort_headroom_c": "zone_temperature_distance_to_comfort_edge_c",
-    "site_residual_c": "group_allowance_not_yet_handed_out_c",
-    "remaining_c": "allowance_left_to_you_c",
-    "priority_rank": "your_place_in_the_queue_for_the_remainder",
-    "residual_initial_c": "group_remainder_at_the_start_c",
-    "residual_left_c": "group_remainder_left_c",
+    "site_residual_c": "shared_unreserved_allowance_c",
+    "remaining_c": "zone_reserved_allowance_c",
+    "priority_rank": "shared_priority_rank",
+    "granted_c": "total_reserved_allowance_c",
+    "used_c": "total_reserved_consumption_c",
+    "residual_initial_c": "initial_shared_unreserved_pool_c",
+    "residual_left_c": "remaining_shared_unreserved_pool_c",
+    "residual_used_by": "shared_pool_consumption_by_zone_c",
     "per_zone_max_c": "most_any_one_zone_may_be_given_c",
     "site_max_c": "most_the_whole_group_may_be_given_c",
     "orch_fallback_reason": "why_this_allowance_was_reused",
@@ -62,11 +64,6 @@ GLOSSARY = {
         "the program-version label recorded with a result; it does not establish result "
         "quality or control suitability"
     ),
-    "allowance_left_to_you_c": (
-        "the remaining cooling-budget amount for this hour's accepted patches, in the "
-        "supplied budget units. It covers worst-case additional cooling only, not current "
-        "residual, current setpoint or physical power"
-    ),
     "outdoor_temp_change_next_1h_c": (
         "outdoor dry-bulb temperature at the fourth future 15-minute step minus the "
         "current value, in degrees Celsius; it describes the forecast change and does not "
@@ -100,7 +97,7 @@ COOLING_CONTROL_DOMAIN = {
     "hard_bounds_c": [20.0, 30.0],
     "occupied_base_c": 25.0,
     "unoccupied_base_c": 30.0,
-    "pmv_comfort_band": [0.3, 0.45],
+    "abs_pmv_score_limit": 0.5,
     "preconditioning": {"label": "precool", "lead_steps": 4, "target_c": 25.0},
     "energy_intensive_setpoint_direction": "decrease",
 }

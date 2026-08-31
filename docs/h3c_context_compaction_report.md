@@ -1,49 +1,44 @@
-# H3C Agent Context Compaction Report
+# H3C Agent Context Compaction and Clock-Semantics Report
 
 ## Outcome
 
-The model-facing inputs are now compiled from typed context rather than assembled as nested JSON inside Markdown inside JSON strings. The new views retain explicit time semantics, current state, recent raw history, applied control history, deterministic derived features, and optional eligible long-term experiences.
+The production context compiler now renders model inputs from one typed canonical object using clock time, semantic field owners and compact scalar properties/tables. No DeepSeek or BOPTEST call was made. Character counts below are exact `system + user` lengths from the frozen MZ Air documentation fixture; they are not token, latency or behavior claims.
 
-No model or BOPTEST call was made. These figures are exact serialized-character counts from the frozen MZ Air complete-hour fixture, not token or latency claims.
+Prompt-bundle identity: `sha256:ae66d6cf0e4f27ea1e5b9f5561f3c944d46d9f6e6ad65357cce4d8e4134ce875`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
 
-Candidate prompt-bundle manifest identity: `sha256:4c0af97a4c26ea15a2107503a76d1c0d6a1edd6b6b461bd39f4c8bde94c63165`. Individual role/language prompt hashes remain frozen in `tests/fixtures/prompts/caol_prompt_golden.json`.
+## C0, S₁ and S₂
 
-## Role-level results
-
-| Role and representative request | Base | New | Reduction |
+| Representative request | C0 `464ef28` | S₁ clock/semantics with legacy duplicate-owner overlay | S₂ production candidate |
 |---|---:|---:|---:|
-| Orchestrator | 11,621 | 5,456 | 53.1% |
-| East Executor, memory on | 10,715 | 6,953 | 35.1% |
-| Reflector, memory on | 9,817 | 5,677 | 42.2% |
+| Orchestrator | 5,456 | 5,926 | 5,441 |
+| East Executor, memory on | 6,953 | 7,329 | 6,942 |
+| Reflector, memory on | 5,677 | 6,446 | 5,555 |
+| **Three-role total** | **18,086** | **19,701** | **17,938** |
 
-All fixed role-level targets passed.
+S₂ is 148 characters (0.8%) below C0 in the required three-role aggregate. Each representative role is also individually no longer than C0, while S₂ adds explicit action/outcome clocks, unambiguous comfort headroom and precooling fields, exact Budget semantics and the repaired output contract.
 
-## Working-memory results
+S₁ is an offline diagnostic projection, not a retained production renderer. It is exactly S₂ plus the corresponding C0 duplicate-owner blocks extracted from the immutable `464ef28` fixture: Orchestrator `CROSS-ZONE STATUS` (485 characters), Executor `ZONE OBSERVATION` (387), and Reflector the unsplit eligible-slot block (891). This isolates the value of S₂'s cross-block owner removal without claiming that S₁ was executed.
 
-| View | Base block | New block | Reduction | Interpretation |
-|---|---:|---:|---:|---|
-| Five-zone Orchestrator | 6,020 | 1,909 | 68.3% | Multi-zone duplicate removal passed the 60% target. |
-| One-zone Executor | 2,088 | 1,543 | 26.1% | Smaller, but intentionally enriched with the newly required time/current/history/action/derived layers. |
+## Working-memory block
 
-The one-zone view is not shortened by deleting the user-required layers. Its absolute size remains lower than the old block while adding deterministic trend, change, variation, reversal, and discomfort features.
+| View | Pre-compaction raw | C0 compact | S₂ clocked compact | S₂ vs raw |
+|---|---:|---:|---:|---:|
+| Five-zone Orchestrator | 6,020 | 1,909 | 1,817 | 69.8% less |
+| One-zone Executor | 2,088 | 1,543 | 1,470 | 29.6% less |
 
-## What changed structurally
+S₂ retains all required layers: completed interval, recent raw state history, action/outcome history, prior decision forecast, deterministic change/stability features and Lesson. Constant values are factored once while their applicable clock list remains explicit.
 
-- Shared site results and cross-zone fields are emitted once.
-- Five-zone histories are oriented around one explicit sample/step axis instead of repeating zone, step, phase, occupancy, setpoint, and assurance text for every Cartesian row.
-- Values constant across the hour are emitted once globally or once per zone; only varying measurements remain in the time table.
-- Current state is explicitly identified as the final post-action sample rather than duplicated as another full record.
-- Completed proposal proof internals remain in audit evidence but are not repeated as next-hour decision context.
-- Control parameters use one scalar table; rules retain compact JSON because their condition trees are non-homogeneous.
-- Common operation fields and rule structure are defined once in the Executor output contract.
-- Reflector memory operations use one common-field table instead of four repeated object definitions.
+## Structural changes
 
-## Prompt cleanup
+- Model-visible internal coordinates (`decision_hour`, `step`, `sample_index`, `physical_step`, `step_ahead`, and second counters) are replaced by `HH:MM` clocks. They remain in canonical/audit evidence.
+- Top-level scalar objects use `field: value`; homogeneous records use `common + rows`; heterogeneous patches remain grouped by operation.
+- Orchestrator current zone state, control context, prior Budget use and site forecast have distinct owners.
+- Executor current state appears once; its previous interval endpoint is represented by the current-state section rather than repeated in working memory.
+- Reflector receives one completed interval, with site result, decision, raw states, actions, outcomes and derived features each represented once. Active and empty long-term slots are separate.
+- The allocation constraints rendered to the model and those enforced by `validate_allocation()` share `ALLOCATION_CONTRACT_SPEC`.
 
-Model-visible prompts no longer contain project abbreviations such as `CAOL`/`CAO`, runtime implementation statements about missing blocks, offline/oracle warnings for inaccessible data, verifier implementation prose, or special encouragement of `no_change`. `no_change` appears only as one operation in the operation table.
+## Limits
 
-Reflector still performs one completed-hour Lesson task and, only when the optional memory module is enabled, one eligible-slot CRUD decision. Multi-sentence Lessons are accepted within the existing 480-character transport bound.
+Round-trip equality establishes data preservation, not model decision equivalence. This candidate remains:
 
-## Limits of this evidence
-
-Character reduction is not token reduction, latency reduction, or behavioral equivalence. The output contract and deterministic replay path are compatible, but model decisions under the new inputs have not been tested. A real API/BOPTEST study requires a separate user-approved preregistration after review of the generated English and Chinese complete-hour examples.
+`DATA-LOSSLESS / CONTRACT-ALIGNED / TIME-EXPLICIT / SEMANTICALLY-EXPLICIT / BEHAVIOR-UNVERIFIED`

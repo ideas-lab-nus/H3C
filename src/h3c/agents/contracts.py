@@ -15,6 +15,19 @@ PATCH_OPERATIONS = (
     "no_change",
 )
 
+ALLOCATION_CONTRACT_SPEC: dict[str, Any] = {
+    "fields": ("site_cap_c", "zone_budgets_c", "priority", "rationale_per_zone"),
+    "causal_field": "causal_edge_ids",
+    "per_zone_cap_c": 5.0,
+    "site_cap_rule": "must_equal_supplied_site_cap",
+    "zone_set_rule": "all_and_only_configured_zones",
+    "budget_rule": "finite_nonnegative_each_and_sum_not_above_site_cap",
+    "site_cap_need_not_be_fully_allocated": True,
+    "priority_rule": "each_configured_zone_exactly_once_in_descending_priority",
+    "rationale_rule": "all_and_only_configured_zones_with_nonempty_strings",
+    "causal_rule": "unique_nonempty_subset_of_visible_ids_including_a_site_edge",
+}
+
 _PATCH_CONTRACT: dict[str, Any] = {
     "root": {"required": ["patch"], "patch": "list with exactly one operation"},
     "operations": {
@@ -125,7 +138,30 @@ def compact_patch_contract(*, causal_enabled: bool = True, language: str = "en")
 
 
 def allocation_contract(*, causal_enabled: bool = True) -> tuple[str, ...]:
-    fields = ["site_cap_c", "zone_budgets_c", "priority", "rationale_per_zone"]
+    fields = list(ALLOCATION_CONTRACT_SPEC["fields"])
     if causal_enabled:
-        fields.append("causal_edge_ids")
+        fields.append(str(ALLOCATION_CONTRACT_SPEC["causal_field"]))
     return tuple(fields)
+
+
+def allocation_constraint_text(*, causal_enabled: bool, language: str) -> str:
+    """Render the exact allocation rules consumed by the deterministic validator."""
+    causal = (
+        " causal_edge_ids: unique, nonempty, visible-ID subset including a site edge."
+        if causal_enabled and language == "en"
+        else " causal_edge_ids：可见 ID 的无重复非空子集，且含场地边。"
+        if causal_enabled
+        else ""
+    )
+    if language == "en":
+        return (
+            "site_cap_c=input. zone_budgets_c: keys=zones; each finite in "
+            f"[0,{ALLOCATION_CONTRACT_SPEC['per_zone_cap_c']:g}]; sum≤cap; unused allowed. "
+            "priority=permutation(zones), highest first. rationale_per_zone: keys=zones; values "
+            "nonempty." + causal
+        )
+    return (
+        "site_cap_c = 输入值。budgets/rationales 的区域键 = 配置区域。"
+        f"每区额度：有限且在 [0,{ALLOCATION_CONTRACT_SPEC['per_zone_cap_c']:g}]；总和 ≤ cap，允许未用满。"
+        "priority：区域全排列，优先级从高到低。理由不能为空。" + causal
+    )

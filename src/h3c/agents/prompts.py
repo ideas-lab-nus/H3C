@@ -6,7 +6,11 @@ import copy
 import re
 from typing import Any, Literal
 
-from h3c.agents.contracts import allocation_contract, compact_patch_contract
+from h3c.agents.contracts import (
+    allocation_constraint_text,
+    allocation_contract,
+    compact_patch_contract,
+)
 
 Role = Literal["orchestrator", "executor", "reflector"]
 Language = Literal["en", "zh"]
@@ -54,37 +58,30 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "role",
             "ROLE",
-            "Allocate the shared cross-zone allowance for the coming hour.",
+            "Allocate cross-zone allowance over action_times in control_interval.",
             "角色",
-            "为下一小时在各区域之间分配共享额度。",
+            "在 control_interval 的 action_times 上分配跨区域共享额度。",
         ),
         _unit(
             "decision",
             "DECISION",
-            "Balance comfort while reducing or optimising energy cost. Use site state, forecast, cross-zone status, working memory and prior utilisation to choose only the allocation and priority order. Give every zone a rationale for its allocation.",
+            "Balance comfort and energy cost from the supplied state, forecast, working memory and previous Budget use. Output allocation, priority and per-zone rationales.",
             "决策",
-            "在兼顾舒适的同时降低或优化能源成本。使用场地状态、预测、跨区域状态、工作记忆和先前利用率，只选择额度分配与优先顺序。为每个区域的分配给出理由。",
-        ),
-        _causal_unit(
-            "causal_evidence",
-            "CAUSAL EVIDENCE",
-            "Cite relevant IDs from CAUSAL EVIDENCE through causal_edge_ids.",
-            "因果证据",
-            "通过 causal_edge_ids 引用因果证据中的相关 ID。",
+            "使用当前状态、预测、工作记忆与上一时段 Budget，在舒适和能源成本间权衡。输出额度、优先级及每区一条额度或优先级理由。",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Allocate only the shared energy-intensive actuation allowance. It covers worst-case additional energy-intensive setpoint movement from accepted patches in this hour, not current residual, setpoint or physical power. A zone rationale explains its allocation or priority and must not prescribe zone control.",
+            "For accepted program changes, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); not cumulative action, power or pre-cooling offset.",
             "硬边界",
-            "只分配共享的高耗能动作额度。它覆盖本小时已接受补丁造成的最坏新增高耗能设定点移动，不是当前残差、设定点或物理功率。区域理由只解释其额度或优先级，不得规定区域控制。",
+            "Budget 只覆盖 control_interval 内获准的程序修改。charge_c = 证明状态空间中 max(0, 修改前设定点 - 修改后设定点) 的最大值；不是累计动作、功率或预冷偏移。",
         ),
         _unit(
             "output",
             "OUTPUT",
-            "Return one bare JSON object matching the allocation contract. Return no prose, Markdown fence or fields outside that contract. allocation_contract: ",
+            "Bare JSON only.",
             "输出",
-            "返回一个符合 allocation contract 的裸 JSON 对象。不返回解释文字、Markdown 围栏或契约之外的字段。allocation_contract：",
+            "仅返回裸 JSON。",
         ),
     ],
     "executor": [
@@ -102,19 +99,12 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
             "决策",
             "使用当前观测、舒适余量、因果证据、额度与 WORKING MEMORY，提出一个原子操作。在保持 |PMV| ≤ 0.5 的前提下，探索节能机会。不要计算解释器结果。",
         ),
-        _causal_unit(
-            "causal_evidence",
-            "CAUSAL EVIDENCE",
-            "Put relevant CAUSAL EVIDENCE IDs in causal_edge_ids.",
-            "因果证据",
-            "通过 causal_edge_ids 引用因果证据中的相关 ID。",
-        ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Allowance is worst-case added energy-intensive setpoint movement from accepted patches this hour—not residual, setpoint or power. Use only the supplied control specification and operation contract; no Python, complete controller or direct setpoint.",
+            "For an accepted program change, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); it is not cumulative action, power or pre-cooling offset. Edit only through the control specification and operation contract; do not output a direct setpoint.",
             "硬边界",
-            "额度覆盖本小时已接受补丁造成的最坏新增高耗能设定点移动，不是当前残差、设定点或物理功率。只能通过给定控制规格与操作契约工作；不得编写 Python、完整控制器或直接设定点。",
+            "获准程序修改的 charge_c = 证明状态空间中 max(0, 修改前设定点 - 修改后设定点) 的最大值；不是累计动作、功率或预冷偏移。只通过控制规格和操作契约修改，不输出直接设定点。",
         ),
         _unit(
             "output",
@@ -128,24 +118,24 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "role",
             "ROLE",
-            "Interpret the deterministic results for the hour that just ended.",
+            "Interpret the deterministic results for the supplied completed control interval.",
             "角色",
-            "解释刚刚结束小时的确定性结果。",
+            "解释输入中已完成控制时段的确定性结果。",
         ),
         _unit(
             "evidence",
             "EVIDENCE",
-            "From each zone's completed-hour Context, Action and Outcome, derive one Lesson that captures a useful observed relationship or trade-off for later control.",
+            "From each zone's completed Context, Action and Outcome, derive one Lesson that captures a useful observed relationship or trade-off for later control.",
             "证据",
-            "从每个区域已完成小时的 Context、Action 与 Outcome 中提炼一条 Lesson，概括对后续控制有意义的已观察关系或权衡。",
+            "从每个区域已完成的 Context、Action 与 Outcome 中提炼一条 Lesson，概括对后续控制有意义的已观察关系或权衡。",
             "information",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Ground each Lesson in the completed-hour evidence. Express an observation, relationship or trade-off rather than an action command, target or unsupported causal claim.",
+            "Ground each Lesson in the completed-interval evidence. Express an observation, relationship or trade-off rather than an action command, target or unsupported causal claim.",
             "硬边界",
-            "每条 Lesson 都应基于已完成小时证据，表达观察、关系或权衡，而不是动作命令、目标或无证据因果结论。",
+            "每条 Lesson 都应基于已完成控制时段的证据，表达观察、关系或权衡，而不是动作命令、目标或无证据因果结论。",
         ),
         _unit(
             "output",
@@ -161,10 +151,12 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
 def _machine_contract(role: Role, causal_enabled: bool, language: Language) -> str:
     if role == "orchestrator":
         names = allocation_contract(causal_enabled=causal_enabled)
+        prefix = " Keys exactly: " if language == "en" else " 字段仅限："
         return (
-            "Return exactly these keys, with no others: "
+            prefix
             + ", ".join(names)
-            + ". Every listed key must be present; rationale_per_zone maps each zone to a nonempty string."
+            + ". "
+            + allocation_constraint_text(causal_enabled=causal_enabled, language=language)
         )
     if role == "executor":
         return compact_patch_contract(causal_enabled=causal_enabled, language=language)

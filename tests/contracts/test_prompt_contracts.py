@@ -55,7 +55,11 @@ def test_rationale_prompt_has_no_length_semantics_and_reflector_uses_lessons(
     assert "short rationale" not in (orchestrator + executor).lower()
     assert "short string" not in (orchestrator + executor).lower()
     assert "简短理由" not in orchestrator + executor
-    assert "nonempty string" in orchestrator
+    assert (
+        ("values nonempty" in orchestrator)
+        if language == "en"
+        else ("理由不能为空" in orchestrator)
+    )
     assert (
         "Common required fields: op, rationale" in executor
         if language == "en"
@@ -86,9 +90,9 @@ def test_orchestrator_dynamic_limits_match_final_w_cooling_projection() -> None:
             "per_zone_cap_c": 5.0,
         },
     )
-    assert '"zones":["zoneB","zoneA"]' in user
-    assert '"site_cap_c":5.0' in user
-    assert '"per_zone_cap_c":5.0' in user
+    assert 'zones: ["zoneB","zoneA"]' in user
+    assert "site_cap_c: 5.0" in user
+    assert "per_zone_cap_c: 5.0" in user
     assert "site_cap_max_c" not in user and "priority_contract" not in user
 
 
@@ -204,7 +208,14 @@ def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only
     executor_user_off = Executor.build_user(
         hour=7,
         zone="zone1",
-        observation={"last_pmv": 0.0},
+        observation={
+            "zone_temperature_c": 24.0,
+            "last_pmv": 0.2,
+            "current_occupancy": 1.0,
+            "last_occupancy": 1.0,
+            "last_setpoint": 25.0,
+            "occ_ahead": [1.0, 1.0, 1.0, 1.0],
+        },
         current_executable_program={"program_version": 0, "params": {}, "rules": []},
         causal_edges=None,
         allowance=None,
@@ -212,10 +223,40 @@ def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only
     )
     assert "WORKING MEMORY" in executor_user_off
     assert "ACTIVE LONG-TERM EXPERIENCES" not in executor_user_off
+    for internal_coordinate in (
+        "decision_hour",
+        "sample_index",
+        "physical_step",
+        '"step":',
+        '"step_ahead":',
+        "time_seconds",
+    ):
+        assert internal_coordinate not in executor_user_off
+    assert not re.search(r"\b\d{4}-\d{2}-\d{2}\b", executor_user_off)
+
+    conflicting_observation = {
+        "zone_temperature_c": 24.0,
+        "last_pmv": 0.21,
+        "current_occupancy": 1.0,
+        "last_occupancy": 1.0,
+        "last_setpoint": 25.0,
+        "occ_ahead": [1.0, 1.0, 1.0, 1.0],
+    }
+    with pytest.raises(ValueError, match="disagrees with working-memory endpoint"):
+        Executor.build_user(
+            hour=7,
+            zone="zone1",
+            observation=conflicting_observation,
+            current_executable_program={"program_version": 0, "params": {}, "rules": []},
+            causal_edges=None,
+            allowance=None,
+            working_memory=completed_hour,
+        )
 
     reflector_user_off = Reflector.build_user(current_hour_cao=completed_hour)
-    assert "COMPLETED HOUR EVIDENCE" in reflector_user_off
-    assert "ELIGIBLE LONG-TERM EXPERIENCE SLOTS" not in reflector_user_off
+    assert "COMPLETED CONTROL INTERVAL" in reflector_user_off
+    assert "LONG-TERM EXPERIENCE SLOTS" not in reflector_user_off
+    assert "06:00" in reflector_user_off and "07:00" in reflector_user_off
 
 
 def test_model_visible_prompts_omit_internal_abbreviations_and_redundant_runtime_prose() -> None:

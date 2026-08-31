@@ -456,6 +456,145 @@ def _rationale_persistence(
     )
 
 
+_CLOCK_VALUE = r"(?:next day )?\d{2}:\d{2}"
+_INTERNAL_AGENT_COORDINATES = (
+    "decision_hour",
+    "latest_completed_step",
+    "target_action_steps",
+    "sample_index",
+    "physical_step",
+    '"step":',
+    '"step_ahead":',
+    "time_seconds",
+)
+
+
+def _clock_minute(value: str) -> int:
+    match = re.fullmatch(r"(next day )?(\d{2}):(\d{2})", value)
+    if match is None:
+        raise ValueError(f"invalid clock value: {value}")
+    hour = int(match.group(2))
+    minute = int(match.group(3))
+    if hour >= 24 or minute >= 60:
+        raise ValueError(f"invalid clock value: {value}")
+    return (1440 if match.group(1) else 0) + hour * 60 + minute
+
+
+def _clock_field(text: str, name: str) -> str:
+    match = re.search(rf"(?m)^{re.escape(name)}: ({_CLOCK_VALUE})$", text)
+    if match is None:
+        raise ValueError(f"missing clock field: {name}")
+    return match.group(1)
+
+
+def _clock_list_field(text: str, name: str) -> list[str]:
+    match = re.search(rf"(?m)^{re.escape(name)}: (\[[^\r\n]+\])$", text)
+    if match is None:
+        raise ValueError(f"missing clock list: {name}")
+    values = json.loads(match.group(1))
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise ValueError(f"invalid clock list: {name}")
+    return values
+
+
+def _interval_field(text: str, name: str) -> tuple[str, str]:
+    match = re.search(
+        rf"(?m)^{re.escape(name)}: \[({_CLOCK_VALUE}), ({_CLOCK_VALUE})\)$",
+        text,
+    )
+    if match is None:
+        raise ValueError(f"missing interval field: {name}")
+    return match.group(1), match.group(2)
+
+
+def _clock_sequence_is_valid(
+    *,
+    interval: tuple[str, str],
+    action_times: list[str],
+    outcome_times: list[str],
+) -> bool:
+    if len(action_times) != 4 or len(outcome_times) != 4:
+        return False
+    try:
+        start, end = map(_clock_minute, interval)
+        actions = [_clock_minute(value) for value in action_times]
+        outcomes = [_clock_minute(value) for value in outcome_times]
+    except ValueError:
+        return False
+    return (
+        end - start == 60
+        and actions == [start + offset for offset in (0, 15, 30, 45)]
+        and outcomes == [action + 15 for action in actions]
+        and outcomes[-1] == end
+    )
+
+
+def _agent_surface_has_internal_coordinates(text: str) -> bool:
+    return any(token in text for token in _INTERNAL_AGENT_COORDINATES) or bool(
+        re.search(r"\b\d{4}-\d{2}-\d{2}\b", text)
+    )
+
+
+def _decision_clock_surface_is_valid(text: str, *, expect_working_memory: bool) -> bool:
+    try:
+        current_time = _clock_field(text, "current_time")
+        interval = _interval_field(text, "control_interval")
+        action_times = _clock_list_field(text, "action_times")
+        outcome_times = _clock_list_field(text, "forecast_outcome_times")
+        if (
+            "### DECISION WINDOW" not in text
+            or "control_period: 15 min" not in text
+            or "coordination_period: 60 min" not in text
+            or current_time != interval[0]
+            or not _clock_sequence_is_valid(
+                interval=interval,
+                action_times=action_times,
+                outcome_times=outcome_times,
+            )
+            or _agent_surface_has_internal_coordinates(text)
+        ):
+            return False
+        if not expect_working_memory:
+            return True
+        completed_interval = _interval_field(text, "completed_interval")
+        state_times = _clock_list_field(text, "state_times")
+        if len(state_times) != 4:
+            return False
+        completed_start, completed_end = map(_clock_minute, completed_interval)
+        rendered_state_times = [_clock_minute(value) for value in state_times]
+        return (
+            completed_end == _clock_minute(current_time)
+            and completed_end - completed_start == 60
+            and rendered_state_times == [completed_start + offset for offset in (0, 15, 30, 45)]
+            and "control_action_history:" in text
+            and "previous_decision_forecast:" in text
+            and "derived_features:" in text
+            and "terminal_outcome_state: shown once in the current-state section" in text
+            and "RECENT OUTCOME SUMMARY" not in text
+        )
+    except (json.JSONDecodeError, ValueError):
+        return False
+
+
+def _completed_interval_clock_surface_is_valid(text: str) -> bool:
+    try:
+        interval = _interval_field(text, "interval")
+        action_times = _clock_list_field(text, "action_times")
+        outcome_times = _clock_list_field(text, "outcome_times")
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return (
+        "### COMPLETED CONTROL INTERVAL" in text
+        and "control_period: 15 min" in text
+        and _clock_sequence_is_valid(
+            interval=interval,
+            action_times=action_times,
+            outcome_times=outcome_times,
+        )
+        and not _agent_surface_has_internal_coordinates(text)
+    )
+
+
 def _caol_memory_checks(
     *,
     method: dict[str, Any],
@@ -537,10 +676,15 @@ def _caol_memory_checks(
                 caol_prompt_surface = caol_prompt_surface and (
                     ("### WORKING MEMORY" in user) == expected_block
                 )
-                caol_prompt_surface = caol_prompt_surface and "RECENT OUTCOME SUMMARY" not in user
+                caol_prompt_surface = caol_prompt_surface and _decision_clock_surface_is_valid(
+                    user,
+                    expect_working_memory=expected_block,
+                )
             elif role == "reflector":
-                caol_prompt_surface = caol_prompt_surface and (
-                    "### COMPLETED HOUR EVIDENCE" in user and "### WORKING MEMORY" not in user
+                caol_prompt_surface = (
+                    caol_prompt_surface
+                    and "### WORKING MEMORY" not in user
+                    and _completed_interval_clock_surface_is_valid(user)
                 )
 
     off_tokens = (
@@ -614,8 +758,13 @@ def _caol_memory_checks(
                     for token in off_tokens
                 )
             elif role == "reflector":
+                reflector_user = str(raw.get("user", ""))
                 memory_store_replayed = memory_store_replayed and (
-                    "ELIGIBLE LONG-TERM EXPERIENCE SLOTS" in str(raw.get("user", ""))
+                    (
+                        "ACTIVE LONG-TERM EXPERIENCE SLOTS" in reflector_user
+                        or "EMPTY LONG-TERM EXPERIENCE SLOTS" in reflector_user
+                    )
+                    and "ELIGIBLE LONG-TERM EXPERIENCE SLOTS" not in reflector_user
                     and "memory_operations" in str(raw.get("system", ""))
                 )
             elif role == "executor":

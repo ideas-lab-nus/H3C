@@ -81,7 +81,7 @@ def _previous_caol(fixture: Mapping[str, Any], language: Language) -> list[dict[
                     },
                 },
                 "action": {
-                    "proposal": {"op": "no_change", "rationale": "completed-hour fixture"},
+                    "proposal": {"op": "no_change", "rationale": "completed-interval fixture"},
                     "admission": {
                         "status": "accepted",
                         "completed_validation_stages": [
@@ -232,7 +232,10 @@ def _reflector_output(
 def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     labels = {
         "en": {
-            "title": "H3C complete MZ Air hour: working memory and optional regime experience",
+            "title": (
+                "H3C complete MZ Air control interval: working memory and optional regime "
+                "experience"
+            ),
             "intro": (
                 "This is one frozen, non-executed documentation fixture. Every prompt is produced "
                 "by the production renderer and every deterministic transition below is evaluated "
@@ -243,17 +246,17 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             "orch": "2. Orchestrator complete request, output and validation",
             "exec": "3. Five Executor complete requests, outputs and settlement",
             "settle": "4. Deterministic priority settlement",
-            "physical": "5. Four physical control steps",
+            "physical": "5. Four executed actions and resulting observations",
             "reflect": "6. Reflector complete request and output",
-            "caol": "7. Completed-hour record and next-hour working memory",
+            "caol": "7. Completed-interval record and next-interval working memory",
             "regime": "8. Three-regime classification",
-            "crud": "9. Long-term experience read, CRUD and next-hour Executor input",
+            "crud": "9. Long-term experience read, CRUD and next-interval Executor input",
             "off": "10. Memory-off exact contract and disappearing fields",
             "request": "Complete serialized request body",
             "output": "Model output",
         },
         "zh": {
-            "title": "H3C 完整 MZ Air 小时示例：工作记忆与可选状态经验",
+            "title": "H3C 完整 MZ Air 控制时段示例：工作记忆与可选状态经验",
             "intro": (
                 "这是一个冻结且不执行API/BOPTEST的文档fixture。全部Prompt由生产renderer生成；下方所有"
                 "确定性转换均由生产validation、program、assurance、working-memory和CRUD owner计算。它不是实验结果。"
@@ -262,11 +265,11 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             "orch": "2. Orchestrator完整请求、输出与验证",
             "exec": "3. 五个Executor完整请求、输出与结算",
             "settle": "4. 确定性优先级结算",
-            "physical": "5. 四个物理控制step",
+            "physical": "5. 四次已执行动作及其结果观测",
             "reflect": "6. Reflector完整请求与输出",
-            "caol": "7. 完整小时记录与下一小时Working Memory",
+            "caol": "7. 已完成控制时段记录与下一控制时段工作记忆",
             "regime": "8. 三状态判定",
-            "crud": "9. 长期经验读取、CRUD与下一小时Executor输入",
+            "crud": "9. 长期经验读取、CRUD与下一控制时段Executor输入",
             "off": "10. Memory-off精确契约与消失字段",
             "request": "完整序列化请求体",
             "output": "模型输出",
@@ -289,6 +292,17 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         if edge.source == "cooling_setpoint" and edge.target == "power_meters"
     )
     previous_caol = _previous_caol(fixture, language)
+    previous_ledger = BudgetLedger(fixture["previous_allocation"], zones)
+    for event in fixture["previous_budget_events"]:
+        rejection = previous_ledger.energy_budget_validation(
+            str(event["zone"]),
+            float(event["amount_c"]),
+            parameter=str(event["parameter"]),
+            step=int(event["step"]),
+        )
+        if rejection is not None:
+            raise ValueError("fixture previous Budget event was rejected")
+    previous_utilisation = previous_ledger.utilisation()
     observations = {
         zone: _observation(
             fixture,
@@ -308,25 +322,27 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     }
     zone_coupling = {
         zone: {
-            "current_setpoint_c": observations[zone]["last_setpoint"],
-            "last_pmv": observations[zone]["last_pmv"],
-            "current_occupancy": 1.0,
-            "next_hour_occupancy": 1.0,
-            "temp_targets": {"precool_residual_c": -5.0},
-            "comfort_headroom_c": observations[zone]["comfort_headroom_c"],
-            "granted_c": fixture["previous_allocation"]["zone_budgets_c"][zone],
-            "used_c": fixture["previous_utilisation"]["residual_used_by"].get(zone, 0.0),
+            "zone_temperature_c": observations[zone]["zone_temperature_c"],
+            "pmv": observations[zone]["last_pmv"],
+            "occupancy": 1.0,
+            "setpoint_c": observations[zone]["last_setpoint"],
+            "occupancy_at_interval_end": 1.0,
+            "precool_offset_from_unoccupied_base_c": -5.0,
+            "resulting_precool_setpoint_c": 25.0,
+            "temp_rise_to_warm_pmv_edge_c": observations[zone]["comfort_headroom_c"]["warmer_c"],
+            "temp_drop_to_cool_pmv_edge_c": observations[zone]["comfort_headroom_c"]["cooler_c"],
         }
         for zone in zones
     }
     orchestrator_context = Orchestrator.build_context(
         hour=hour,
+        decision_time_seconds=int(fixture["action_time_seconds"]),
         zones=zones,
         site_state=fixture["site_state"],
         zone_coupling=zone_coupling,
         causal_edges=site_edges,
         previous_allocation=fixture["previous_allocation"],
-        previous_utilisation=fixture["previous_utilisation"],
+        previous_utilisation=previous_utilisation,
         working_memory=previous_caol,
         allocation_limits={"zones": zones, "site_cap_c": 10.0, "per_zone_cap_c": 5.0},
     )
@@ -356,6 +372,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         exposed = active_experiences(store, zone)
         executor_context = Executor.build_context(
             hour=hour,
+            decision_time_seconds=int(fixture["action_time_seconds"]),
             zone=zone,
             observation=observations[zone],
             current_executable_program=programs[zone].prompt_view(),
@@ -480,6 +497,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     ]
     reflector_context = Reflector.build_context(
         current_hour_cao=current_cao,
+        interval_start_time_seconds=int(fixture["action_time_seconds"]),
         long_term_slots={
             zone: reflector_slot_view(
                 store,
@@ -531,6 +549,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     )
     next_eas_user = Executor.build_user(
         hour=hour + 1,
+        decision_time_seconds=int(fixture["action_time_seconds"]) + 3600,
         zone="eas",
         observation=next_eas_observation,
         current_executable_program=programs["eas"].prompt_view(),
@@ -548,6 +567,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     )
     off_eas_user = Executor.build_user(
         hour=hour,
+        decision_time_seconds=int(fixture["action_time_seconds"]),
         zone="eas",
         observation=observations["eas"],
         current_executable_program=ProgramLedger(
@@ -565,7 +585,10 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         long_term_experiences=None,
         rejection_feedback=None,
     )
-    off_reflector_user = Reflector.build_user(current_hour_cao=current_cao)
+    off_reflector_user = Reflector.build_user(
+        current_hour_cao=current_cao,
+        interval_start_time_seconds=int(fixture["action_time_seconds"]),
+    )
     off_output_patch = copy.deepcopy(executor_material["eas"]["output"]["patch"])
     off_reflector_output = _reflector_output(fixture, language, memory_enabled=False)
     generic_settings = {
@@ -611,11 +634,11 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     )
     parts.append(f"### {labels['output']}\n\n")
     parts.append(_code(reflector_output))
-    parts.append(f"## {labels['caol']}\n\n### Completed-hour records\n\n")
+    parts.append(f"## {labels['caol']}\n\n### Completed-interval records\n\n")
     parts.append(_code(completed_caol))
-    parts.append("### Next-hour Orchestrator working memory\n\n")
+    parts.append("### Next-interval Orchestrator working memory\n\n")
     parts.append(_code(next_working_memory))
-    parts.append("### Next-hour East Executor working memory\n\n")
+    parts.append("### Next-interval East Executor working memory\n\n")
     parts.append(
         _code(
             select_caol_working_memory(
@@ -635,7 +658,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     parts.append(_code(crud_audits))
     parts.append("### Store after CRUD\n\n")
     parts.append(_code(updated_store))
-    parts.append("### Complete next-hour East Executor request\n\n")
+    parts.append("### Complete next-interval East Executor request\n\n")
     parts.append(
         _code(
             model_request_contract(

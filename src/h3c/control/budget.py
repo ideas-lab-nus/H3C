@@ -9,6 +9,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from h3c.agents.contracts import ALLOCATION_CONTRACT_SPEC
+
 EDGE_IDENTIFIER = re.compile(r"^ce_[0-9a-f]{8}$")
 ALLOCATION_RATIONALE_ERROR = "allocation rationale must cover every zone with a nonempty string"
 
@@ -37,6 +39,7 @@ def validate_allocation(
     causal_enabled: bool = True,
     allowed_causal_edge_ids: set[str] | None = None,
     site_causal_edge_ids: set[str] | None = None,
+    expected_site_cap_c: float | None = None,
 ) -> None:
     required = {"site_cap_c", "zone_budgets_c", "priority", "rationale_per_zone"}
     if causal_enabled:
@@ -52,10 +55,16 @@ def validate_allocation(
         or not 0 <= cap <= site_cap_max(zones)
     ):
         raise ValueError("site allocation is outside its bound")
+    if expected_site_cap_c is not None and not math.isclose(
+        float(cap), float(expected_site_cap_c), rel_tol=0.0, abs_tol=1e-9
+    ):
+        raise ValueError("site allocation must equal the supplied site cap")
     if not isinstance(budgets, Mapping) or set(budgets) != set(zones):
         raise ValueError("zone allocations must cover exactly the configured zones")
     if any(
-        isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 5.0
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 <= value <= float(ALLOCATION_CONTRACT_SPEC["per_zone_cap_c"])
         for value in budgets.values()
     ):
         raise ValueError("zone allocation is outside its bound")
@@ -247,6 +256,12 @@ class BudgetLedger:
         return {
             "granted_c": round(granted, 4),
             "used_c": round(used, 4),
+            "reserved_allowance_by_zone_c": {
+                zone: round(value, 4) for zone, value in self.granted.items()
+            },
+            "reserved_consumption_by_zone_c": {
+                zone: round(value, 4) for zone, value in self.used.items()
+            },
             "utilisation": round(used / granted, 4) if granted else None,
             "site_cap_c": round(self.cap, 4),
             "residual_initial_c": round(self.residual_initial, 4),

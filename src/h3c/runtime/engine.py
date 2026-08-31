@@ -312,21 +312,26 @@ def _zone_coupling_view(
     observations: Mapping[str, Mapping[str, Any]],
     programs: Mapping[str, ProgramLedger],
     executor_records: Sequence[Mapping[str, Any]],
-    previous_ledger: BudgetLedger | None,
 ) -> dict[str, Any]:
     coupling: dict[str, Any] = {}
     for zone in zones:
         observation = observations[zone]
+        headroom = observation.get("comfort_headroom_c")
+        if headroom is not None and not isinstance(headroom, Mapping):
+            raise ValueError("comfort headroom must be an object when available")
+        precool_offset = float(programs[zone].current_program["params"]["precool_residual_c"])
         row: dict[str, Any] = {
-            "current_setpoint_c": round(float(observation["last_setpoint"]), 2),
-            "last_pmv": round(float(observation["last_pmv"]), 3),
-            "current_occupancy": round(float(observation["current_occupancy"]), 1),
-            "next_hour_occupancy": round(float(observation["next_hour_occupancy"]), 1),
-            "temp_targets": {
-                "precool_residual_c": programs[zone].current_program["params"]["precool_residual_c"]
-            },
-            "comfort_headroom_c": observation.get("comfort_headroom_c"),
+            "zone_temperature_c": round(float(observation["zone_temperature_c"]), 3),
+            "pmv": round(float(observation["last_pmv"]), 3),
+            "occupancy": round(float(observation["current_occupancy"]), 1),
+            "setpoint_c": round(float(observation["last_setpoint"]), 2),
+            "occupancy_at_interval_end": round(float(observation["next_hour_occupancy"]), 1),
+            "precool_offset_from_unoccupied_base_c": round(precool_offset, 4),
+            "resulting_precool_setpoint_c": round(30.0 + precool_offset, 4),
         }
+        if isinstance(headroom, Mapping):
+            row["temp_rise_to_warm_pmv_edge_c"] = headroom.get("warmer_c")
+            row["temp_drop_to_cool_pmv_edge_c"] = headroom.get("cooler_c")
         occupied_events = [
             record
             for record in executor_records
@@ -350,9 +355,6 @@ def _zone_coupling_view(
                 row["occupied_share_with_no_room_to_ask_for_less"] = round(
                     less / len(occupied_events), 3
                 )
-        if previous_ledger is not None:
-            row["granted_c"] = round(previous_ledger.granted[zone], 4)
-            row["used_c"] = round(previous_ledger.used[zone], 4)
         coupling[zone] = row
     return coupling
 
@@ -375,8 +377,9 @@ async def _agent_hour(
     artifacts: RunArtifacts,
     previous_allocation: Mapping[str, Any] | None,
     previous_utilisation: Mapping[str, Any] | None,
-    previous_ledger: BudgetLedger | None,
     last_rejection_by_zone: dict[str, Mapping[str, Any] | None],
+    decision_time_seconds: int | None = None,
+    previous_ledger: BudgetLedger | None = None,
 ) -> tuple[
     BudgetLedger | None,
     dict[str, Any] | None,
@@ -384,6 +387,8 @@ async def _agent_hour(
     list[dict[str, Any]],
     bool,
 ]:
+    del previous_ledger
+    resolved_decision_time = hour * 3600 if decision_time_seconds is None else decision_time_seconds
     thinking_mode = (
         "disabled" if plan.thinking_policy == "all_roles_disabled" else str(route["thinking_mode"])
     )
@@ -402,11 +407,10 @@ async def _agent_hour(
         orchestrator = Orchestrator(client)
         user = orchestrator.build_user(
             hour=hour,
+            decision_time_seconds=resolved_decision_time,
             zones=zones,
             site_state=site_state,
-            zone_coupling=_zone_coupling_view(
-                zones, observations, programs, executor_records, previous_ledger
-            ),
+            zone_coupling=_zone_coupling_view(zones, observations, programs, executor_records),
             causal_edges=site_edges,
             previous_allocation=previous_allocation,
             previous_utilisation=previous_utilisation,
@@ -438,6 +442,7 @@ async def _agent_hour(
                 thinking_mode=thinking_mode,
                 allowed_causal_edge_ids=allowed_edge_ids,
                 site_causal_edge_ids=shared_power_edge_ids,
+                expected_site_cap_c=resolved_site_cap,
             )
             orchestrator_rationale_telemetry = orchestrator.last_rationale_telemetry
         except ModelContractError as error:
@@ -476,6 +481,7 @@ async def _agent_hour(
         exposed = active_experiences(long_term_store, zone) if plan.long_term_memory else []
         user = executor.build_user(
             hour=hour,
+            decision_time_seconds=resolved_decision_time,
             zone=zone,
             observation=observations[zone],
             current_executable_program=programs[zone].prompt_view(),
@@ -686,6 +692,7 @@ async def _reflect_hour(
     plan: RunPlan,
     hour: int,
     step: int,
+    interval_start_time_seconds: int,
     zones: Sequence[str],
     route: Mapping[str, Any],
     current_cao: Sequence[Mapping[str, Any]],
@@ -717,6 +724,7 @@ async def _reflect_hour(
         raise ValueError("completed-hour evidence must cover every configured zone")
     user = reflector.build_user(
         current_hour_cao=current_cao,
+        interval_start_time_seconds=interval_start_time_seconds,
         long_term_slots=(
             {
                 zone: reflector_slot_view(long_term_store, zone, observed_by_zone[zone])
@@ -859,6 +867,7 @@ async def _evaluate(
                     plan=plan,
                     hour=hour,
                     step=step,
+                    decision_time_seconds=action_time,
                     zones=zones,
                     observations=observations,
                     site_state=site_state,
@@ -872,7 +881,6 @@ async def _evaluate(
                     artifacts=artifacts,
                     previous_allocation=previous_allocation,
                     previous_utilisation=previous_utilisation,
-                    previous_ledger=ledger,
                     last_rejection_by_zone=last_rejection_by_zone,
                 )
                 fallback_count += int(fallback_used)
@@ -1002,6 +1010,7 @@ async def _evaluate(
                     plan=plan,
                     hour=hour,
                     step=step,
+                    interval_start_time_seconds=int(hour_results[0]["action_time_seconds"]),
                     zones=zones,
                     route=route,
                     current_cao=new_cao,
