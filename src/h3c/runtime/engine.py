@@ -34,7 +34,7 @@ from h3c.control.program_execution import build_program_observations, execute_zo
 from h3c.control.validation import validate_candidate
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import load_profile, repository_root
-from h3c.experiments.settings import load_runtime_contract
+from h3c.experiments.settings import load_model_provider_contract, load_runtime_contract
 from h3c.memory.caol import (
     ReflectorResolution,
     active_experiences,
@@ -138,6 +138,8 @@ def _resolved_plan(plan: RunPlan) -> tuple[dict[str, Any], ConfirmedGraph | None
         resolved["resolved_graph"] = graph.resolved()
         if plan.graph_mutation is not None:
             resolved["graph_mutation"] = copy.deepcopy(plan.graph_mutation)
+    if plan.controller == "h3c_agent":
+        resolved["model_provider"] = plan.effective_model_provider()
     return resolved, graph
 
 
@@ -796,7 +798,7 @@ async def _evaluate(
     source_forecast = physical.forecast(
         points, (evaluation_steps + 96) * step_seconds, step_seconds
     )
-    evaluation_start = int(profile["evaluation_start_day"]) * 86400
+    evaluation_start = plan.evaluation_start_seconds(dict(profile))
     forecast, resolution_events = resolve_forecast_missing_occupancy(
         profile,
         source_forecast,
@@ -1106,23 +1108,39 @@ async def _execute_one(
     if not physical_endpoint:
         raise ValueError(f"{physical_environment} is required for physical execution")
     model_endpoint = ""
+    provider_id: str | None = None
+    provider_contract: dict[str, Any] | None = None
+    key_environment = ""
     if plan.controller == "h3c_agent":
-        model_environment = runtime["model"]["endpoint_environment_variable"]
-        key_environment = runtime["model"]["api_key_environment_variable"]
-        model_endpoint = os.environ.get(model_environment, "").rstrip("/")
+        provider_id = plan.effective_model_provider()
+        if provider_id is None:
+            raise ValueError("Agent execution requires a model provider")
+        provider_contract = load_model_provider_contract(provider_id)
+        model_environment = provider_contract["endpoint_environment_variable"]
+        key_environment = str(provider_contract["api_key_environment_variable"])
+        fixed_endpoint = provider_contract["fixed_endpoint"]
+        model_endpoint = (
+            str(fixed_endpoint)
+            if fixed_endpoint is not None
+            else os.environ.get(str(model_environment), "")
+        ).rstrip("/")
         if not model_endpoint or not os.environ.get(key_environment):
             raise ValueError("model endpoint and API key are required for Agent execution")
+    model_identity_fields: dict[str, Any] = {}
+    if plan.controller == "h3c_agent":
+        assert provider_id is not None and provider_contract is not None
+        model_identity_fields = {
+            "model_provider": provider_id,
+            "model_name": provider_contract["model"],
+            "model_endpoint_identity": _endpoint_identity(model_endpoint),
+        }
     execution_identity = {
         "plan_identity": plan.identity(profile),
         "source_commit": source_commit,
         "runtime_contract": runtime,
         "physical_endpoint_identity": _endpoint_identity(physical_endpoint),
         "dispatch_mode": "auto",
-        **(
-            {"model_endpoint_identity": _endpoint_identity(model_endpoint)}
-            if plan.controller == "h3c_agent"
-            else {}
-        ),
+        **model_identity_fields,
     }
     run_identity = _identity(execution_identity)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + run_identity[:12]
@@ -1168,16 +1186,26 @@ async def _execute_one(
     physical = physical_factory(physical_endpoint)
     model: ModelClient | None = None
     if plan.controller == "h3c_agent":
+        assert provider_id is not None and provider_contract is not None
+        session_header = provider_contract["session_affinity_header"]
+        extra_headers = (
+            {str(session_header): run_identity}
+            if isinstance(session_header, str) and session_header
+            else None
+        )
         model = (
-            model_factory(artifacts, runtime["model"]["name"])
+            model_factory(artifacts, str(provider_contract["model"]))
             if model_factory is not None
             else OpenAICompatibleModelClient(
                 endpoint=model_endpoint,
                 api_key=os.environ[key_environment],
-                model=runtime["model"]["name"],
+                model=str(provider_contract["model"]),
                 sink=lambda name, row: artifacts.append_jsonl(name, row),
                 retry_count_limit=runtime["model"]["retry_count"],
                 retry_backoff_seconds=tuple(runtime["model"]["retry_backoff_seconds"]),
+                provider_id=provider_id,
+                extra_headers=extra_headers,
+                retryable_status_codes=tuple(provider_contract["retryable_status_codes"]),
             )
         )
     started = time.perf_counter()
@@ -1230,6 +1258,7 @@ async def _execute_one(
             physical,
             profile,
             artifacts,
+            evaluation_start_seconds=plan.evaluation_start_seconds(profile),
             on_initialized=record_initialization,
         )
         manifest["occupancy_forecast_missing_value_resolution_count"] = (
@@ -1242,7 +1271,7 @@ async def _execute_one(
             "timing.jsonl",
             {"phase": "initialization", "elapsed_seconds": time.perf_counter() - started},
         )
-        evaluation_start_seconds = int(profile["evaluation_start_day"]) * 86400
+        evaluation_start_seconds = plan.evaluation_start_seconds(profile)
         artifacts.append_jsonl(
             "timing.jsonl",
             {
@@ -1306,7 +1335,7 @@ async def _execute_one(
         manifest["fallback_count"] = fallback_count
         manifest["retry_count"] = _recorded_retry_count(artifacts.run_dir)
         if plan.controller == "h3c_agent":
-            secret_name = runtime["model"]["api_key_environment_variable"]
+            secret_name = key_environment
             manifest["secret_exposure_count"] = _secret_occurrences(
                 artifacts.run_dir, os.environ[secret_name]
             )
@@ -1364,7 +1393,7 @@ async def _execute_one(
                 and artifacts.run_dir.is_dir()
                 and not (artifacts.run_dir / "completion.json").exists()
             ):
-                secret_name = runtime["model"]["api_key_environment_variable"]
+                secret_name = key_environment
                 manifest["secret_exposure_count"] = _secret_occurrences(
                     artifacts.run_dir, os.environ[secret_name]
                 )

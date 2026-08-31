@@ -30,7 +30,7 @@ from h3c.control.program import load_program, program_hash
 from h3c.control.validation import validate_candidate
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import load_profile, repository_root
-from h3c.experiments.settings import load_runtime_contract
+from h3c.experiments.settings import evaluation_start_seconds, load_runtime_contract
 from h3c.memory.caol import (
     active_experiences,
     apply_memory_operations,
@@ -48,6 +48,7 @@ from h3c.runtime.clients import (
     model_request_contract,
     model_request_identity,
     normalized_usage,
+    provider_neutral_request_identity,
 )
 from h3c.runtime.comfort import step_reward
 from h3c.runtime.occupancy import (
@@ -115,7 +116,7 @@ def _occupancy_resolution_evidence(
         if row.get("phase") == "occupancy_forecast_missing_value_resolution"
     ]
     hours = int(method["evaluation_hours"])
-    evaluation_start = int(profile["evaluation_start_day"]) * 86400
+    evaluation_start = evaluation_start_seconds(profile, method.get("diagnostic_window"))
     try:
         _, expected_events = reconstruct_forecast_evidence(
             profile,
@@ -132,6 +133,7 @@ def _occupancy_resolution_evidence(
         hours,
         manifest.get("occupancy_forecast_missing_value_resolution_count"),
         events,
+        evaluation_start_seconds=evaluation_start,
     )
 
 
@@ -912,7 +914,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             and protocol["internal_warmup_days"] == 7
         )
 
-        evaluation_start = int(profile["evaluation_start_day"]) * 86400
+        evaluation_start = evaluation_start_seconds(profile, method.get("diagnostic_window"))
         conditioning_start = evaluation_start - conditioning_count * 900
         evaluation_end = evaluation_start + expected_steps * 900
         lifecycle_events = [
@@ -1156,10 +1158,12 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "thinking_mode",
             "logical_call_identity",
             "request_identity",
+            "provider_neutral_request_identity",
             "attempt_count",
             "transport_retry_count",
             "request_model",
             "response_model",
+            "model_provider",
             "finish_reason",
             "usage",
             "elapsed_seconds",
@@ -1172,10 +1176,12 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "thinking_mode",
             "logical_call_identity",
             "request_identity",
+            "provider_neutral_request_identity",
             "attempt_count",
             "transport_retry_count",
             "request_model",
             "response_model",
+            "model_provider",
             "finish_reason",
             "usage",
             "provider_usage",
@@ -1232,12 +1238,24 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             call_alignment and observed_surface == expected_call_surface
         )
         runtime = load_runtime_contract()
-        model_name = resolved["runtime_contract"]["model"]["name"]
+        selected_provider = resolved.get("model_provider")
+        provider_contract = (
+            runtime["model"]["providers"].get(selected_provider)
+            if isinstance(selected_provider, str)
+            else None
+        )
+        model_name = None if provider_contract is None else provider_contract["model"]
+        provider_retryable_http_errors = (
+            {f"http_{code}" for code in provider_contract["retryable_status_codes"]}
+            if provider_contract is not None
+            else set()
+        )
         checks["model_identity"] = (
             all(
                 row.get("status") == "received"
                 and row.get("request_model") == model_name
                 and row.get("response_model") == model_name
+                and row.get("model_provider") == selected_provider
                 and _finite_number(row.get("elapsed_seconds"))
                 and float(row["elapsed_seconds"]) >= 0
                 for row in calls
@@ -1264,6 +1282,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 graph_mutation=method.get("graph_mutation"),
                 evaluation_hours=method["evaluation_hours"],
                 long_term_memory=bool(method.get("long_term_memory", False)),
+                model_provider=(str(selected_provider) if selected_provider is not None else None),
+                diagnostic_window=method.get("diagnostic_window"),
             )
             execution_identity = resolved["execution_identity"]
             expected_execution_fields = {
@@ -1274,13 +1294,17 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "dispatch_mode",
             }
             if plan.controller == "h3c_agent":
-                expected_execution_fields.add("model_endpoint_identity")
+                expected_execution_fields.update(
+                    {"model_provider", "model_name", "model_endpoint_identity"}
+                )
             expected_resolved_fields = {
                 "case_profile",
                 "method",
                 "runtime_contract",
                 "execution_identity",
             }
+            if plan.controller == "h3c_agent":
+                expected_resolved_fields.add("model_provider")
             if plan.causal_enabled:
                 expected_resolved_fields.add("resolved_graph")
             if plan.graph_mutation is not None:
@@ -1305,12 +1329,9 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "lifecycle",
             }
             source_commit = execution_identity["source_commit"]
-            endpoint_fields = expected_execution_fields - {
-                "plan_identity",
-                "source_commit",
-                "runtime_contract",
-                "dispatch_mode",
-            }
+            endpoint_fields = {"physical_endpoint_identity"}
+            if plan.controller == "h3c_agent":
+                endpoint_fields.add("model_endpoint_identity")
             identity_ok = (
                 set(resolved) == expected_resolved_fields
                 and registered_profile == profile
@@ -1325,6 +1346,14 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 and execution_identity["plan_identity"] == plan.identity(profile)
                 and execution_identity["runtime_contract"] == runtime
                 and execution_identity["dispatch_mode"] == "auto"
+                and (
+                    plan.controller == "deterministic_baseline"
+                    or (
+                        resolved["model_provider"] == selected_provider
+                        and execution_identity["model_provider"] == selected_provider
+                        and execution_identity["model_name"] == model_name
+                    )
+                )
                 and isinstance(source_commit, str)
                 and re.fullmatch(r"[0-9a-f]{40}", source_commit) is not None
                 and all(
@@ -1446,8 +1475,10 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "role",
             "thinking_mode",
             "request_model",
+            "model_provider",
             "logical_call_identity",
             "request_identity",
+            "provider_neutral_request_identity",
             "request_body",
             "attempt_number",
             "maximum_attempts",
@@ -1471,6 +1502,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "SSLZeroReturnError",
             "http_429",
             "http_503",
+            "http_529",
         }
         attempts_by_identity: dict[str, list[dict[str, Any]]] = {}
         for attempt in model_attempts:
@@ -1527,6 +1559,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     thinking_mode=str(first["thinking_mode"]),
                 )
                 request_identity = model_request_identity(contract)
+                neutral_request_identity = provider_neutral_request_identity(contract)
                 logical_identity = model_logical_call_identity(
                     context,
                     role,
@@ -1537,6 +1570,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     identity == logical_identity
                     and body_text == model_request_body(contract)
                     and body["model"] == model_name
+                    and first["model_provider"] == selected_provider
+                    and first["provider_neutral_request_identity"] == neutral_request_identity
                 )
 
                 successful = identity in call_by_identity
@@ -1545,6 +1580,9 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     raw = raw_by_identity[identity]
                     retry_accounting_ok = retry_accounting_ok and (
                         call["request_identity"] == raw["request_identity"] == request_identity
+                        and call["provider_neutral_request_identity"]
+                        == raw["provider_neutral_request_identity"]
+                        == neutral_request_identity
                         and all(call.get(key) == value for key, value in context.items())
                         and all(raw.get(key) == value for key, value in context.items())
                         and call["attempt_count"] == raw["attempt_count"] == len(group)
@@ -1564,8 +1602,11 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                         and attempt.get("role") == role
                         and attempt.get("thinking_mode") == first["thinking_mode"]
                         and attempt.get("request_model") == model_name
+                        and attempt.get("model_provider") == selected_provider
                         and attempt.get("logical_call_identity") == logical_identity
                         and attempt.get("request_identity") == request_identity
+                        and attempt.get("provider_neutral_request_identity")
+                        == neutral_request_identity
                         and attempt.get("request_body") == body_text
                         and attempt.get("maximum_attempts") == maximum_attempts
                         and _nonnegative_finite_number(attempt.get("elapsed_seconds"))
@@ -1578,13 +1619,13 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                             and (
                                 (
                                     retryable
-                                    and attempt.get("error_type") in {"http_429", "http_503"}
+                                    and attempt.get("error_type") in provider_retryable_http_errors
                                     and provider_status == "response_received_usage_unavailable"
                                 )
                                 or (
                                     retryable
                                     and attempt.get("error_type")
-                                    in retryable_error_types - {"http_429", "http_503"}
+                                    in retryable_error_types - {"http_429", "http_503", "http_529"}
                                     and provider_status == "unknown_after_request_failure"
                                 )
                                 or (

@@ -20,6 +20,10 @@ from h3c.causal.workflow import (
 )
 from h3c.experiments.matrix import RunPlan, graph_mutation, plan_suite
 from h3c.experiments.profiles import load_profile, profiles, repository_root
+from h3c.experiments.settings import (
+    load_diagnostic_window_catalog,
+    load_runtime_contract,
+)
 
 
 def _print(value: Any) -> None:
@@ -35,6 +39,8 @@ def _plan_view(plans: list[RunPlan]) -> dict[str, Any]:
             {
                 "profile": plan.profile,
                 "method": plan.method_config(),
+                "model_provider": plan.effective_model_provider(),
+                "evaluation_start_seconds": plan.evaluation_start_seconds(profile),
                 "run_identity": plan.identity(profile),
                 "expected_agent_calls": plan.expected_agent_calls(len(profile["zones"])),
             }
@@ -70,10 +76,16 @@ def _run_plan(args: argparse.Namespace) -> RunPlan:
         or args.no_thinking
         or args.long_term_memory
         or mutation is not None
+        or args.model_provider is not None
     ):
         raise SystemExit("--baseline cannot be combined with Agent-only flags")
     profile = load_profile(args.profile)
-    evaluation_hours = int(profile["protocol"]["formal_evaluation_days"]) * 24
+    diagnostic_window = args.diagnostic_window
+    evaluation_hours = (
+        int(load_diagnostic_window_catalog()[diagnostic_window]["evaluation_hours"])
+        if diagnostic_window is not None
+        else int(profile["protocol"]["formal_evaluation_days"]) * 24
+    )
     return RunPlan(
         profile=args.profile,
         controller="deterministic_baseline" if baseline else "h3c_agent",
@@ -86,6 +98,12 @@ def _run_plan(args: argparse.Namespace) -> RunPlan:
         graph_mutation=None if baseline else mutation,
         evaluation_hours=evaluation_hours,
         long_term_memory=False if baseline else bool(args.long_term_memory),
+        model_provider=(
+            None
+            if baseline
+            else args.model_provider or load_runtime_contract()["model"]["default_provider"]
+        ),
+        diagnostic_window=diagnostic_window,
     )
 
 
@@ -174,6 +192,16 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="plan or execute one physical run")
     run.add_argument("--profile", choices=tuple(profiles()), required=True)
     run.add_argument("--baseline", action="store_true")
+    run.add_argument(
+        "--model-provider",
+        choices=tuple(load_runtime_contract()["model"]["providers"]),
+        help="select the registered OpenAI-compatible provider for Agent calls",
+    )
+    run.add_argument(
+        "--diagnostic-window",
+        choices=tuple(load_diagnostic_window_catalog()),
+        help="use one registered non-formal evaluation window",
+    )
     run.add_argument("--working-memory-hours", type=int, choices=(1, 2, 3), default=1)
     run.add_argument("--causal-off", action="store_true")
     run.add_argument("--independent-coordination", action="store_true")

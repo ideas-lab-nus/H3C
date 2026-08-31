@@ -54,6 +54,12 @@ def model_request_identity(request_contract: Mapping[str, Any]) -> str:
     return hashlib.sha256(model_request_body(request_contract).encode("utf-8")).hexdigest()
 
 
+def provider_neutral_request_identity(request_contract: Mapping[str, Any]) -> str:
+    """Identify the complete request contract except for the provider model slug."""
+    neutral = {key: value for key, value in request_contract.items() if key != "model"}
+    return hashlib.sha256(model_request_body(neutral).encode("utf-8")).hexdigest()
+
+
 def model_request_body(request_contract: Mapping[str, Any]) -> str:
     """Serialize the exact secret-free model request body sent on the wire."""
     return json.dumps(request_contract, allow_nan=False)
@@ -156,6 +162,7 @@ def _request_json(
     headers: Mapping[str, str] | None = None,
     timeout_seconds: float = 600.0,
     response_json_required: bool = True,
+    retryable_status_codes: frozenset[int] | None = None,
     _boptest_status_response: Literal[False] = False,
 ) -> dict[str, Any]: ...
 
@@ -169,6 +176,7 @@ def _request_json(
     headers: Mapping[str, str] | None = None,
     timeout_seconds: float = 600.0,
     response_json_required: bool = True,
+    retryable_status_codes: frozenset[int] | None = None,
     _boptest_status_response: Literal[True],
 ) -> dict[str, Any] | str: ...
 
@@ -181,8 +189,10 @@ def _request_json(
     headers: Mapping[str, str] | None = None,
     timeout_seconds: float = 600.0,
     response_json_required: bool = True,
+    retryable_status_codes: frozenset[int] | None = None,
     _boptest_status_response: bool = False,
 ) -> dict[str, Any] | str:
+    retryable_codes = retryable_status_codes or frozenset({429, 503})
     body = None if payload is None else _request_body(payload)
     request_headers = dict(headers or {})
     if payload is not None:
@@ -204,7 +214,7 @@ def _request_json(
                     provider_response_received=True,
                 ) from error
             if response.status != 200:
-                retryable = response.status in {429, 503}
+                retryable = response.status in retryable_codes
                 response_headers = getattr(response, "headers", None)
                 retry_after = (
                     _retry_after_seconds(response_headers.get("Retry-After"))
@@ -219,7 +229,7 @@ def _request_json(
                     retry_after_seconds=retry_after,
                 )
     except urllib.error.HTTPError as error:
-        retryable = error.code in {429, 503}
+        retryable = error.code in retryable_codes
         response_headers = getattr(error, "headers", None)
         raise TransportError(
             f"HTTP {error.code} from {url}",
@@ -462,6 +472,9 @@ class OpenAICompatibleModelClient:
     retry_count_limit: int
     retry_backoff_seconds: tuple[float, ...]
     retry_count: int = 0
+    provider_id: str = "deepseek-official"
+    extra_headers: Mapping[str, str] | None = None
+    retryable_status_codes: tuple[int, ...] = (429, 503)
 
     async def complete(
         self,
@@ -482,6 +495,7 @@ class OpenAICompatibleModelClient:
         )
         context_fields = context.as_mapping()
         request_identity = model_request_identity(request_contract)
+        neutral_request_identity = provider_neutral_request_identity(request_contract)
         request_body = model_request_body(request_contract)
         logical_call_identity = model_logical_call_identity(
             context_fields,
@@ -502,7 +516,11 @@ class OpenAICompatibleModelClient:
                     "POST",
                     f"{self.endpoint}/chat/completions",
                     payload=request_contract,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        **dict(self.extra_headers or {}),
+                    },
+                    retryable_status_codes=frozenset(self.retryable_status_codes),
                 )
                 raw_choice = candidate["choices"][0]
                 message = raw_choice["message"]
@@ -605,10 +623,12 @@ class OpenAICompatibleModelClient:
             "thinking_mode": thinking_mode,
             "logical_call_identity": logical_call_identity,
             "request_identity": request_identity,
+            "provider_neutral_request_identity": neutral_request_identity,
             "attempt_count": attempt_number,
             "transport_retry_count": attempt_number - 1,
             "request_model": self.model,
             "response_model": response.get("model"),
+            "model_provider": self.provider_id,
             "finish_reason": choice.get("finish_reason"),
             "usage": usage,
             "provider_usage": response.get("usage"),
@@ -656,8 +676,12 @@ class OpenAICompatibleModelClient:
                 "role": role,
                 "thinking_mode": thinking_mode,
                 "request_model": self.model,
+                "model_provider": self.provider_id,
                 "logical_call_identity": logical_call_identity,
                 "request_identity": request_identity,
+                "provider_neutral_request_identity": provider_neutral_request_identity(
+                    json.loads(request_body)
+                ),
                 "request_body": request_body,
                 "attempt_number": attempt_number,
                 "maximum_attempts": maximum_attempts,

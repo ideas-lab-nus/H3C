@@ -84,6 +84,78 @@ def test_http_retry_registration_is_limited_to_429_and_503(
     assert raised.value.retry_after_seconds == retry_after
 
 
+def test_http_529_is_retryable_only_for_the_baseten_provider_contract(
+    monkeypatch: Any,
+) -> None:
+    def fail(request: urllib.request.Request, timeout: float) -> _Response:
+        del request, timeout
+        raise urllib.error.HTTPError(
+            "https://inference.baseten.co/v1/chat/completions",
+            529,
+            "overloaded",
+            {"Retry-After": "1.25"},
+            None,
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fail)
+    with pytest.raises(TransportError) as official:
+        _request_json("POST", "https://model.invalid", payload={"x": 1})
+    assert official.value.retryable is False
+
+    with pytest.raises(TransportError) as baseten:
+        _request_json(
+            "POST",
+            "https://inference.baseten.co/v1/chat/completions",
+            payload={"x": 1},
+            retryable_status_codes=frozenset({429, 503, 529}),
+        )
+    assert baseten.value.retryable is True
+    assert baseten.value.retry_after_seconds == 1.25
+
+
+def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> None:
+    rows: list[tuple[str, dict[str, Any]]] = []
+    captured_headers: list[dict[str, str]] = []
+
+    def request(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        del args
+        captured_headers.append(dict(kwargs["headers"]))
+        return _model_response(model="deepseek-ai/DeepSeek-V4-Flash-0731")
+
+    monkeypatch.setattr("h3c.runtime.clients._request_json", request)
+    client = OpenAICompatibleModelClient(
+        endpoint="https://inference.baseten.co/v1",
+        api_key="baseten-secret-not-recorded",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        sink=lambda name, row: rows.append((name, dict(row))),
+        retry_count_limit=0,
+        retry_backoff_seconds=(),
+        provider_id="baseten-deepseek",
+        extra_headers={"x-session-affinity": "run-specific-affinity"},
+        retryable_status_codes=(429, 503, 529),
+    )
+    asyncio.run(
+        client.complete(
+            context=ModelCallContext(0, 0, 0),
+            role="orchestrator",
+            system="system",
+            user="user",
+            thinking_mode="low",
+        )
+    )
+    assert captured_headers == [
+        {
+            "Authorization": "Bearer baseten-secret-not-recorded",
+            "x-session-affinity": "run-specific-affinity",
+        }
+    ]
+    evidence = json.dumps(rows)
+    assert "baseten-secret-not-recorded" not in evidence
+    assert "run-specific-affinity" not in evidence
+    call = next(row for name, row in rows if name == "agent_calls.jsonl")
+    assert call["model_provider"] == "baseten-deepseek"
+
+
 def test_non_json_response_is_allowed_only_for_explicit_no_json_contract(
     monkeypatch: Any,
 ) -> None:
@@ -153,9 +225,11 @@ def test_connection_refusal_is_not_silently_treated_as_a_transient_retry(
     assert raised.value.error_type == "ConnectionRefusedError"
 
 
-def _model_response(content: str = '{"patch":[]}') -> dict[str, Any]:
+def _model_response(
+    content: str = '{"patch":[]}', *, model: str = "deepseek-v4-flash"
+) -> dict[str, Any]:
     return {
-        "model": "deepseek-v4-flash",
+        "model": model,
         "choices": [
             {
                 "message": {"content": content},

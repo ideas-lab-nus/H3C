@@ -23,13 +23,12 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
         "physical_service",
     }:
         raise ValueError("runtime contract fields are invalid")
-    if value["runtime_schema"] != "h3c_runtime_contract" or value["schema_version"] != 2:
+    if value["runtime_schema"] != "h3c_runtime_contract" or value["schema_version"] != 3:
         raise ValueError("unsupported runtime contract schema")
     model = value["model"]
     if not isinstance(model, dict) or set(model) != {
-        "name",
-        "endpoint_environment_variable",
-        "api_key_environment_variable",
+        "default_provider",
+        "providers",
         "response_format",
         "thinking_reasoning_effort",
         "no_thinking_temperature",
@@ -39,13 +38,7 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
     }:
         raise ValueError("model runtime contract fields are invalid")
     if (
-        not isinstance(model["name"], str)
-        or not model["name"].strip()
-        or model["name"] != model["name"].strip()
-        or not isinstance(model["endpoint_environment_variable"], str)
-        or ENVIRONMENT_VARIABLE.fullmatch(model["endpoint_environment_variable"]) is None
-        or not isinstance(model["api_key_environment_variable"], str)
-        or ENVIRONMENT_VARIABLE.fullmatch(model["api_key_environment_variable"]) is None
+        model["default_provider"] != "deepseek-official"
         or model["response_format"] != "json_object"
         or model["thinking_reasoning_effort"] != "low"
         or model["no_thinking_temperature"] != 0.0
@@ -54,6 +47,32 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
         or model["retry_backoff_seconds"] != [1.0, 2.0]
     ):
         raise ValueError("model request contract is not frozen")
+    providers = model["providers"]
+    if not isinstance(providers, dict) or set(providers) != {
+        "deepseek-official",
+        "baseten-deepseek",
+    }:
+        raise ValueError("model provider catalog is invalid")
+    expected_providers = {
+        "deepseek-official": {
+            "model": "deepseek-v4-flash",
+            "endpoint_environment_variable": "H3C_MODEL_ENDPOINT",
+            "fixed_endpoint": None,
+            "api_key_environment_variable": "H3C_MODEL_API_KEY",
+            "session_affinity_header": None,
+            "retryable_status_codes": [429, 503],
+        },
+        "baseten-deepseek": {
+            "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
+            "endpoint_environment_variable": None,
+            "fixed_endpoint": "https://inference.baseten.co/v1",
+            "api_key_environment_variable": "BASETEN_API_KEY",
+            "session_affinity_header": "x-session-affinity",
+            "retryable_status_codes": [429, 503, 529],
+        },
+    }
+    if providers != expected_providers:
+        raise ValueError("model provider contracts are not frozen")
     physical = value["physical_service"]
     if (
         not isinstance(physical, dict)
@@ -64,13 +83,80 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
     ):
         raise ValueError("physical service contract is invalid")
     environment_names = {
-        model["endpoint_environment_variable"],
-        model["api_key_environment_variable"],
+        "H3C_MODEL_ENDPOINT",
+        "H3C_MODEL_API_KEY",
+        "BASETEN_API_KEY",
         physical["endpoint_environment_variable"],
     }
-    if len(environment_names) != 3:
+    if len(environment_names) != 4:
         raise ValueError("runtime credential/environment owners must be distinct")
     return value
+
+
+def load_model_provider_contract(provider: str) -> dict[str, Any]:
+    runtime = load_runtime_contract()
+    providers = runtime["model"]["providers"]
+    if not isinstance(provider, str) or provider not in providers:
+        raise ValueError("model provider is not registered")
+    return copy.deepcopy(providers[provider])
+
+
+def load_diagnostic_window_catalog(path: Path | None = None) -> dict[str, dict[str, Any]]:
+    source = path or repository_root() / "configs" / "experiments" / "diagnostic_windows.json"
+    value = json.loads(source.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or set(value) != {
+        "diagnostic_window_schema",
+        "schema_version",
+        "windows",
+    }:
+        raise ValueError("diagnostic window catalog fields are invalid")
+    if (
+        value["diagnostic_window_schema"] != "h3c_diagnostic_window_catalog"
+        or value["schema_version"] != 1
+    ):
+        raise ValueError("unsupported diagnostic window catalog schema")
+    windows = value["windows"]
+    if not isinstance(windows, dict) or not windows:
+        raise ValueError("registered diagnostic windows are invalid")
+    for name, window in windows.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(window, dict)
+            or set(window)
+            != {
+                "profile",
+                "evaluation_start_offset_seconds",
+                "evaluation_hours",
+                "description",
+            }
+            or not isinstance(window["profile"], str)
+            or not window["profile"]
+            or isinstance(window["evaluation_start_offset_seconds"], bool)
+            or not isinstance(window["evaluation_start_offset_seconds"], int)
+            or not 0 <= window["evaluation_start_offset_seconds"] < 86400
+            or window["evaluation_start_offset_seconds"] % 900 != 0
+            or isinstance(window["evaluation_hours"], bool)
+            or not isinstance(window["evaluation_hours"], int)
+            or window["evaluation_hours"] <= 0
+            or not isinstance(window["description"], str)
+            or not window["description"]
+        ):
+            raise ValueError("diagnostic window declaration is invalid")
+    return copy.deepcopy(windows)
+
+
+def evaluation_start_seconds(profile: dict[str, Any], diagnostic_window: str | None = None) -> int:
+    offset = 0
+    if diagnostic_window is not None:
+        windows = load_diagnostic_window_catalog()
+        if diagnostic_window not in windows:
+            raise ValueError("diagnostic window is not registered")
+        window = windows[diagnostic_window]
+        if window["profile"] != profile.get("profile"):
+            raise ValueError("diagnostic window does not match the case profile")
+        offset = int(window["evaluation_start_offset_seconds"])
+    return int(profile["evaluation_start_day"]) * 86400 + offset
 
 
 def load_suite_contract(path: Path | None = None) -> dict[str, Any]:

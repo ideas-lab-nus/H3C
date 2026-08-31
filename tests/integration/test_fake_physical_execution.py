@@ -28,6 +28,7 @@ from h3c.runtime.clients import (
     model_request_body,
     model_request_contract,
     model_request_identity,
+    provider_neutral_request_identity,
 )
 from h3c.runtime.engine import execute_serial
 
@@ -110,6 +111,63 @@ class FakePhysicalClient:
             "fcu_reaPFan_y": 20.0,
             "fcu_reaPHea_y": 0.0,
         }
+
+
+class DiagnosticMZAirPhysicalClient:
+    def __init__(self) -> None:
+        self.profile = json.loads(
+            (repository_root() / "configs" / "cases" / "mz_air.json").read_text(encoding="utf-8")
+        )
+        self.test_id: str | None = None
+        self.time_seconds = 0
+        self.initialize_start: int | None = None
+
+    def initialize(
+        self, testcase: str, start_time_seconds: int, warmup_period_seconds: int
+    ) -> dict[str, Any]:
+        assert testcase == self.profile["testcase"]
+        assert warmup_period_seconds == 7 * 86400
+        self.initialize_start = start_time_seconds
+        self.time_seconds = start_time_seconds
+        self.test_id = "fake-mz-air-diagnostic-test-id"
+        return self._state()
+
+    def forecast(
+        self, points: Sequence[str], horizon_seconds: int, interval_seconds: int
+    ) -> dict[str, list[float | None]]:
+        count = horizon_seconds // interval_seconds + 1
+        global_inputs = self.profile["global_inputs"]
+        values: dict[str, list[float | None]] = {}
+        for point in points:
+            if point == global_inputs["outdoor_temperature"]:
+                values[point] = [303.15] * count
+            elif point == global_inputs["solar_irradiance"]:
+                values[point] = [200.0] * count
+            elif point == global_inputs["electricity_price"]:
+                values[point] = [0.1] * count
+            else:
+                values[point] = [1.0] * count
+        return values
+
+    def advance(self, controls: Mapping[str, float]) -> dict[str, Any]:
+        expected = {
+            mapping["cooling_setpoint_actuator"] for mapping in self.profile["zones"].values()
+        }
+        assert expected <= set(controls)
+        self.time_seconds += 900
+        return self._state()
+
+    def stop(self) -> None:
+        assert self.test_id == "fake-mz-air-diagnostic-test-id"
+        self.test_id = None
+
+    def _state(self) -> dict[str, Any]:
+        state: dict[str, Any] = {"time": self.time_seconds}
+        for mapping in self.profile["zones"].values():
+            state[mapping["temperature_sensor"]] = 297.15
+        for point in self.profile["global_inputs"]["power_meters"]:
+            state[point] = 100.0
+        return state
 
 
 class FakeModelClient:
@@ -249,6 +307,7 @@ class FakeModelClient:
             key: value for key, value in request_contract.items() if key != "messages"
         }
         request_identity = model_request_identity(request_contract)
+        neutral_request_identity = provider_neutral_request_identity(request_contract)
         request_body = model_request_body(request_contract)
         logical_call_identity = model_logical_call_identity(
             context_fields,
@@ -266,8 +325,10 @@ class FakeModelClient:
                     "role": role,
                     "thinking_mode": thinking_mode,
                     "request_model": self.model,
+                    "model_provider": "deepseek-official",
                     "logical_call_identity": logical_call_identity,
                     "request_identity": request_identity,
+                    "provider_neutral_request_identity": neutral_request_identity,
                     "request_body": request_body,
                     "attempt_number": 1,
                     "maximum_attempts": maximum_attempts,
@@ -291,8 +352,10 @@ class FakeModelClient:
                 "role": role,
                 "thinking_mode": thinking_mode,
                 "request_model": self.model,
+                "model_provider": "deepseek-official",
                 "logical_call_identity": logical_call_identity,
                 "request_identity": request_identity,
+                "provider_neutral_request_identity": neutral_request_identity,
                 "request_body": request_body,
                 "attempt_number": attempt_number,
                 "maximum_attempts": maximum_attempts,
@@ -312,10 +375,12 @@ class FakeModelClient:
             "thinking_mode": thinking_mode,
             "logical_call_identity": logical_call_identity,
             "request_identity": request_identity,
+            "provider_neutral_request_identity": neutral_request_identity,
             "attempt_count": attempt_number,
             "transport_retry_count": attempt_number - 1,
             "request_model": self.model,
             "response_model": self.model,
+            "model_provider": "deepseek-official",
             "finish_reason": "stop",
             "usage": {
                 "available": True,
@@ -536,6 +601,37 @@ def test_fake_physical_baseline_has_one_continuous_lifecycle(
     assert metrics["physical"]["evaluation_steps"] == 24
     assert metrics["physical"]["energy_kwh"] == pytest.approx(0.72)
     assert metrics["model_calls"]["by_route"] == {}
+
+
+def test_registered_mz_air_diagnostic_window_drives_initialize_and_verifier(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    physical = DiagnosticMZAirPhysicalClient()
+    plan = RunPlan(
+        profile="MZ_Air",
+        controller="deterministic_baseline",
+        working_memory_hours=1,
+        causal_enabled=False,
+        coordination_enabled=False,
+        thinking_policy="all_roles_disabled",
+        graph_mutation=None,
+        evaluation_hours=6,
+        diagnostic_window="mz-air-06-12",
+    )
+    result = execute_serial(
+        [plan],
+        suite="fake-mz-air-diagnostic",
+        output_root=tmp_path,
+        physical_factory=lambda endpoint: physical,
+    )
+    run_dir = Path(result["completed_runs"][0]["completion"]).parent
+    performance = list(csv.DictReader((run_dir / "performance.csv").open(encoding="utf-8")))
+    assert physical.initialize_start == 199 * 86400 + 6 * 3600
+    assert len(performance) == 24
+    assert int(performance[0]["time_seconds"]) == 199 * 86400 + 6 * 3600
+    assert int(performance[-1]["time_seconds"]) == 199 * 86400 + 6 * 3600 + 23 * 900
+    assert verify_run(run_dir)["passed"]
 
 
 def test_hydronic_missing_occupancy_resolution_is_audited_and_verified(

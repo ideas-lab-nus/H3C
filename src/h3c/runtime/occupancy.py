@@ -88,6 +88,8 @@ def verify_missing_occupancy_resolution_evidence(
     evaluation_hours: int,
     recorded_count: Any,
     events: Sequence[Mapping[str, Any]],
+    *,
+    evaluation_start_seconds: int | None = None,
 ) -> bool:
     """Recompute every permitted missing-occupancy resolution event."""
 
@@ -118,7 +120,11 @@ def verify_missing_occupancy_resolution_evidence(
     points = {mapping["occupancy_forecast"] for mapping in zones.values()}
     seen: set[tuple[str, str, int]] = set()
     maximum_index = int(evaluation_hours) * 4 + 96
-    evaluation_start = int(profile["evaluation_start_day"]) * DAY_SECONDS
+    evaluation_start = (
+        int(profile["evaluation_start_day"]) * DAY_SECONDS
+        if evaluation_start_seconds is None
+        else evaluation_start_seconds
+    )
     for raw_event in events:
         event = dict(raw_event)
         if set(event) != event_keys or event["point"] not in points:

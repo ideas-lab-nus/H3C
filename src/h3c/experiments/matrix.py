@@ -9,7 +9,13 @@ from typing import Any
 
 from h3c.causal.graph import derive_variant, load_graph
 from h3c.experiments.profiles import profiles, repository_root
-from h3c.experiments.settings import load_graph_mutation_catalog, load_suite_contract
+from h3c.experiments.settings import (
+    evaluation_start_seconds,
+    load_diagnostic_window_catalog,
+    load_graph_mutation_catalog,
+    load_runtime_contract,
+    load_suite_contract,
+)
 
 SUITES = (
     "main",
@@ -32,6 +38,8 @@ class RunPlan:
     graph_mutation: dict[str, Any] | None
     evaluation_hours: int = 168
     long_term_memory: bool = False
+    model_provider: str | None = None
+    diagnostic_window: str | None = None
 
     def __post_init__(self) -> None:
         loaded = profiles()
@@ -51,6 +59,11 @@ class RunPlan:
             raise ValueError("causal and coordination flags must be boolean")
         if not isinstance(self.long_term_memory, bool):
             raise ValueError("long-term memory flag must be boolean")
+        if self.controller == "deterministic_baseline":
+            if self.model_provider is not None:
+                raise ValueError("baseline plans cannot select a model provider")
+        elif self.effective_model_provider() not in load_runtime_contract()["model"]["providers"]:
+            raise ValueError("model provider is not registered")
         if self.thinking_policy not in {"occupancy_routed", "all_roles_disabled"}:
             raise ValueError("thinking policy is not registered")
         formal_hours = int(loaded[self.profile]["protocol"]["formal_evaluation_days"]) * 24
@@ -80,6 +93,33 @@ class RunPlan:
             if graph.profile != self.profile or graph.zones != tuple(profile["zones"]):
                 raise ValueError("graph identity does not match the run profile")
             derive_variant(graph, self.graph_mutation)
+        if self.diagnostic_window is not None:
+            windows = load_diagnostic_window_catalog()
+            if self.diagnostic_window not in windows:
+                raise ValueError("diagnostic window is not registered")
+            window = windows[self.diagnostic_window]
+            if (
+                window["profile"] != self.profile
+                or window["evaluation_hours"] != self.evaluation_hours
+            ):
+                raise ValueError("diagnostic window does not match the run profile and duration")
+            if self.controller == "h3c_agent" and (
+                self.working_memory_hours != 1
+                or not self.causal_enabled
+                or not self.coordination_enabled
+                or self.thinking_policy != "occupancy_routed"
+                or self.graph_mutation is not None
+                or self.long_term_memory
+            ):
+                raise ValueError("diagnostic Agent protocol factors are frozen")
+
+    def effective_model_provider(self) -> str | None:
+        if self.controller == "deterministic_baseline":
+            return None
+        return self.model_provider or str(load_runtime_contract()["model"]["default_provider"])
+
+    def evaluation_start_seconds(self, case_profile: dict[str, Any]) -> int:
+        return evaluation_start_seconds(case_profile, self.diagnostic_window)
 
     def method_config(self) -> dict[str, Any]:
         config: dict[str, Any] = {
@@ -97,10 +137,20 @@ class RunPlan:
         if self.controller == "h3c_agent":
             config["working_memory_format"] = "caol"
             config["long_term_memory"] = self.long_term_memory
+        if self.diagnostic_window is not None:
+            config["diagnostic_window"] = self.diagnostic_window
         return config
 
     def identity_payload(self, case_profile: dict[str, Any]) -> dict[str, Any]:
-        return {"case_profile": case_profile, "method": self.method_config()}
+        payload: dict[str, Any] = {
+            "case_profile": case_profile,
+            "method": self.method_config(),
+            "evaluation_start_seconds": self.evaluation_start_seconds(case_profile),
+        }
+        provider = self.effective_model_provider()
+        if provider is not None:
+            payload["model_provider"] = provider
+        return payload
 
     def identity(self, case_profile: dict[str, Any]) -> str:
         payload = json.dumps(

@@ -280,6 +280,7 @@ def initialize_evaluation_boundary(
     profile: Mapping[str, Any],
     artifacts: InitializationArtifactSink,
     *,
+    evaluation_start_seconds: int | None = None,
     on_initialized: Callable[[str], None] | None = None,
 ) -> EvaluationBoundaryState:
     """Initialize directly at the registered evaluation boundary.
@@ -290,7 +291,13 @@ def initialize_evaluation_boundary(
     protocol = profile["protocol"]
     if protocol["initialization_mode"] != "evaluation_start_internal_warmup":
         raise ValueError("unsupported physical initialization mode")
-    evaluation_start = int(profile["evaluation_start_day"]) * 86400
+    evaluation_start = (
+        int(profile["evaluation_start_day"]) * 86400
+        if evaluation_start_seconds is None
+        else evaluation_start_seconds
+    )
+    if isinstance(evaluation_start, bool) or not isinstance(evaluation_start, int):
+        raise ValueError("evaluation start must be an integer number of seconds")
     warmup_seconds = int(protocol["internal_warmup_days"]) * 86400
     state = client.initialize(profile["testcase"], evaluation_start, warmup_seconds)
     _time(state, evaluation_start)
