@@ -19,3 +19,4 @@ outputs/offline/*
 !outputs/offline/.gitkeep
 outputs/baselines/*
 !outputs/baselines/.gitkeep
+outputs/diagnostics/*
