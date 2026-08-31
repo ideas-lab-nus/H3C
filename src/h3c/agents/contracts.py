@@ -129,9 +129,11 @@ def compact_patch_contract(*, causal_enabled: bool = True, language: str = "en")
         else ""
     )
     intro = (
-        "patch contains exactly one operation. Common fields: op, rationale.\n"
+        'Root object exactly: {"patch":[{...}]}. patch is a list containing exactly one '
+        "operation. Operation common fields: op, rationale.\n"
         if language == "en"
-        else "patch 仅含一个 operation；公共字段：op、rationale。\n"
+        else '根对象必须精确为 {"patch":[{...}]}；patch 是仅含一个 operation 的列表；'
+        "operation 公共字段：op、rationale。\n"
     )
     operation_rows = []
     for operation in PATCH_OPERATIONS:

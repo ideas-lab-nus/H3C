@@ -14,6 +14,8 @@ from h3c.agents.roles import (
     ModelContractError,
     Orchestrator,
     Reflector,
+    resolve_executor_memory_model_output,
+    resolve_executor_model_output,
     resolve_orchestrator_model_output,
 )
 from h3c.memory.ledger import ProgramLedger
@@ -67,11 +69,51 @@ def test_rationale_prompt_has_no_length_semantics_and_reflector_uses_lessons(
         else ("理由不能为空" in orchestrator)
     )
     assert (
-        "Common fields: op, rationale" in executor
+        'Root object exactly: {"patch":[{...}]}' in executor
         if language == "en"
-        else "公共字段：op、rationale" in executor
+        else '根对象必须精确为 {"patch":[{...}]}' in executor
     )
     assert "single-line Lesson" not in reflector and "单行 Lesson" not in reflector
+
+
+@pytest.mark.parametrize("long_term_memory", [False, True])
+def test_executor_prompt_and_parser_share_the_singleton_list_envelope(
+    long_term_memory: bool,
+) -> None:
+    prompt = system_prompt("executor", long_term_memory=long_term_memory)
+    assert 'Root object exactly: {"patch":[{...}]}' in prompt
+
+    operation = {"op": "no_change", "rationale": "Keep the current specification."}
+    if long_term_memory:
+        root = {"patch": [operation], "memory_refs": []}
+        patch, _, references = resolve_executor_memory_model_output(
+            json.dumps(root), causal_enabled=True
+        )
+        assert references == []
+    else:
+        patch, _ = resolve_executor_model_output(
+            json.dumps({"patch": [operation]}), causal_enabled=True
+        )
+    assert patch == operation
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"op": "no_change", "rationale": "flat operation"},
+        {"patch": {"op": "no_change", "rationale": "object not list"}},
+        {"patch": []},
+        {
+            "patch": [
+                {"op": "no_change", "rationale": "first"},
+                {"op": "no_change", "rationale": "second"},
+            ]
+        },
+    ],
+)
+def test_executor_parser_rejects_noncanonical_envelopes(invalid: dict[str, Any]) -> None:
+    with pytest.raises(ModelContractError):
+        resolve_executor_model_output(json.dumps(invalid), causal_enabled=True)
 
 
 @pytest.mark.parametrize("role", ["orchestrator", "executor", "reflector"])

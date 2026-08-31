@@ -4,20 +4,20 @@
 
 The production context compiler now renders model inputs from one typed canonical object using clock time, semantic field owners and compact scalar properties/tables. No DeepSeek or BOPTEST call was made. Character counts below are exact `system + user` lengths from the frozen MZ Air documentation fixture; they are not token, latency or behavior claims.
 
-Prompt-bundle identity: `sha256:a8a2a097be305b3611355d2f62cbace64f70f432969ed49970a59ac36c312fc7`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
+Prompt-bundle identity: `sha256:6a5b1fe1a65b6d723560fd35a4dfa33cdab0afdc435ca4d9e37beec1156d96ee`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
 
 ## Final evidence-closed view
 
 | Representative request | Previous candidate `8d3eecc` | New observed evidence | Final excluding new evidence | Final total | Non-evidence delta |
 |---|---:|---:|---:|---:|---:|
 | Orchestrator | 5,441 | 986 | 5,199 | 6,185 | -242 |
-| East Executor, memory on | 6,942 | 434 | 7,142 | 7,576 | +200 |
+| East Executor, memory on | 6,942 | 434 | 7,204 | 7,638 | +262 |
 | Reflector, memory on | 5,555 | 982 | 5,560 | 6,542 | +5 |
-| **Three-role total** | **17,938** | **2,402** | **17,901** | **20,303** | **-37** |
+| **Three-role total** | **17,938** | **2,402** | **17,963** | **20,365** | **+25** |
 
-The 2,402-character increase is the newly registered four-action-time evidence needed to close Reflector Lesson support: outdoor temperature, solar irradiance, electricity price, warm/cool PMV headroom and the comfort-score limit. With that evidence removed for a like-for-like comparison, the three-role aggregate is 37 characters smaller than `8d3eecc`.
+The 2,402-character increase is the newly registered four-action-time evidence needed to close Reflector Lesson support: outdoor temperature, solar irradiance, electricity price, warm/cool PMV headroom and the comfort-score limit. With that evidence removed for a like-for-like comparison, the three-role aggregate is 25 characters larger than `8d3eecc`.
 
-The Executor retains 200 additional non-evidence characters and Reflector retains five. These are deliberate contract clarification for dynamic allowance semantics, causal IDs, rule identifiers, zero-based indices, `then.value` types and memory references. The user explicitly accepted this small difference rather than compressing away semantic detail. Character count is therefore a regression guard, not an optimization objective.
+The Executor retains 262 additional non-evidence characters and Reflector retains five. These are deliberate contract clarification for dynamic allowance semantics, causal IDs, rule identifiers, zero-based indices, `then.value` types, memory references, and the exact historical `{"patch":[{...}]}` wire envelope. The user explicitly accepted this small difference rather than compressing away semantic detail. Character count is therefore a regression guard, not an optimization objective.
 
 ## Working-memory block
 
