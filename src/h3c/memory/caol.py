@@ -39,11 +39,11 @@ def _rounded(value: Any) -> Any:
     return copy.deepcopy(value)
 
 
-def _single_line_text(value: Any, *, maximum: int) -> str | None:
+def _normalized_text(value: Any, *, maximum: int) -> str | None:
     if not isinstance(value, str):
         return None
-    text = value.strip()
-    if not text or len(text) > maximum or "\n" in text or "\r" in text:
+    text = " ".join(value.split())
+    if not text or len(text) > maximum:
         return None
     return text
 
@@ -249,11 +249,17 @@ def active_experiences(
 
 
 def reflector_slot_view(
-    store: Mapping[str, Mapping[str, Mapping[str, Any] | None]], zone: str
+    store: Mapping[str, Mapping[str, Mapping[str, Any] | None]],
+    zone: str,
+    observed_regimes: Sequence[str],
 ) -> list[dict[str, Any]]:
-    """Expose all three slot states to Reflector without null placeholders."""
+    """Expose only this hour's eligible slots, in first-observed-step order."""
     view: list[dict[str, Any]] = []
-    for regime in REGIMES:
+    seen: set[str] = set()
+    for regime in observed_regimes:
+        if regime not in _REGIME_SET or regime in seen:
+            raise ValueError("observed regimes must be unique registered values")
+        seen.add(regime)
         entry = store[zone][regime]
         if entry is None:
             view.append({"regime": regime, "state": "empty"})
@@ -317,7 +323,7 @@ def resolve_reflector_payload(
             issues.append({"zone": "unknown", "code": "invalid_lesson_shape"})
             continue
         zone = str(row.get("zone"))
-        lesson = _single_line_text(row.get("lesson"), maximum=480)
+        lesson = _normalized_text(row.get("lesson"), maximum=480)
         if zone not in configured or zone in lessons or lesson is None:
             issues.append({"zone": zone, "code": "invalid_lesson"})
             continue
@@ -345,7 +351,7 @@ def resolve_reflector_payload(
                     revision_number = cast(int, revision)
                     valid = valid and revision_number >= 1
             if operation["op"] in {"add", "replace"}:
-                cleaned = _single_line_text(experience, maximum=480)
+                cleaned = _normalized_text(experience, maximum=480)
                 valid = valid and cleaned is not None
                 if cleaned is not None:
                     valid = valid and _PROVENANCE_PATTERN.search(cleaned) is None

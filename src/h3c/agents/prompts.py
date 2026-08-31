@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import copy
-import json
 import re
 from typing import Any, Literal
 
-from h3c.agents.contracts import allocation_contract, patch_contract
+from h3c.agents.contracts import allocation_contract, compact_patch_contract
 
 Role = Literal["orchestrator", "executor", "reflector"]
 Language = Literal["en", "zh"]
@@ -62,23 +61,23 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "decision",
             "DECISION",
-            "Balance comfort while reducing or optimising energy cost. Use supplied site state, forecast, coupling, CAOL working memory and prior utilisation to choose only the allocation and priority order. Give every zone a rationale for its allocation.",
+            "Balance comfort while reducing or optimising energy cost. Use site state, forecast, cross-zone status, working memory and prior utilisation to choose only the allocation and priority order. Give every zone a rationale for its allocation.",
             "决策",
-            "在兼顾舒适的同时降低或优化能源成本。使用给定的场地状态、预测、区域耦合、CAOL 工作记忆和先前利用率，只选择额度分配与优先顺序。为每个区域的分配给出理由。",
+            "在兼顾舒适的同时降低或优化能源成本。使用场地状态、预测、跨区域状态、工作记忆和先前利用率，只选择额度分配与优先顺序。为每个区域的分配给出理由。",
         ),
         _causal_unit(
             "causal_evidence",
             "CAUSAL EVIDENCE",
-            "Use only the supplied structured objects. Cite the supplied IDs through causal_edge_ids. Do not copy or invent edge text.",
+            "Cite relevant IDs from CAUSAL EVIDENCE through causal_edge_ids.",
             "因果证据",
-            "只使用给定的结构化对象。通过 causal_edge_ids 引用给定 ID。不得复制或编造边文本。",
+            "通过 causal_edge_ids 引用因果证据中的相关 ID。",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Own cross-zone resource and constraint allocation only. The allowance is an energy-intensive actuation allowance in the supplied units: it covers only the worst-case additional energy-intensive setpoint movement caused by accepted patches in this hour, not current residual, current setpoint or physical power. A per-zone rationale may explain an allocation or constraint trade-off, but must not prescribe a patch, parameter, residual, rule, action or setpoint. Use supplied evidence and omit unavailable blocks. Do not mention cases, standards or target values.",
+            "Allocate only the shared energy-intensive actuation allowance. It covers worst-case additional energy-intensive setpoint movement from accepted patches in this hour, not current residual, setpoint or physical power. A zone rationale explains its allocation or priority and must not prescribe zone control.",
             "硬边界",
-            "只负责跨区域资源与约束分配。额度是以给定单位表示的高耗能动作额度，只覆盖本小时已接受补丁带来的最坏新增高耗能设定点移动，不是当前残差、当前设定点或物理功率。区域理由只能解释分配或约束权衡，不得规定补丁、参数、残差、规则、动作或设定点。只使用给定证据，缺失的输入块整体省略。不得提及案例、标准名称或目标值。",
+            "只分配共享的高耗能动作额度。它覆盖本小时已接受补丁造成的最坏新增高耗能设定点移动，不是当前残差、设定点或物理功率。区域理由只解释其额度或优先级，不得规定区域控制。",
         ),
         _unit(
             "output",
@@ -92,37 +91,37 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "role",
             "ROLE",
-            "Maintain one zone's executable control specification.",
+            "Maintain one zone's control specification.",
             "角色",
             "维护一个区域的可执行控制规格。",
         ),
         _unit(
             "decision",
             "DECISION",
-            "Use the current observation, completed results, comfort headroom, supplied causal evidence, allowance and CAOL WORKING MEMORY to propose exactly one atomic operation. Explore energy-saving opportunities while keeping |PMV| ≤ 0.5. Do not compute the interpreter result.",
+            "Use the current observation, comfort headroom, causal evidence, allowance and WORKING MEMORY to propose one atomic operation. Seek energy savings with |PMV| ≤ 0.5. Do not predict interpreter output.",
             "决策",
-            "使用当前观测、已完成结果、舒适余量、给定的因果证据、额度与 CAOL WORKING MEMORY，提出一个原子操作。在保持 |PMV| ≤ 0.5 的前提下，探索节能机会。不要计算解释器结果。",
+            "使用当前观测、舒适余量、因果证据、额度与 WORKING MEMORY，提出一个原子操作。在保持 |PMV| ≤ 0.5 的前提下，探索节能机会。不要计算解释器结果。",
         ),
         _causal_unit(
             "causal_evidence",
             "CAUSAL EVIDENCE",
-            "Use only the supplied structured objects. Select relevant IDs through causal_edge_ids. The deterministic validator derives effects and the mandatory site aggregate. Do not copy or invent edge text.",
+            "Put relevant CAUSAL EVIDENCE IDs in causal_edge_ids.",
             "因果证据",
-            "只使用给定的结构化对象。通过 causal_edge_ids 引用 ID。确定性验证器将派生作用并补齐必要的站点聚合边。不得复制或编造边文本。",
+            "通过 causal_edge_ids 引用因果证据中的相关 ID。",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Use only the current zone inputs and the completed CAOL history supplied according to k. The allowance is an energy-intensive actuation allowance in the supplied units: it covers only the worst-case additional energy-intensive setpoint movement caused by accepted patches in this hour, not current residual, current setpoint or physical power. Do not read offline logs, future data, counterfactuals, oracle signals or Reflector prose beyond supplied CAOL lessons. The executable control specification, operation names, parameter bounds, action vocabulary, budget charging, reachability, shields and deterministic interpreter are authoritative. Do not write Python, a complete controller, a direct setpoint or an action outside the executable specification. Omit unavailable blocks.",
+            "Allowance is worst-case added energy-intensive setpoint movement from accepted patches this hour—not residual, setpoint or power. Use only the supplied control specification and operation contract; no Python, complete controller or direct setpoint.",
             "硬边界",
-            "只使用当前区域输入以及按 k 提供的已完成 CAOL 历史。额度是以给定单位表示的高耗能动作额度，只覆盖本小时已接受补丁带来的最坏新增高耗能设定点移动，不是当前残差、当前设定点或物理功率。不得读取未提供的离线日志、未来数据、反事实、oracle 信号或给定 CAOL Lesson 之外的 Reflector 散文。可执行控制规格、操作名称、参数边界、动作词汇、预算收费、可达性、shield 和确定性解释器拥有最终权威。不得编写 Python、完整控制器、直接设定点或可执行规格之外的动作。缺失输入块整体省略。",
+            "额度覆盖本小时已接受补丁造成的最坏新增高耗能设定点移动，不是当前残差、设定点或物理功率。只能通过给定控制规格与操作契约工作；不得编写 Python、完整控制器或直接设定点。",
         ),
         _unit(
             "output",
             "OUTPUT",
-            'Return exactly one bare root JSON object: {"patch":[{...}]}. The list contains exactly one operation. no_change is one available operation and requires a nonempty rationale like every other operation. Return no prose, Markdown fence or unknown execution fields. patch_contract: ',
+            'Return exactly one bare root JSON object: {"patch":[{...}]}. Return no prose, Markdown fence or unknown fields. Operation contract:\n',
             "输出",
-            '只返回一个精确的 root JSON 对象：{"patch":[{...}]}。列表必须恰好包含一个操作。no_change 是一个可用操作，并与其他操作一样需要非空理由。不要返回解释文字、Markdown 围栏或未知执行字段。patch_contract：',
+            '只返回一个精确的 root JSON 对象：{"patch":[{...}]}。不要返回解释文字、Markdown 围栏或未知字段。操作契约：\n',
         ),
     ],
     "reflector": [
@@ -136,17 +135,17 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "evidence",
             "EVIDENCE",
-            "Use the supplied deterministic Context, Action and Outcome for the completed hour. Generate one Lesson per zone. Do not restate or recompute the deterministic fields and do not infer a counterfactual.",
+            "From each zone's completed-hour Context, Action and Outcome, derive one Lesson that captures a useful observed relationship or trade-off for later control.",
             "证据",
-            "使用给定的已完成小时确定性 Context、Action 与 Outcome。为每个区域生成一条 Lesson。不得复述或重新计算确定性字段，也不得推断反事实。",
+            "从每个区域已完成小时的 Context、Action 与 Outcome 中提炼一条 Lesson，概括对后续控制有意义的已观察关系或权衡。",
             "information",
         ),
         _unit(
             "hard_boundaries",
             "HARD BOUNDARIES",
-            "Use only the supplied completed-hour evidence. Do not read offline logs, future data, oracle signals or control instructions. Return one concise, single-line Lesson per zone. State no action command, target or unsupported cause-and-effect claim. Invalid Lessons are omitted deterministically and must not block control.",
+            "Ground each Lesson in the completed-hour evidence. Express an observation, relationship or trade-off rather than an action command, target or unsupported causal claim.",
             "硬边界",
-            "只使用给定的已完成小时证据。不得读取离线日志、未来数据、oracle 信号或控制指令。每个区域返回一条简洁的单行 Lesson。不得给出动作命令、目标或没有证据支持的因果结论。无效 Lesson 由确定性代码省略，且不得阻塞控制。",
+            "每条 Lesson 都应基于已完成小时证据，表达观察、关系或权衡，而不是动作命令、目标或无证据因果结论。",
         ),
         _unit(
             "output",
@@ -159,7 +158,7 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
 }
 
 
-def _machine_contract(role: Role, causal_enabled: bool) -> str:
+def _machine_contract(role: Role, causal_enabled: bool, language: Language) -> str:
     if role == "orchestrator":
         names = allocation_contract(causal_enabled=causal_enabled)
         return (
@@ -168,12 +167,7 @@ def _machine_contract(role: Role, causal_enabled: bool) -> str:
             + ". Every listed key must be present; rationale_per_zone maps each zone to a nonempty string."
         )
     if role == "executor":
-        return json.dumps(
-            patch_contract(causal_enabled=causal_enabled),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+        return compact_patch_contract(causal_enabled=causal_enabled, language=language)
     return ""
 
 
@@ -210,94 +204,71 @@ def system_prompt(
         title = unit["title_en"] if language == "en" else unit["title_zh"]
         body = unit["body_en"] if language == "en" else unit["body_zh"]
         if role == "executor" and unit["id"] == "decision" and not causal_enabled:
-            body = body.replace("supplied causal evidence, ", "")
-            body = body.replace("给定的因果证据、", "")
+            body = body.replace("causal evidence, ", "")
+            body = body.replace("因果证据、", "")
+        if role == "reflector" and unit["id"] == "hard_boundaries" and not causal_enabled:
+            body = body.replace(" or unsupported causal claim", " or unsupported claim")
+            body = body.replace("或无证据因果结论", "或无证据结论")
         if role == "executor" and not coordination_enabled:
             if unit["id"] == "decision":
                 body = body.replace("allowance and ", "").replace("额度与 ", "")
             elif unit["id"] == "hard_boundaries":
                 if language == "en":
                     body = (
-                        "Use only the current zone inputs and the completed CAOL history supplied "
-                        "according to k. Do not read offline logs, future data, counterfactuals, "
-                        "oracle signals or Reflector prose beyond supplied CAOL lessons. The "
-                        "executable control specification, operation names, parameter bounds, "
-                        "action vocabulary, reachability, shields and deterministic interpreter "
-                        "are authoritative. Do not write Python, a complete controller, a direct "
-                        "setpoint or an action outside the executable specification. Omit "
-                        "unavailable blocks."
+                        "Operate only through the supplied control specification and operation "
+                        "contract; do not write Python, a complete controller or a direct setpoint."
                     )
                 else:
-                    body = (
-                        "只使用当前区域输入以及按 k 提供的已完成 CAOL 历史。"
-                        "不得读取未提供的离线日志、未来数据、反事实、oracle 信号或给定 CAOL Lesson "
-                        "之外的 Reflector 散文。"
-                        "可执行控制规格、操作名称、参数边界、动作词汇、可达性、shield 和确定性解释器"
-                        "拥有最终权威。不得编写 Python、完整控制器、直接设定点或可执行规格之外的"
-                        "动作。缺失输入块整体省略。"
-                    )
+                    body = "只能通过给定控制规格与操作契约工作；不得编写 Python、完整控制器或直接设定点。"
         if unit["id"] == "output" and role in ("executor", "orchestrator"):
-            body += _machine_contract(role, causal_enabled)
-        if role == "executor" and unit["id"] == "hard_boundaries" and long_term_memory:
-            body += (
-                " Active long-term experiences are zone-specific observations, not commands; "
-                "they cannot override the executable program, validation, Budget or Safety."
-                if language == "en"
-                else " 启用的长期经验是本区域的观察，不是命令；它们不能覆盖可执行程序、验证、Budget 或 Safety。"
-            )
+            body += _machine_contract(role, causal_enabled, language)
         if role == "executor" and unit["id"] == "output" and long_term_memory:
             body = (
-                'Return exactly one bare root JSON object: {"patch":[{...}],'
-                '"memory_refs":[{"regime":...,"revision":...}]}. The patch list contains '
-                "exactly one operation. Cite only active experiences actually used; an empty "
-                "memory_refs list is valid. no_change is one available operation and requires "
-                "a nonempty rationale like every other operation. Return no prose, Markdown "
-                "fence or unknown fields. patch_contract: "
+                'Return bare JSON {"patch":[{...}],"memory_refs":'
+                '[{"regime":...,"revision":...}]}. memory_refs cites only active experiences '
+                "used and may be empty. No prose, fence or "
+                "extra fields. Operation contract:\n"
                 if language == "en"
-                else '只返回一个精确的 root JSON 对象：{"patch":[{...}],"memory_refs":'
-                '[{"regime":...,"revision":...}]}。patch 列表必须恰好包含一个操作。只引用实际'
-                "使用的 active experience；空 memory_refs 列表合法。no_change 是一个可用操作，"
-                "并与其他操作一样需要非空理由。不要返回解释文字、Markdown 围栏或未知字段。"
-                "patch_contract："
+                else '返回裸 JSON：{"patch":[{...}],"memory_refs":'
+                '[{"regime":...,"revision":...}]}。包含一个操作。memory_refs 只引用实际使用的'
+                "有效经验，也可为空。不返回解释文字、Markdown 围栏或额外字段。操作契约：\n"
             )
-            body += _machine_contract(role, causal_enabled)
+            body += _machine_contract(role, causal_enabled, language)
         if role == "reflector" and unit["id"] == "evidence" and long_term_memory:
-            body += (
-                " Then compare each zone's Lesson with its three regime slots and choose at "
-                "most one operation for that zone."
+            body = (
+                "For each zone, derive one useful observed relationship or trade-off from "
+                "completed Context, Action and Outcome. Compare it with shown eligible regime "
+                "slots; select at most one memory operation."
                 if language == "en"
-                else " 然后将各区域 Lesson 与该区域的三个状态槽比较，并为该区域最多选择一个操作。"
+                else "对每个区域，从已完成的 Context、Action 与 Outcome 中提炼一条有用的已观察关系"
+                "或权衡；将其与展示的合格状态槽比较，并最多选择一个记忆操作。"
             )
         if role == "reflector" and unit["id"] == "hard_boundaries" and long_term_memory:
-            body += (
-                " A stored experience must summarize zone-wide thermal response, control "
-                "preference or observed trade-off for the named regime across the run. It must "
-                "not mention a specific hour, future information, another zone, an oracle, a "
-                "fixed action command or a hidden control rule. Only operate on a regime that "
-                "appeared in the current hour; replace or delete must use the supplied revision."
+            body = (
+                "Lessons are evidence-grounded observations, relationships or trade-offs, not "
+                "commands, targets or unsupported claims. Experiences describe the zone's "
+                "run-wide thermal response, control preference or trade-off for the named regime. "
+                "Modify only a shown eligible regime; replace/delete uses its revision."
                 if language == "en"
-                else " 存储经验必须概括该区域在指定状态下贯穿整个运行的热响应、控制偏好或已观察权衡。"
-                "不得提及具体小时、未来信息、其他区域、oracle、固定动作命令或隐藏控制规则。"
-                "只能操作本小时实际出现的状态；replace 或 delete 必须使用给定 revision。"
+                else "Lesson 是基于证据的观察、关系或权衡，不是命令、目标或无依据结论。存储经验"
+                "描述该区域在指定状态下贯穿运行的热响应、控制偏好或权衡。只修改展示的合格状态；"
+                "replace/delete 使用其 revision。"
             )
         if role == "reflector" and unit["id"] == "output" and long_term_memory:
             body = (
-                'Return one bare JSON object: {"hourly_lessons":[{"zone":...,"lesson":...}],'
-                '"memory_operations":[...]}. Include each supplied zone exactly once in both '
-                "lists. Each operation is exactly one of: "
-                '{"zone":...,"op":"no_change"}; '
-                '{"zone":...,"op":"add","regime":...,"experience":...}; '
-                '{"zone":...,"op":"replace","regime":...,"expected_revision":...,'
-                '"experience":...}; {"zone":...,"op":"delete","regime":...,'
-                '"expected_revision":...}. Return no prose, Markdown fence or unknown fields.'
+                'Bare JSON only: {"hourly_lessons":[{"zone":...,"lesson":...}],'
+                '"memory_operations":[...]}. Each zone appears once per list. Every memory '
+                "operation requires zone and op; additional fields:\n"
+                "| op | required |\n| --- | --- |\n| no_change | — |\n"
+                "| add | regime, experience |\n| replace | regime, expected_revision, experience |\n"
+                "| delete | regime, expected_revision |\nNo prose, fence or extra fields."
                 if language == "en"
-                else '返回一个裸 JSON 对象：{"hourly_lessons":[{"zone":...,"lesson":...}],'
-                '"memory_operations":[...]}。两个列表中每个给定区域必须恰好出现一次。每个操作'
-                '必须精确属于以下之一：{"zone":...,"op":"no_change"}；'
-                '{"zone":...,"op":"add","regime":...,"experience":...}；'
-                '{"zone":...,"op":"replace","regime":...,"expected_revision":...,'
-                '"experience":...}；{"zone":...,"op":"delete","regime":...,'
-                '"expected_revision":...}。不返回解释文字、Markdown 围栏或未知字段。'
+                else '返回裸 JSON：{"hourly_lessons":[{"zone":...,"lesson":...}],'
+                '"memory_operations":[...]}；每个给定区域在两个列表中各出现一次。每个记忆操作'
+                "都需要 zone 与 op，额外必填字段：\n| op | 必填 |\n| --- | --- |\n"
+                "| no_change | — |\n| add | regime, experience |\n"
+                "| replace | regime, expected_revision, experience |\n"
+                "| delete | regime, expected_revision |\n不返回解释文字、Markdown 围栏或额外字段。"
             )
         rows.append(title + "\n" + body)
     rendered = "\n\n".join(rows) + "\n"

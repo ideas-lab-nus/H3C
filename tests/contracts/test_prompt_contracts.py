@@ -23,7 +23,7 @@ from h3c.memory.ledger import ProgramLedger
         if not (role == "orchestrator" and enabled)
     ],
 )
-def test_canonical_system_prompt_matches_caol_golden(
+def test_canonical_system_prompt_matches_context_golden(
     role: Role,
     language: Language,
     long_term_memory: bool,
@@ -56,8 +56,12 @@ def test_rationale_prompt_has_no_length_semantics_and_reflector_uses_lessons(
     assert "short string" not in (orchestrator + executor).lower()
     assert "简短理由" not in orchestrator + executor
     assert "nonempty string" in orchestrator
-    assert "nonempty rationale" in executor if language == "en" else "非空理由" in executor
-    assert "single-line Lesson" in reflector if language == "en" else "单行 Lesson" in reflector
+    assert (
+        "Common required fields: op, rationale" in executor
+        if language == "en"
+        else "所有 operation 公共必填：op、rationale" in executor
+    )
+    assert "single-line Lesson" not in reflector and "单行 Lesson" not in reflector
 
 
 @pytest.mark.parametrize("role", ["orchestrator", "executor", "reflector"])
@@ -116,7 +120,7 @@ def test_executor_receives_current_program_but_not_internal_ledger(
         allowance={"remaining_c": 1.0},
         working_memory=None,
     )
-    assert "CURRENT EXECUTABLE PROGRAM" in user
+    assert "CONTROL SPECIFICATION" in user
     assert oracle_fixture_absent(user)
 
 
@@ -130,14 +134,14 @@ def test_missing_blocks_are_omitted_not_rendered(canonical_program: dict[str, An
         hour=0,
         zone="zone1",
         observation={"last_pmv": 0.0},
-        current_executable_program={"program": canonical_program},
+        current_executable_program=ProgramLedger(canonical_program).prompt_view(),
         causal_edges=None,
         allowance=None,
         working_memory=None,
     )
     assert "CONFIRMED CAUSAL EDGES" not in user
     assert "ALLOWANCE" not in user
-    assert "CAOL WORKING MEMORY" not in user
+    assert "WORKING MEMORY" not in user
     assert "ACTIVE LONG-TERM EXPERIENCES" not in user
     assert "N/A" not in user and "null" not in user
 
@@ -155,7 +159,48 @@ def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only
     assert "memory_operations" in reflector_on
     assert all(token not in orchestrator for token in forbidden)
 
-    caol = [{"hour": 6, "zone": "zone1", "context": {}, "action": {}, "outcome": {}}]
+    completed_hour = [
+        {
+            "hour": 6,
+            "zone": "zone1",
+            "context": {
+                "regime_step_coverage": {"steady_state_occupancy": [24, 25, 26, 27]},
+                "initial_observation": {
+                    "zone_temperature_c": 24.0,
+                    "current_occupancy": 1.0,
+                    "last_occupancy": 1.0,
+                    "occupancy_next_steps": [1.0, 1.0, 1.0, 1.0],
+                    "last_pmv": 0.2,
+                    "last_setpoint_c": 25.0,
+                },
+            },
+            "action": {
+                "actual_setpoints_c": [25.0, 25.0, 25.0, 25.0],
+                "matched_rules": ["hold", "hold", "hold", "hold"],
+                "shield": [
+                    {
+                        "step": step,
+                        "actuator_bounds": False,
+                        "setpoint_rate_limit": False,
+                        "comfort_recovery": False,
+                    }
+                    for step in (24, 25, 26, 27)
+                ],
+            },
+            "outcome": {
+                "zone_temperatures_c": [24.0, 24.0, 24.0, 24.0],
+                "pmv": [0.2, 0.2, 0.2, 0.2],
+                "effective_occupancy": [1.0, 1.0, 1.0, 1.0],
+                "site_cost": 1.0,
+                "site_energy_kwh": 2.0,
+                "discomfort_zone_hours": 0.0,
+                "discomfort_pmv_hours": 0.0,
+                "occupied_peak_absolute_pmv": 0.2,
+                "setpoint_total_variation_c": 0.0,
+                "setpoint_direction_reversals": 0,
+            },
+        }
+    ]
     executor_user_off = Executor.build_user(
         hour=7,
         zone="zone1",
@@ -163,14 +208,31 @@ def test_memory_off_has_zero_long_term_surface_and_on_is_executor_reflector_only
         current_executable_program={"program_version": 0, "params": {}, "rules": []},
         causal_edges=None,
         allowance=None,
-        working_memory=caol,
+        working_memory=completed_hour,
     )
-    assert "CAOL WORKING MEMORY" in executor_user_off
+    assert "WORKING MEMORY" in executor_user_off
     assert "ACTIVE LONG-TERM EXPERIENCES" not in executor_user_off
 
-    reflector_user_off = Reflector.build_user(current_hour_cao=caol)
-    assert "CURRENT HOUR DETERMINISTIC CAO" in reflector_user_off
-    assert "CURRENT THREE-REGIME EXPERIENCE SLOTS" not in reflector_user_off
+    reflector_user_off = Reflector.build_user(current_hour_cao=completed_hour)
+    assert "COMPLETED HOUR EVIDENCE" in reflector_user_off
+    assert "ELIGIBLE LONG-TERM EXPERIENCE SLOTS" not in reflector_user_off
+
+
+def test_model_visible_prompts_omit_internal_abbreviations_and_redundant_runtime_prose() -> None:
+    prompts = "\n".join(
+        system_prompt(role, long_term_memory=True)
+        for role in ("orchestrator", "executor", "reflector")
+    )
+    assert not re.search(r"\bCAO(?:L)?\b", prompts)
+    forbidden = (
+        "omit unavailable",
+        "offline logs",
+        "oracle signals",
+        "deterministic validator derives",
+        "no_change is one available",
+        "Invalid Lessons",
+    )
+    assert all(fragment not in prompts for fragment in forbidden)
 
 
 def test_dynamic_prompt_fixture_provenance_is_self_consistent(repository_root: Path) -> None:

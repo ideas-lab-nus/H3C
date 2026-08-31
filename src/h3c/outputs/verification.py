@@ -535,18 +535,17 @@ def _caol_memory_checks(
             if role in {"orchestrator", "executor"}:
                 expected_block = hour >= memory_hours
                 caol_prompt_surface = caol_prompt_surface and (
-                    ("### CAOL WORKING MEMORY" in user) == expected_block
+                    ("### WORKING MEMORY" in user) == expected_block
                 )
                 caol_prompt_surface = caol_prompt_surface and "RECENT OUTCOME SUMMARY" not in user
             elif role == "reflector":
                 caol_prompt_surface = caol_prompt_surface and (
-                    "### CURRENT HOUR DETERMINISTIC CAO" in user
-                    and "### CAOL WORKING MEMORY" not in user
+                    "### COMPLETED HOUR EVIDENCE" in user and "### WORKING MEMORY" not in user
                 )
 
     off_tokens = (
         "ACTIVE LONG-TERM EXPERIENCES",
-        "CURRENT THREE-REGIME EXPERIENCE SLOTS",
+        "ELIGIBLE LONG-TERM EXPERIENCE SLOTS",
         "memory_refs",
         "memory_operations",
         "expected_revision",
@@ -616,7 +615,7 @@ def _caol_memory_checks(
                 )
             elif role == "reflector":
                 memory_store_replayed = memory_store_replayed and (
-                    "CURRENT THREE-REGIME EXPERIENCE SLOTS" in str(raw.get("user", ""))
+                    "ELIGIBLE LONG-TERM EXPERIENCE SLOTS" in str(raw.get("user", ""))
                     and "memory_operations" in str(raw.get("system", ""))
                 )
             elif role == "executor":

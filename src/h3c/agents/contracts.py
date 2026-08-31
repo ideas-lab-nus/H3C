@@ -89,6 +89,41 @@ def patch_contract(*, causal_enabled: bool = True) -> dict[str, Any]:
     return view
 
 
+def compact_patch_contract(*, causal_enabled: bool = True, language: str = "en") -> str:
+    """Render the unchanged patch wire contract without repeating common fields per operation."""
+    causal_line = (
+        "Modifying operation also requires causal_edge_ids.\n"
+        if causal_enabled and language == "en"
+        else "所有修改类操作还必须包含 causal_edge_ids。\n"
+        if causal_enabled
+        else ""
+    )
+    intro = (
+        "patch: list of exactly one operation.\nCommon required fields: op, rationale.\n"
+        if language == "en"
+        else "root：patch 是仅包含一个 operation 的列表。\n"
+        "所有 operation 公共必填：op、rationale。\n"
+    )
+    operation_table = (
+        "| op | additional required | optional |\n"
+        "| --- | --- | --- |\n"
+        "| no_change | — | — |\n"
+        "| set_param | param, to | — |\n"
+        "| add_rule | rule | index |\n"
+        "| replace_rule | rule | — |\n"
+        "| remove_rule | id | — |\n"
+        "| move_rule | id, to_index | — |\n"
+    )
+    rule = (
+        "rule: id, when, then. when item: field, op, value. then: op, plus value for "
+        "set_residual or step_setpoint."
+        if language == "en"
+        else "rule 必须包含 id、when、then。每个 when 条件必须包含 field、op、value。"
+        "then 必须包含 op；set_residual 或 step_setpoint 还必须包含 value。"
+    )
+    return intro + causal_line + operation_table + rule
+
+
 def allocation_contract(*, causal_enabled: bool = True) -> tuple[str, ...]:
     fields = ["site_cap_c", "zone_budgets_c", "priority", "rationale_per_zone"]
     if causal_enabled:

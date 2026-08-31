@@ -696,10 +696,32 @@ async def _reflect_hour(
         "disabled" if plan.thinking_policy == "all_roles_disabled" else str(route["thinking_mode"])
     )
     reflector = Reflector(client)
+    observed_by_zone: dict[str, list[str]] = {}
+    for record in current_cao:
+        zone = str(record.get("zone"))
+        context = record.get("context")
+        coverage = context.get("regime_step_coverage") if isinstance(context, Mapping) else None
+        if zone not in zones or not isinstance(coverage, Mapping):
+            raise ValueError("completed-hour regime coverage is incomplete")
+        ordered: list[tuple[int, str]] = []
+        for regime, raw_steps in coverage.items():
+            if not isinstance(raw_steps, Sequence) or isinstance(raw_steps, (str, bytes)):
+                raise ValueError("completed-hour regime coverage must contain step sequences")
+            steps = [int(value) for value in raw_steps]
+            if not steps:
+                continue
+            ordered.append((min(steps), str(regime)))
+        ordered.sort(key=lambda item: item[0])
+        observed_by_zone[zone] = [regime for _, regime in ordered]
+    if set(observed_by_zone) != set(zones):
+        raise ValueError("completed-hour evidence must cover every configured zone")
     user = reflector.build_user(
         current_hour_cao=current_cao,
         long_term_slots=(
-            {zone: reflector_slot_view(long_term_store, zone) for zone in zones}
+            {
+                zone: reflector_slot_view(long_term_store, zone, observed_by_zone[zone])
+                for zone in zones
+            }
             if plan.long_term_memory
             else None
         ),

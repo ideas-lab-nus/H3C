@@ -1,4 +1,4 @@
-"""Generate bilingual complete-hour CAOL/three-regime-memory examples."""
+"""Generate bilingual complete-hour working-memory/three-regime examples."""
 
 from __future__ import annotations
 
@@ -232,11 +232,11 @@ def _reflector_output(
 def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     labels = {
         "en": {
-            "title": "H3C complete MZ Air hour: CAOL working memory and optional regime experience",
+            "title": "H3C complete MZ Air hour: working memory and optional regime experience",
             "intro": (
                 "This is one frozen, non-executed documentation fixture. Every prompt is produced "
                 "by the production renderer and every deterministic transition below is evaluated "
-                "by production validation, program, assurance, CAOL and CRUD owners. It is not a "
+                "by production validation, program, assurance, working-memory and CRUD owners. It is not a "
                 "reported experimental result."
             ),
             "api": "1. Exact API request settings",
@@ -245,7 +245,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             "settle": "4. Deterministic priority settlement",
             "physical": "5. Four physical control steps",
             "reflect": "6. Reflector complete request and output",
-            "caol": "7. Completed CAOL and next-hour working memory",
+            "caol": "7. Completed-hour record and next-hour working memory",
             "regime": "8. Three-regime classification",
             "crud": "9. Long-term experience read, CRUD and next-hour Executor input",
             "off": "10. Memory-off exact contract and disappearing fields",
@@ -253,10 +253,10 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             "output": "Model output",
         },
         "zh": {
-            "title": "H3C 完整 MZ Air 小时示例：CAOL 工作记忆与可选状态经验",
+            "title": "H3C 完整 MZ Air 小时示例：工作记忆与可选状态经验",
             "intro": (
                 "这是一个冻结且不执行API/BOPTEST的文档fixture。全部Prompt由生产renderer生成；下方所有"
-                "确定性转换均由生产validation、program、assurance、CAOL和CRUD owner计算。它不是实验结果。"
+                "确定性转换均由生产validation、program、assurance、working-memory和CRUD owner计算。它不是实验结果。"
             ),
             "api": "1. 精确API请求设置",
             "orch": "2. Orchestrator完整请求、输出与验证",
@@ -264,7 +264,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             "settle": "4. 确定性优先级结算",
             "physical": "5. 四个物理控制step",
             "reflect": "6. Reflector完整请求与输出",
-            "caol": "7. 完整CAOL与下一小时Working Memory",
+            "caol": "7. 完整小时记录与下一小时Working Memory",
             "regime": "8. 三状态判定",
             "crud": "9. 长期经验读取、CRUD与下一小时Executor输入",
             "off": "10. Memory-off精确契约与消失字段",
@@ -319,7 +319,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         }
         for zone in zones
     }
-    orchestrator_user = Orchestrator.build_user(
+    orchestrator_context = Orchestrator.build_context(
         hour=hour,
         zones=zones,
         site_state=fixture["site_state"],
@@ -330,6 +330,7 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         working_memory=previous_caol,
         allocation_limits={"zones": zones, "site_cap_c": 10.0, "per_zone_cap_c": 5.0},
     )
+    orchestrator_user = orchestrator_context.agent_view
     allocation = _allocation(fixture, language, site_edge_id)
     validate_allocation(
         allocation,
@@ -349,10 +350,11 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     store = _initial_store(fixture)
     ledger = BudgetLedger(allocation, zones)
     executor_material: dict[str, Any] = {}
+    executor_contexts: dict[str, Any] = {}
     decisions: dict[str, dict[str, Any]] = {}
     for zone in zones:
         exposed = active_experiences(store, zone)
-        user = Executor.build_user(
+        executor_context = Executor.build_context(
             hour=hour,
             zone=zone,
             observation=observations[zone],
@@ -369,6 +371,8 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             long_term_experiences=exposed,
             rejection_feedback=None,
         )
+        executor_contexts[zone] = executor_context
+        user = executor_context.agent_view
         patch = _localized_patch(fixture, zone, language, thermal_edge_id)
         output = {
             "patch": [patch],
@@ -474,10 +478,29 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
         )
         for zone in zones
     ]
-    reflector_user = Reflector.build_user(
+    reflector_context = Reflector.build_context(
         current_hour_cao=current_cao,
-        long_term_slots={zone: reflector_slot_view(store, zone) for zone in zones},
+        long_term_slots={
+            zone: reflector_slot_view(
+                store,
+                zone,
+                [
+                    regime
+                    for _, regime in sorted(
+                        (
+                            min(steps),
+                            regime,
+                        )
+                        for record in current_cao
+                        if record["zone"] == zone
+                        for regime, steps in record["context"]["regime_step_coverage"].items()
+                    )
+                ],
+            )
+            for zone in zones
+        },
     )
+    reflector_user = reflector_context.agent_view
     reflector_output = _reflector_output(fixture, language, memory_enabled=True)
     resolution = resolve_reflector_payload(reflector_output, zones=zones, long_term_memory=True)
     completed_caol = attach_hourly_lessons(current_cao, resolution.lessons)
@@ -588,11 +611,11 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     )
     parts.append(f"### {labels['output']}\n\n")
     parts.append(_code(reflector_output))
-    parts.append(f"## {labels['caol']}\n\n### Completed CAOL\n\n")
+    parts.append(f"## {labels['caol']}\n\n### Completed-hour records\n\n")
     parts.append(_code(completed_caol))
-    parts.append("### Next-hour Orchestrator CAOL working memory\n\n")
+    parts.append("### Next-hour Orchestrator working memory\n\n")
     parts.append(_code(next_working_memory))
-    parts.append("### Next-hour East Executor CAOL working memory\n\n")
+    parts.append("### Next-hour East Executor working memory\n\n")
     parts.append(
         _code(
             select_caol_working_memory(
@@ -631,14 +654,14 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
                 "executor_user_removed": ["ACTIVE LONG-TERM EXPERIENCES"],
                 "executor_output_removed": ["memory_refs"],
                 "reflector_system_removed": ["three-regime comparison", "CRUD operation contract"],
-                "reflector_user_removed": ["CURRENT THREE-REGIME EXPERIENCE SLOTS"],
+                "reflector_user_removed": ["ELIGIBLE LONG-TERM EXPERIENCE SLOTS"],
                 "reflector_output_removed": ["memory_operations"],
                 "runtime_output_removed": [
                     "long-term CRUD rows",
                     "Executor memory-reference audit",
                 ],
                 "orchestrator_removed": [],
-                "caol_working_memory_retained": True,
+                "working_memory_retained": True,
             }
         )
     )
@@ -668,6 +691,16 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     )
     parts.append("### Memory-off Reflector output\n\n")
     parts.append(_code(off_reflector_output))
+    parts.append("## 11. Canonical human views and audit hashes\n\n")
+    for role_name, context in (
+        ("Orchestrator", orchestrator_context),
+        ("East Executor", executor_contexts["eas"]),
+        ("Reflector", reflector_context),
+    ):
+        parts.append(f"### {role_name} expanded canonical input\n\n")
+        parts.append(context.human_view)
+        parts.append(f"### {role_name} audit view\n\n")
+        parts.append(_code(context.audit_view))
     return "".join(parts)
 
 
@@ -690,7 +723,7 @@ def main() -> int:
         else:
             target.write_text(rendered, encoding="utf-8", newline="\n")
     if mismatches:
-        raise SystemExit("generated CAOL documents are stale: " + ", ".join(mismatches))
+        raise SystemExit("generated complete-hour documents are stale: " + ", ".join(mismatches))
     return 0
 
 

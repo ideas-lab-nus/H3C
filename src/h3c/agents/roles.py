@@ -4,23 +4,21 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
+from h3c.agents.context_compiler import CompiledContext, ContextBuilder
 from h3c.agents.contracts import (
     allocation_contract,
     rationale_length_telemetry,
 )
 from h3c.agents.dynamic_prompt import (
     COOLING_CONTROL_DOMAIN,
-    block,
+    display,
     executor_observation_view,
-    merged_block,
     parameter_rule_limits,
     strip_audit_fields,
-    visible_glossary_lines,
 )
 from h3c.agents.prompts import Role, system_prompt
 from h3c.control.budget import validate_allocation
@@ -82,6 +80,102 @@ class ModelContractError(ValueError):
     def __init__(self, message: str, raw_output: str) -> None:
         super().__init__(message)
         self.raw_output = raw_output
+
+
+def _mapping_rows(value: Mapping[str, Any], *, identity: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for name, raw_row in value.items():
+        if not isinstance(raw_row, Mapping):
+            raise ValueError(f"{identity} mapping values must be objects")
+        if identity in raw_row:
+            raise ValueError(f"{identity} has more than one field owner")
+        rows.append({identity: str(name), **copy.deepcopy(dict(raw_row))})
+    return rows
+
+
+def _site_state_views(site_state: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    current = copy.deepcopy(dict(site_state))
+    raw_forecast = current.pop("weather_next_steps", [])
+    if not isinstance(raw_forecast, Sequence) or isinstance(raw_forecast, (str, bytes)):
+        raise ValueError("site weather forecast must be a sequence")
+    forecast: list[dict[str, Any]] = []
+    for row in raw_forecast:
+        if not isinstance(row, Mapping) or "step_ahead" not in row:
+            raise ValueError("site weather forecast rows require step_ahead")
+        forecast.append(copy.deepcopy(dict(row)))
+    return current, forecast
+
+
+def _executor_observation_views(
+    observation: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    current = copy.deepcopy(dict(observation))
+    occupancy = current.pop("occupancy_next_steps", [])
+    weather = current.pop("weather_next_steps", [])
+    if not isinstance(occupancy, Sequence) or isinstance(occupancy, (str, bytes)):
+        raise ValueError("occupancy forecast must be a sequence")
+    if not isinstance(weather, Sequence) or isinstance(weather, (str, bytes)):
+        raise ValueError("weather forecast must be a sequence")
+    if occupancy and len(occupancy) != 4:
+        raise ValueError("occupancy forecast must contain four steps")
+    if weather and len(weather) != 4:
+        raise ValueError("weather forecast must contain four steps")
+    rows: list[dict[str, Any]] = []
+    for index in range(max(len(occupancy), len(weather))):
+        row: dict[str, Any] = {"step_ahead": index + 1}
+        if occupancy:
+            row["occupancy"] = occupancy[index]
+        if weather:
+            raw_weather = weather[index]
+            if not isinstance(raw_weather, Mapping):
+                raise ValueError("weather forecast row must be an object")
+            weather_row = dict(raw_weather)
+            weather_step = weather_row.pop("step_ahead", index + 1)
+            if int(weather_step) != index + 1:
+                raise ValueError("weather and occupancy forecast steps disagree")
+            row.update(copy.deepcopy(weather_row))
+        rows.append(row)
+    return current, rows
+
+
+def _control_specification(program: Mapping[str, Any], limits: Mapping[str, Any]) -> dict[str, Any]:
+    specification = copy.deepcopy(dict(program))
+    params = specification.pop("params", None)
+    if not isinstance(params, Mapping):
+        raise ValueError("current executable program lacks parameters")
+    remaining_limits = copy.deepcopy(dict(limits))
+    parameter_rows: list[dict[str, Any]] = []
+    for name, current in params.items():
+        raw_limit = remaining_limits.pop(str(name), None)
+        if not isinstance(raw_limit, Mapping) or set(raw_limit) != {
+            "bounds",
+            "bounds_come_from",
+        }:
+            raise ValueError(f"parameter {name} lacks one exact limit owner")
+        bounds = raw_limit["bounds"]
+        if not isinstance(bounds, Sequence) or isinstance(bounds, (str, bytes)) or len(bounds) != 2:
+            raise ValueError(f"parameter {name} limit is malformed")
+        parameter_rows.append(
+            {
+                "param": str(name),
+                "current": copy.deepcopy(current),
+                "min": copy.deepcopy(bounds[0]),
+                "max": copy.deepcopy(bounds[1]),
+                "bounds_source": copy.deepcopy(raw_limit["bounds_come_from"]),
+            }
+        )
+    return {
+        "program_version": specification.pop("program_version"),
+        "parameters": parameter_rows,
+        "rules": specification.pop("rules"),
+        "rule_value_references": {
+            "param": "use the named parameter value",
+            "neg_param": "use the opposite sign of the named parameter value",
+        },
+        "rule_and_weather_limits": remaining_limits,
+        "control_domain": copy.deepcopy(COOLING_CONTROL_DOMAIN),
+        **specification,
+    }
 
 
 def resolve_orchestrator_model_output(
@@ -201,7 +295,7 @@ class Orchestrator:
     last_rationale_telemetry: dict[str, Any] | None = field(init=False, default=None)
 
     @staticmethod
-    def build_user(
+    def build_context(
         *,
         hour: int,
         zones: Sequence[str],
@@ -212,7 +306,7 @@ class Orchestrator:
         previous_utilisation: Mapping[str, Any] | None,
         working_memory: Sequence[Mapping[str, Any]] | None,
         allocation_limits: Mapping[str, Any],
-    ) -> str:
+    ) -> CompiledContext:
         del hour
         expected_limits = {"zones", "site_cap_c", "per_zone_cap_c"}
         if set(allocation_limits) != expected_limits:
@@ -225,27 +319,61 @@ class Orchestrator:
         previous = strip_audit_fields(previous_allocation)
         utilisation = strip_audit_fields(previous_utilisation)
         memory = strip_audit_fields(working_memory)
-        glossary = visible_glossary_lines(
-            site, memory, coupling, previous, utilisation, allocation_limits
-        )
-        return "".join(
-            (
-                block("CAUSAL EVIDENCE", edges, tabular=True),
-                block("ALLOCATION LIMITS", allocation_limits),
-                block("CONTROL DOMAIN", COOLING_CONTROL_DOMAIN),
-                block("WHAT SOME OF THE FIELD NAMES MEAN", glossary),
-                block("CAOL WORKING MEMORY", memory, tabular=True),
-                merged_block("CROSS-ZONE CONSTRAINTS", (("zone coupling", coupling, False),)),
-                merged_block(
-                    "PREVIOUS ALLOCATION AND UTILISATION",
-                    (
-                        ("previous allocation", previous, False),
-                        ("previous utilisation", utilisation, False),
-                    ),
-                ),
-                block("CURRENT SITE STATE AND FORECAST", site),
+        builder = ContextBuilder()
+        if edges is not None:
+            builder.add_common_rows(
+                "CAUSAL EVIDENCE",
+                cast(Sequence[Mapping[str, Any]], display(edges)),
+                identity_fields=("id",),
             )
+        builder.add_json("ALLOCATION LIMITS", display(allocation_limits))
+        builder.add_json("CONTROL DOMAIN", display(COOLING_CONTROL_DOMAIN))
+        if memory:
+            builder.add_working_memory("WORKING MEMORY", cast(Sequence[Mapping[str, Any]], memory))
+        coupling_rows = _mapping_rows(cast(Mapping[str, Any], coupling), identity="zone")
+        builder.add_common_rows(
+            "CROSS-ZONE STATUS",
+            cast(Sequence[Mapping[str, Any]], display(coupling_rows)),
+            identity_fields=("zone",),
         )
+        builder.add_json(
+            "PREVIOUS ALLOCATION AND UTILISATION",
+            display({"allocation": previous, "utilisation": utilisation}),
+        )
+        current_site, forecast_rows = _site_state_views(cast(Mapping[str, Any], site))
+        builder.add_json("CURRENT SITE STATE", display(current_site))
+        if forecast_rows:
+            builder.add_common_rows(
+                "SITE FORECAST",
+                cast(Sequence[Mapping[str, Any]], display(forecast_rows)),
+                identity_fields=("step_ahead",),
+            )
+        return builder.build()
+
+    @staticmethod
+    def build_user(
+        *,
+        hour: int,
+        zones: Sequence[str],
+        site_state: Mapping[str, Any],
+        zone_coupling: Mapping[str, Any],
+        causal_edges: Sequence[Mapping[str, Any]] | None,
+        previous_allocation: Mapping[str, Any] | None,
+        previous_utilisation: Mapping[str, Any] | None,
+        working_memory: Sequence[Mapping[str, Any]] | None,
+        allocation_limits: Mapping[str, Any],
+    ) -> str:
+        return Orchestrator.build_context(
+            hour=hour,
+            zones=zones,
+            site_state=site_state,
+            zone_coupling=zone_coupling,
+            causal_edges=causal_edges,
+            previous_allocation=previous_allocation,
+            previous_utilisation=previous_utilisation,
+            working_memory=working_memory,
+            allocation_limits=allocation_limits,
+        ).agent_view
 
     async def allocate(
         self,
@@ -283,6 +411,63 @@ class Executor:
     last_memory_refs: list[dict[str, Any]] = field(init=False, default_factory=list)
 
     @staticmethod
+    def build_context(
+        *,
+        hour: int,
+        zone: str,
+        observation: Mapping[str, Any],
+        current_executable_program: Mapping[str, Any],
+        causal_edges: Sequence[Mapping[str, Any]] | None,
+        allowance: Mapping[str, Any] | None,
+        working_memory: Sequence[Mapping[str, Any]] | None,
+        long_term_experiences: Sequence[Mapping[str, Any]] | None = None,
+        rejection_feedback: Mapping[str, Any] | None = None,
+    ) -> CompiledContext:
+        del hour, zone
+        observation_view = strip_audit_fields(executor_observation_view(observation))
+        program_view = strip_audit_fields(current_executable_program)
+        edges = strip_audit_fields(causal_edges)
+        budget = strip_audit_fields(allowance)
+        memory = strip_audit_fields(working_memory)
+        experiences = strip_audit_fields(long_term_experiences)
+        rejection = strip_audit_fields(rejection_feedback)
+        limits = parameter_rule_limits()
+        builder = ContextBuilder()
+        builder.add_control_specification(
+            "CONTROL SPECIFICATION",
+            display(_control_specification(cast(Mapping[str, Any], program_view), limits)),
+        )
+        if edges is not None:
+            builder.add_common_rows(
+                "CAUSAL EVIDENCE",
+                cast(Sequence[Mapping[str, Any]], display(edges)),
+                identity_fields=("id",),
+            )
+        builder.add_json(
+            "ALLOCATION", display({"allocation": budget}) if budget is not None else None
+        )
+        if memory:
+            builder.add_working_memory("WORKING MEMORY", cast(Sequence[Mapping[str, Any]], memory))
+        if experiences:
+            builder.add_common_rows(
+                "ACTIVE LONG-TERM EXPERIENCES",
+                cast(Sequence[Mapping[str, Any]], display(experiences)),
+                identity_fields=("regime",),
+            )
+        builder.add_json("LAST REJECTION", display(rejection))
+        current_observation, forecast_rows = _executor_observation_views(
+            cast(Mapping[str, Any], observation_view)
+        )
+        builder.add_json("ZONE OBSERVATION", display(current_observation))
+        if forecast_rows:
+            builder.add_common_rows(
+                "ZONE FORECAST",
+                cast(Sequence[Mapping[str, Any]], display(forecast_rows)),
+                identity_fields=("step_ahead",),
+            )
+        return builder.build()
+
+    @staticmethod
     def build_user(
         *,
         hour: int,
@@ -295,38 +480,17 @@ class Executor:
         long_term_experiences: Sequence[Mapping[str, Any]] | None = None,
         rejection_feedback: Mapping[str, Any] | None = None,
     ) -> str:
-        del hour, zone
-        observation_view = strip_audit_fields(executor_observation_view(observation))
-        program_view = strip_audit_fields(current_executable_program)
-        edges = strip_audit_fields(causal_edges)
-        budget = strip_audit_fields(allowance)
-        memory = strip_audit_fields(working_memory)
-        experiences = strip_audit_fields(long_term_experiences)
-        rejection = strip_audit_fields(rejection_feedback)
-        limits = parameter_rule_limits()
-        glossary = visible_glossary_lines(
-            observation_view,
-            program_view,
-            *([{"allocation": budget}] if budget is not None else []),
-            memory,
-            experiences,
-            rejection,
-            limits,
-        )
-        return "".join(
-            (
-                block("CURRENT EXECUTABLE PROGRAM P_h", program_view),
-                block("PARAMETER AND RULE LIMITS", limits),
-                block("CAUSAL EVIDENCE", edges, tabular=True),
-                block("CONTROL DOMAIN", COOLING_CONTROL_DOMAIN),
-                block("WHAT SOME OF THE FIELD NAMES MEAN", glossary),
-                block("ALLOCATION", {"allocation": budget} if budget is not None else None),
-                block("CAOL WORKING MEMORY", memory, tabular=True),
-                block("ACTIVE LONG-TERM EXPERIENCES", experiences, tabular=True),
-                block("LAST REJECTION", rejection),
-                block("ZONE OBSERVATION", observation_view),
-            )
-        )
+        return Executor.build_context(
+            hour=hour,
+            zone=zone,
+            observation=observation,
+            current_executable_program=current_executable_program,
+            causal_edges=causal_edges,
+            allowance=allowance,
+            working_memory=working_memory,
+            long_term_experiences=long_term_experiences,
+            rejection_feedback=rejection_feedback,
+        ).agent_view
 
     async def propose(
         self,
@@ -364,21 +528,11 @@ class Executor:
         return patch
 
 
-_SENTENCE_END = re.compile(r"(?<!\d)\.|\.(?!\d)|[!?。！？]")
-
-
 def clean_insight(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
-    text = value.strip()
-    sentence_ends = list(_SENTENCE_END.finditer(text))
-    if (
-        not text
-        or "\r" in text
-        or "\n" in text
-        or len(sentence_ends) > 1
-        or (sentence_ends and text[sentence_ends[0].end() :].strip())
-    ):
+    text = " ".join(value.split())
+    if not text or len(text) > 480:
         return None
     return text
 
@@ -388,21 +542,45 @@ class Reflector:
     client: ModelClient
 
     @staticmethod
+    def build_context(
+        *,
+        current_hour_cao: Sequence[Mapping[str, Any]],
+        long_term_slots: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    ) -> CompiledContext:
+        cao = strip_audit_fields(current_hour_cao)
+        slots = strip_audit_fields(long_term_slots)
+        builder = ContextBuilder()
+        builder.add_working_memory(
+            "COMPLETED HOUR EVIDENCE", cast(Sequence[Mapping[str, Any]], cao)
+        )
+        if slots is not None:
+            slot_rows: list[dict[str, Any]] = []
+            for zone, zone_slots in cast(Mapping[str, Any], slots).items():
+                if not isinstance(zone_slots, Sequence) or isinstance(zone_slots, (str, bytes)):
+                    raise ValueError("eligible experience slots must be a sequence")
+                for raw_slot in zone_slots:
+                    if not isinstance(raw_slot, Mapping):
+                        raise ValueError("eligible experience slot must be an object")
+                    if "zone" in raw_slot:
+                        raise ValueError("eligible experience slot has duplicate zone owner")
+                    slot_rows.append({"zone": zone, **copy.deepcopy(dict(raw_slot))})
+            builder.add_common_rows(
+                "ELIGIBLE LONG-TERM EXPERIENCE SLOTS",
+                cast(Sequence[Mapping[str, Any]], display(slot_rows)),
+                identity_fields=("zone", "regime"),
+            )
+        return builder.build()
+
+    @staticmethod
     def build_user(
         *,
         current_hour_cao: Sequence[Mapping[str, Any]],
         long_term_slots: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     ) -> str:
-        cao = strip_audit_fields(current_hour_cao)
-        slots = strip_audit_fields(long_term_slots)
-        glossary = visible_glossary_lines(cao, slots)
-        return "".join(
-            (
-                block("WHAT SOME OF THE FIELD NAMES MEAN", glossary),
-                block("CURRENT HOUR DETERMINISTIC CAO", cao, tabular=True),
-                block("CURRENT THREE-REGIME EXPERIENCE SLOTS", slots),
-            )
-        )
+        return Reflector.build_context(
+            current_hour_cao=current_hour_cao,
+            long_term_slots=long_term_slots,
+        ).agent_view
 
     async def summarize(
         self,

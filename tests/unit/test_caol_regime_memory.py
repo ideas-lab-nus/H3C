@@ -160,8 +160,9 @@ def test_reflector_off_contract_has_only_lessons() -> None:
 def test_three_slot_crud_is_cas_protected_and_auditable() -> None:
     zones = ("EAS",)
     store = empty_regime_store(zones)
-    assert reflector_slot_view(store, "EAS") == [
-        {"regime": "unoccupied", "state": "empty"},
+    assert reflector_slot_view(
+        store, "EAS", ["occupancy_transition", "steady_state_occupancy"]
+    ) == [
         {"regime": "occupancy_transition", "state": "empty"},
         {"regime": "steady_state_occupancy", "state": "empty"},
     ]

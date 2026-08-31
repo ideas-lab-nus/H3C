@@ -39,16 +39,20 @@ def test_clean_insight_accepts_one_sentence_with_decimal_points(insight: str) ->
 
 
 @pytest.mark.parametrize(
-    "insight",
+    ("insight", "expected"),
     [
-        "PMV 1.0125 increased. Cost 0.0 remained low.",
-        "第一句包含 1.0125。第二句包含 0.0。",
-        "One sentence ended. trailing fragment",
-        "one line\nsecond line",
+        (
+            "PMV 1.0125 increased. Cost 0.0 remained low.",
+            "PMV 1.0125 increased. Cost 0.0 remained low.",
+        ),
+        ("第一句包含 1.0125。第二句包含 0.0。", "第一句包含 1.0125。第二句包含 0.0。"),
+        ("one line\nsecond line", "one line second line"),
     ],
 )
-def test_clean_insight_rejects_multiple_sentences_or_lines(insight: str) -> None:
-    assert clean_insight(insight) is None
+def test_clean_insight_preserves_multiple_sentences_and_normalizes_space(
+    insight: str, expected: str
+) -> None:
+    assert clean_insight(insight) == expected
 
 
 def test_clean_insight_rejects_non_string_input() -> None:

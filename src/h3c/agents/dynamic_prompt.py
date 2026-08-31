@@ -15,6 +15,7 @@ from h3c.control.program import (
 )
 
 DISPLAY_NAMES = {
+    "comfort_headroom_c": "zone_temperature_distance_to_comfort_edge_c",
     "site_residual_c": "group_allowance_not_yet_handed_out_c",
     "remaining_c": "allowance_left_to_you_c",
     "priority_rank": "your_place_in_the_queue_for_the_remainder",
