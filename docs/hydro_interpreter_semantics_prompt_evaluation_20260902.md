@@ -95,6 +95,31 @@ interpreter semantics and derived facts.
 | Effect-semantics recovery | 67 | SZ | `b065b9acd180c8ac9fb367e59095ce16b9126e5fc834826b17030968225cdb7d` | `5e2bd21104b3df12e6dfdd58c1719e3d27dd071a80892a65d47d276818760c65` |
 | Effect-semantics recovery | 92 | SZ | `367cea334fa1b68e94ddfe29a70d8b0b6e8f9f6c27bfbc6f579610b5fc502f2a` | `1ef7ab104db93f591542e7480f998e3b51f88e97c1349ac96a5cae963ac9dc05` |
 
-The non-physical Provider result and independent semantic review are intentionally left
-pending until after the clean method commit. Hydro cannot start while either is pending
-or failed.
+## First Provider result and semantic disposition
+
+All six calls completed without retry with `finish_reason=stop`, exact Baseten model
+identity, strict JSON output, a valid output envelope, complete usage and no secret
+exposure. This establishes structural compatibility only.
+
+Semantic review failed on two mandatory cases:
+
+1. hour 55 NZ described the occupancy-onset `anchor` as using the 30 C unoccupied
+   base. The rule requires `occupied_now=1` and `occupied_last=0`; the actual base is
+   25 C, so `set_residual(0)` is 25 C and `set_residual(-3.5)` is 21.5 C, not 26.5 C;
+2. hour 67 SZ described unoccupied `set_residual(0)` as 25 C and replacement
+   `hold_setpoint` at 26.85 C as energy saving. The actual unoccupied base is 30 C;
+   the current action returns to 30 C, while hold retains 3.15 C of additional cooling.
+
+The other four responses do not repair these contradictions. Several structurally
+valid model patches were independently rejected by the unchanged registered runtime
+validator; those ordinary rejections are not the reason for failing the semantic gate.
+
+Disposition:
+
+```text
+STRUCTURAL-PASS / SEMANTIC-FAIL / HYDRO-NOT-ELIGIBLE
+```
+
+The next candidate is preregistered in
+`docs/hydro_rule_effect_projection_preregistration_20260902.md`. It adds per-rule
+matching-state projections from the interpreter owner, not a control constraint.
