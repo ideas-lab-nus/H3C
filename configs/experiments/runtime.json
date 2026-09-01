@@ -19,7 +19,7 @@
         "fixed_endpoint": "https://inference.baseten.co/v1",
         "api_key_environment_variable": "BASETEN_API_KEY",
         "session_affinity_header": "x-session-affinity",
-        "retryable_status_codes": [429, 503, 529],
+        "retryable_status_codes": [429, 500, 502, 503, 504, 529],
         "response_format": "json_schema"
       }
     },

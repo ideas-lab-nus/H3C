@@ -107,10 +107,127 @@ def test_http_529_is_retryable_only_for_the_baseten_provider_contract(
             "POST",
             "https://inference.baseten.co/v1/chat/completions",
             payload={"x": 1},
-            retryable_status_codes=frozenset({429, 503, 529}),
+            retryable_status_codes=frozenset({429, 500, 502, 503, 504, 529}),
         )
     assert baseten.value.retryable is True
     assert baseten.value.retry_after_seconds == 1.25
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 504])
+def test_baseten_transient_http_status_has_three_total_attempts(
+    monkeypatch: Any, status: int
+) -> None:
+    requests = 0
+    sleeps: list[float] = []
+    rows: list[tuple[str, dict[str, Any]]] = []
+
+    def open_request(request: urllib.request.Request, timeout: float) -> _Response:
+        nonlocal requests
+        del request, timeout
+        requests += 1
+        if requests < 3:
+            raise urllib.error.HTTPError(
+                "https://inference.baseten.co/v1/chat/completions",
+                status,
+                "transient",
+                {},
+                None,
+            )
+        return _Response(
+            json.dumps(_model_response(model="deepseek-ai/DeepSeek-V4-Flash-0731")).encode("utf-8")
+        )
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    client = OpenAICompatibleModelClient(
+        endpoint="https://inference.baseten.co/v1",
+        api_key="secret-not-recorded",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        sink=lambda name, row: rows.append((name, dict(row))),
+        retry_count_limit=2,
+        retry_backoff_seconds=(1.0, 2.0),
+        provider_id="baseten-deepseek",
+        retryable_status_codes=(429, 500, 502, 503, 504, 529),
+    )
+
+    asyncio.run(
+        client.complete(
+            context=ModelCallContext(0, 0, 0),
+            role="orchestrator",
+            system="system",
+            user="user",
+            thinking_mode="low",
+        )
+    )
+
+    attempts = [row for name, row in rows if name == "model_request_attempts.jsonl"]
+    assert requests == 3
+    assert sleeps == [1.0, 2.0]
+    assert [row["attempt_number"] for row in attempts] == [1, 2, 3]
+    assert [row["error_type"] for row in attempts] == [
+        f"http_{status}",
+        f"http_{status}",
+        None,
+    ]
+    assert [row["will_retry"] for row in attempts] == [True, True, False]
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 504])
+def test_baseten_transient_http_status_exhausts_after_three_total_attempts(
+    monkeypatch: Any, status: int
+) -> None:
+    requests = 0
+    sleeps: list[float] = []
+    rows: list[tuple[str, dict[str, Any]]] = []
+
+    def open_request(request: urllib.request.Request, timeout: float) -> _Response:
+        nonlocal requests
+        del request, timeout
+        requests += 1
+        raise urllib.error.HTTPError(
+            "https://inference.baseten.co/v1/chat/completions",
+            status,
+            "transient",
+            {},
+            None,
+        )
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    client = OpenAICompatibleModelClient(
+        endpoint="https://inference.baseten.co/v1",
+        api_key="secret-not-recorded",
+        model="deepseek-ai/DeepSeek-V4-Flash-0731",
+        sink=lambda name, row: rows.append((name, dict(row))),
+        retry_count_limit=2,
+        retry_backoff_seconds=(1.0, 2.0),
+        provider_id="baseten-deepseek",
+        retryable_status_codes=(429, 500, 502, 503, 504, 529),
+    )
+
+    with pytest.raises(TransportError, match=f"HTTP {status}"):
+        asyncio.run(
+            client.complete(
+                context=ModelCallContext(0, 0, 0),
+                role="orchestrator",
+                system="system",
+                user="user",
+                thinking_mode="low",
+            )
+        )
+
+    attempts = [row for name, row in rows if name == "model_request_attempts.jsonl"]
+    assert requests == 3
+    assert sleeps == [1.0, 2.0]
+    assert [row["attempt_number"] for row in attempts] == [1, 2, 3]
+    assert [row["will_retry"] for row in attempts] == [True, True, False]
+    assert all(row["error_type"] == f"http_{status}" for row in attempts)
 
 
 def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> None:
@@ -134,7 +251,7 @@ def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> No
         retry_backoff_seconds=(),
         provider_id="baseten-deepseek",
         extra_headers={"x-session-affinity": "run-specific-affinity"},
-        retryable_status_codes=(429, 503, 529),
+        retryable_status_codes=(429, 500, 502, 503, 504, 529),
         response_format="json_schema",
     )
     schema = {
@@ -423,8 +540,9 @@ def test_registered_503_retry_after_precedes_local_backoff(monkeypatch: Any) -> 
     assert attempts[0]["provider_charge_status"] == "response_received_usage_unavailable"
 
 
+@pytest.mark.parametrize("status", [400, 401])
 def test_model_request_does_not_retry_a_nonretryable_response_error(
-    monkeypatch: Any,
+    monkeypatch: Any, status: int
 ) -> None:
     rows: list[tuple[str, dict[str, Any]]] = []
     calls = 0
@@ -433,8 +551,8 @@ def test_model_request_does_not_retry_a_nonretryable_response_error(
         nonlocal calls
         calls += 1
         raise TransportError(
-            "HTTP 401",
-            error_type="http_401",
+            f"HTTP {status}",
+            error_type=f"http_{status}",
             provider_response_received=True,
         )
 
@@ -448,7 +566,7 @@ def test_model_request_does_not_retry_a_nonretryable_response_error(
         retry_backoff_seconds=(1.0, 2.0),
     )
 
-    with pytest.raises(TransportError, match="HTTP 401"):
+    with pytest.raises(TransportError, match=f"HTTP {status}"):
         asyncio.run(
             client.complete(
                 context=ModelCallContext(0, 3, 0),
@@ -464,7 +582,7 @@ def test_model_request_does_not_retry_a_nonretryable_response_error(
     assert len(attempts) == 1
     assert attempts[0]["retryable"] is False
     assert attempts[0]["will_retry"] is False
-    assert attempts[0]["error_type"] == "http_401"
+    assert attempts[0]["error_type"] == f"http_{status}"
     assert attempts[0]["provider_charge_status"] == "response_received_usage_unavailable"
 
 

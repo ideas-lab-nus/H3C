@@ -61,6 +61,7 @@ from h3c.runtime.occupancy import (
     verify_missing_occupancy_resolution_evidence,
 )
 from h3c.runtime.protocol import reconstruct_forecast_evidence
+from h3c.runtime.resume import recompute_resume_prefix_identity
 
 
 def _object(path: Path) -> dict[str, Any]:
@@ -816,6 +817,7 @@ EXECUTION_CHECKS = {
     "caol_working_memory_surface",
     "memory_off_isolation",
     "memory_store_replayed",
+    "resume_replay_integrity",
 }
 
 MODEL_CHECKS = {
@@ -1251,6 +1253,11 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         )
         raw_model_name = None if provider_contract is None else provider_contract["model"]
         model_name = raw_model_name if isinstance(raw_model_name, str) else ""
+        provider_response_format = (
+            str(provider_contract["response_format"])
+            if provider_contract is not None
+            else "json_object"
+        )
         provider_retryable_http_errors = (
             {f"http_{code}" for code in provider_contract["retryable_status_codes"]}
             if provider_contract is not None
@@ -1292,6 +1299,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 diagnostic_window=method.get("diagnostic_window"),
             )
             execution_identity = resolved["execution_identity"]
+            resume_lineage = resolved.get("resume_replay")
             expected_execution_fields = {
                 "plan_identity",
                 "source_commit",
@@ -1303,6 +1311,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 expected_execution_fields.update(
                     {"model_provider", "model_name", "model_endpoint_identity"}
                 )
+            if resume_lineage is not None:
+                expected_execution_fields.add("resume_replay_identity")
             expected_resolved_fields = {
                 "case_profile",
                 "method",
@@ -1311,6 +1321,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             }
             if plan.controller == "h3c_agent":
                 expected_resolved_fields.add("model_provider")
+            if resume_lineage is not None:
+                expected_resolved_fields.add("resume_replay")
             if plan.causal_enabled:
                 expected_resolved_fields.add("resolved_graph")
             if plan.graph_mutation is not None:
@@ -1338,6 +1350,81 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             endpoint_fields = {"physical_endpoint_identity"}
             if plan.controller == "h3c_agent":
                 endpoint_fields.add("model_endpoint_identity")
+            resume_replay_ok = False
+            resume_events = [
+                row for row in streams["timing.jsonl"] if row.get("phase") == "resume_replay"
+            ]
+            if resume_lineage is None:
+                resume_replay_ok = (
+                    not resume_events and "resume_replay_identity" not in execution_identity
+                )
+            elif isinstance(resume_lineage, dict):
+                lineage_fields = {
+                    "source_commit",
+                    "source_run_identity",
+                    "source_plan_identity",
+                    "source_test_id",
+                    "source_completed_hour",
+                    "source_completed_step",
+                    "source_next_step",
+                    "source_program_versions",
+                    "source_prefix_identity",
+                }
+                source_completed_hour = resume_lineage.get("source_completed_hour")
+                source_completed_step = resume_lineage.get("source_completed_step")
+                source_next_step = resume_lineage.get("source_next_step")
+                source_versions = resume_lineage.get("source_program_versions")
+                expected_started = {
+                    "phase": "resume_replay",
+                    "event": "started",
+                    "source_run_identity": resume_lineage.get("source_run_identity"),
+                    "source_test_id": resume_lineage.get("source_test_id"),
+                    "source_prefix_identity": resume_lineage.get("source_prefix_identity"),
+                    "replay_step_count": source_next_step,
+                }
+                expected_completed = {
+                    **expected_started,
+                    "event": "completed",
+                    "next_step": source_next_step,
+                }
+                resume_replay_ok = (
+                    set(resume_lineage) == lineage_fields
+                    and isinstance(source_completed_hour, int)
+                    and not isinstance(source_completed_hour, bool)
+                    and source_completed_hour >= 0
+                    and isinstance(source_completed_step, int)
+                    and not isinstance(source_completed_step, bool)
+                    and source_completed_step == source_completed_hour * 4 + 3
+                    and isinstance(source_next_step, int)
+                    and not isinstance(source_next_step, bool)
+                    and source_next_step == source_completed_step + 1
+                    and source_next_step < expected_steps
+                    and isinstance(source_versions, dict)
+                    and set(source_versions) == zone_set
+                    and all(
+                        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                        for value in source_versions.values()
+                    )
+                    and isinstance(resume_lineage.get("source_run_identity"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", str(resume_lineage["source_run_identity"]))
+                    is not None
+                    and isinstance(resume_lineage.get("source_commit"), str)
+                    and re.fullmatch(r"[0-9a-f]{40}", str(resume_lineage["source_commit"]))
+                    is not None
+                    and resume_lineage.get("source_plan_identity") == plan.identity(profile)
+                    and isinstance(resume_lineage.get("source_test_id"), str)
+                    and bool(resume_lineage["source_test_id"])
+                    and resume_lineage.get("source_test_id") not in boundary_test_ids
+                    and isinstance(resume_lineage.get("source_prefix_identity"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", str(resume_lineage["source_prefix_identity"]))
+                    is not None
+                    and execution_identity.get("resume_replay_identity")
+                    == _identity(resume_lineage)
+                    and resume_events == [expected_started, expected_completed]
+                    and recompute_resume_prefix_identity(directory, resume_lineage)
+                    == resume_lineage.get("source_prefix_identity")
+                )
+            checks["resume_replay_integrity"] = resume_replay_ok
             identity_ok = (
                 set(resolved) == expected_resolved_fields
                 and registered_profile == profile
@@ -1497,7 +1584,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "provider_retry_after_seconds",
             "retry_delay_seconds",
         }
-        retryable_error_types = {
+        retryable_connection_error_types = {
             "ConnectionResetError",
             "ConnectionAbortedError",
             "BrokenPipeError",
@@ -1506,9 +1593,6 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "IncompleteRead",
             "SSLEOFError",
             "SSLZeroReturnError",
-            "http_429",
-            "http_503",
-            "http_529",
         }
         attempts_by_identity: dict[str, list[dict[str, Any]]] = {}
         for attempt in model_attempts:
@@ -1558,11 +1642,19 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 body_text = str(first["request_body"])
                 body = json.loads(body_text)
                 messages = body["messages"]
+                wire_response_schema: dict[str, Any] | None = None
+                if provider_response_format == "json_schema":
+                    raw_wire_schema = body["response_format"]["json_schema"]["schema"]
+                    if not isinstance(raw_wire_schema, dict):
+                        raise ValueError("wire response schema is not an object")
+                    wire_response_schema = raw_wire_schema
                 contract = model_request_contract(
                     model=str(body["model"]),
                     system=str(messages[0]["content"]),
                     user=str(messages[1]["content"]),
                     thinking_mode=str(first["thinking_mode"]),
+                    response_format=provider_response_format,
+                    response_schema=wire_response_schema,
                 )
                 request_identity = model_request_identity(contract)
                 neutral_request_identity = provider_neutral_request_identity(contract)
@@ -1631,7 +1723,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                                 or (
                                     retryable
                                     and attempt.get("error_type")
-                                    in retryable_error_types - {"http_429", "http_503", "http_529"}
+                                    in retryable_connection_error_types
                                     and provider_status == "unknown_after_request_failure"
                                 )
                                 or (

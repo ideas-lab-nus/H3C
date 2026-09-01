@@ -79,6 +79,10 @@ h3c run --profile MZ_Air
 h3c run --profile MZ_Air --long-term-memory
 h3c suite main
 
+# Audit an eligible failed run, then recover it in a fresh run/test after review
+h3c resume outputs/runs/<suite>/<case>/<failed_run_id>
+h3c resume outputs/runs/<suite>/<case>/<failed_run_id> --execute
+
 # Verify frozen policy assets
 h3c-baseline models verify
 
@@ -191,7 +195,11 @@ outputs/                 ignored generated runs and reports
 
 - Compare only runs with matching source commit, protocol, case, evaluation boundary, and model
   identity.
-- Do not overwrite or resume run directories; retain unfavorable results and validation failures.
+- Never overwrite or append to a run directory; retain unfavorable results and validation
+  failures. `h3c resume` creates a fresh run and BOPTEST test, physically replays and verifies the
+  source run's atomic completed-hour prefix, then continues without repeating completed Agent
+  calls. It is limited to registered control-neutral interruptions and never repairs poor KPI or
+  model-contract degradation.
 - Verify the resolved configuration and completion evidence before using a result.
 - Cite *Causal-augmented Hierarchical LLM Agents for Building Control* when using this research
   code. Formal bibliographic metadata will be added after publication.

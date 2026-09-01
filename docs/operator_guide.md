@@ -18,11 +18,19 @@ h3c run --profile MZ_Air
 h3c run --profile MZ_Air --execute
 h3c verify outputs/runs/<suite>/<case>/<run_id>
 h3c report outputs/runs/<suite>
+h3c resume outputs/runs/<suite>/<case>/<failed_run_id>
+h3c resume outputs/runs/<suite>/<case>/<failed_run_id> --execute
 ```
 
 The registered physical profile initializes once at the evaluation start with a seven-day
 BOPTEST internal warm-up and no explicit prefix. Air evaluations last seven days; MZ_Hydro lasts
 five days. Only one physical process may hold `outputs/runs/.execution.lock`.
+
+The first `h3c resume` command is a network-free eligibility and prefix audit.
+Execution is allowed only after the failed PID/test/lock are released. It always
+uses a fresh run directory and BOPTEST test, replays every completed physical
+step without recalling Agents, verifies the reconstructed state, then continues
+at the next atomic hour. The original failure remains immutable.
 
 ## Offline onboarding
 
@@ -54,7 +62,9 @@ next arm starts.
 
 ## Evidence handling
 
-- Never overwrite, resume, splice, or silently delete a run directory.
+- Never overwrite, append to, splice, or silently delete a run directory. A
+  registered `h3c resume` is a fresh lineage-bearing physical replay, not an
+  in-place continuation.
 - Treat `completion.json` as the terminal success marker; a directory or manifest alone is not a
   completed run.
 - Compare only matching source, protocol, case, evaluation boundary, and model identities.

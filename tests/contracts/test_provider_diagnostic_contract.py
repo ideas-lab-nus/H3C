@@ -93,7 +93,7 @@ def test_provider_contracts_freeze_request_and_retry_differences() -> None:
     official = model["providers"]["deepseek-official"]
     baseten = model["providers"]["baseten-deepseek"]
     assert official["retryable_status_codes"] == [429, 503]
-    assert baseten["retryable_status_codes"] == [429, 503, 529]
+    assert baseten["retryable_status_codes"] == [429, 500, 502, 503, 504, 529]
     assert official["session_affinity_header"] is None
     assert baseten["session_affinity_header"] == "x-session-affinity"
     assert official["response_format"] == "json_object"

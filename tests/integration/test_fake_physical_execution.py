@@ -30,7 +30,7 @@ from h3c.runtime.clients import (
     model_request_identity,
     provider_neutral_request_identity,
 )
-from h3c.runtime.engine import execute_serial
+from h3c.runtime.engine import execute_resume, execute_serial, resume_plan
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -57,7 +57,8 @@ def _write_jsonl(path: Path, values: Sequence[Mapping[str, Any]]) -> None:
 
 
 class FakePhysicalClient:
-    def __init__(self) -> None:
+    def __init__(self, test_id_value: str = "fake-test-id") -> None:
+        self.test_id_value = test_id_value
         self.test_id: str | None = None
         self.time_seconds = 0
         self.initialize_count = 0
@@ -71,7 +72,7 @@ class FakePhysicalClient:
         assert testcase == "bestest_air"
         assert warmup_period_seconds == 7 * 86400
         self.initialize_count += 1
-        self.test_id = "fake-test-id"
+        self.test_id = self.test_id_value
         self.time_seconds = start_time_seconds
         return self._state()
 
@@ -99,7 +100,7 @@ class FakePhysicalClient:
         return self._state()
 
     def stop(self) -> None:
-        assert self.test_id == "fake-test-id"
+        assert self.test_id == self.test_id_value
         self.stop_count += 1
         self.test_id = None
 
@@ -454,6 +455,20 @@ def _agent(*, long_term_memory: bool = False) -> RunPlan:
         evaluation_hours=6,
         long_term_memory=long_term_memory,
         model_provider="deepseek-official",
+    )
+
+
+def _baseten_agent() -> RunPlan:
+    return RunPlan(
+        profile="SZ_Air",
+        controller="h3c_agent",
+        working_memory_hours=1,
+        causal_enabled=True,
+        coordination_enabled=True,
+        thinking_policy="occupancy_routed",
+        graph_mutation=None,
+        evaluation_hours=6,
+        model_provider="baseten-deepseek",
     )
 
 
@@ -1063,8 +1078,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
     monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
-    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
-    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "test-only-secret")
     physical = FakePhysicalClient()
     causal_id = _shared_power_edge_id()
     active_role: list[Role] = ["orchestrator"]
@@ -1077,9 +1091,10 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
         observed_advance_counts.append(physical.advance_count)
         if wire_attempt_count == 1:
             raise TransportError(
-                "reset",
+                "HTTP 500",
                 retryable=True,
-                error_type="ConnectionResetError",
+                error_type="http_500",
+                provider_response_received=True,
             )
         if active_role[0] == "orchestrator":
             output = json.dumps(
@@ -1102,7 +1117,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
                 }
             )
         return {
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
             "choices": [{"message": {"content": output}, "finish_reason": "stop"}],
             "usage": {
                 "prompt_tokens": 1,
@@ -1128,6 +1143,9 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
                 sink=lambda name, row: artifacts.append_jsonl(name, row),
                 retry_count_limit=2,
                 retry_backoff_seconds=(1.0, 2.0),
+                provider_id="baseten-deepseek",
+                retryable_status_codes=(429, 500, 502, 503, 504, 529),
+                response_format="json_schema",
             )
 
         @property
@@ -1158,7 +1176,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
             return output
 
     result = execute_serial(
-        [_agent()],
+        [_baseten_agent()],
         suite="fake-production-model-retry",
         output_root=tmp_path,
         physical_factory=lambda endpoint: physical,
@@ -1168,6 +1186,9 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
 
     assert observed_advance_counts[:2] == [0, 0]
     assert _read_json(run_dir / "manifest.json")["retry_count"] == 1
+    attempts = _read_jsonl(run_dir / "model_request_attempts.jsonl")
+    assert attempts[0]["error_type"] == "http_500"
+    assert attempts[0]["provider_charge_status"] == "response_received_usage_unavailable"
     assert verify_run(run_dir)["passed"] is True
 
 
@@ -1278,6 +1299,196 @@ def test_production_client_retry_exhaustion_records_verifiable_terminal_evidence
         tampered = verify_run(candidate, require_completion=False)
         assert tampered["checks"]["model_transport_retry_accounting"] is False
         assert tampered["classification"] == "RUN-INVALID"
+
+
+def test_transport_interruption_recovers_by_fresh_full_prefix_replay(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
+    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    causal_id = _shared_power_edge_id()
+    source_physical = FakePhysicalClient("source-test-id")
+
+    class InterruptAfterTwoHours(FakeModelClient):
+        async def complete(
+            self,
+            *,
+            context: ModelCallContext,
+            role: Role,
+            system: str,
+            user: str,
+            thinking_mode: str,
+            response_schema: Mapping[str, Any] | None = None,
+        ) -> str:
+            if context.hour == 2 and role == "orchestrator":
+                raise TransportError(
+                    "synthetic exhausted HTTP 500",
+                    retryable=True,
+                    error_type="http_500",
+                    provider_response_received=True,
+                )
+            return await super().complete(
+                context=context,
+                role=role,
+                system=system,
+                user=user,
+                thinking_mode=thinking_mode,
+                response_schema=response_schema,
+            )
+
+    source_root = tmp_path / "failed-source"
+    with pytest.raises(TransportError, match="HTTP 500"):
+        execute_serial(
+            [_agent()],
+            suite="resume-source",
+            output_root=source_root,
+            physical_factory=lambda endpoint: source_physical,
+            model_factory=lambda artifacts, model: InterruptAfterTwoHours(
+                artifacts, model, causal_id
+            ),
+        )
+    source_run = next((source_root / "resume-source" / "SZ_Air").iterdir())
+    source_failure_text = (source_run / "failure.json").read_text(encoding="utf-8")
+    source_checkpoint = _read_json(source_run / "completed_hour_checkpoint.json")
+    assert source_physical.advance_count == 8
+    assert source_checkpoint["completed_hour"] == 1
+    assert source_checkpoint["completed_step"] == 7
+    assert source_checkpoint["next_step"] == 8
+    assert _read_json(source_run / "failure.json")["failure_type"] == "terminal_transport_error"
+
+    dry_plan = resume_plan(source_run)
+    assert dry_plan["completed_hour"] == 1
+    assert dry_plan["next_step"] == 8
+    assert dry_plan["remaining_steps"] == 16
+    assert dry_plan["replay_step_count"] == 8
+    assert dry_plan["fresh_run_and_test_required"] is True
+
+    recovery_physical = FakePhysicalClient("recovery-test-id")
+    continuation_calls: list[tuple[int, Role]] = []
+
+    class TrackContinuation(FakeModelClient):
+        async def complete(
+            self,
+            *,
+            context: ModelCallContext,
+            role: Role,
+            system: str,
+            user: str,
+            thinking_mode: str,
+            response_schema: Mapping[str, Any] | None = None,
+        ) -> str:
+            continuation_calls.append((context.hour, role))
+            return await super().complete(
+                context=context,
+                role=role,
+                system=system,
+                user=user,
+                thinking_mode=thinking_mode,
+                response_schema=response_schema,
+            )
+
+    recovered = execute_resume(
+        source_run,
+        output_root=tmp_path / "recovered",
+        physical_factory=lambda endpoint: recovery_physical,
+        model_factory=lambda artifacts, model: TrackContinuation(artifacts, model, causal_id),
+    )
+    completed = recovered["completed_runs"][0]
+    recovered_run = Path(completed["completion"]).parent
+    recovered_zone_steps = _read_jsonl(recovered_run / "zone_steps.jsonl")
+    recovered_calls = _read_jsonl(recovered_run / "agent_calls.jsonl")
+    lineage = _read_json(recovered_run / "resolved_config.yaml")["resume_replay"]
+
+    assert recovery_physical.initialize_count == recovery_physical.stop_count == 1
+    assert recovery_physical.advance_count == 24
+    assert {row["test_id"] for row in recovered_zone_steps} == {"recovery-test-id"}
+    assert len(recovered_calls) == 18
+    assert continuation_calls == [
+        event
+        for hour in range(2, 6)
+        for event in ((hour, "orchestrator"), (hour, "executor"), (hour, "reflector"))
+    ]
+    assert lineage["source_test_id"] == "source-test-id"
+    assert lineage["source_next_step"] == 8
+    assert verify_run(recovered_run)["passed"] is True
+    assert (source_run / "failure.json").read_text(encoding="utf-8") == source_failure_text
+    assert not (source_run / "completion.json").exists()
+
+    tampered_source = tmp_path / "tampered-source"
+    shutil.copytree(source_run, tampered_source)
+    tampered_rows = _read_jsonl(tampered_source / "zone_steps.jsonl")
+    tampered_rows[0]["final_setpoint_c"] = float(tampered_rows[0]["final_setpoint_c"]) + 1.0
+    _write_jsonl(tampered_source / "zone_steps.jsonl", tampered_rows)
+    with pytest.raises(ValueError, match="action replay differs"):
+        execute_resume(
+            tampered_source,
+            output_root=tmp_path / "tampered-recovery",
+            physical_factory=lambda endpoint: FakePhysicalClient("tampered-recovery-test-id"),
+            model_factory=lambda artifacts, model: TrackContinuation(artifacts, model, causal_id),
+        )
+
+
+def test_partial_hour_interruption_rolls_back_to_last_atomic_checkpoint(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
+    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    causal_id = _shared_power_edge_id()
+
+    class InterruptInsideThirdHour(FakePhysicalClient):
+        def advance(self, controls: Mapping[str, float]) -> dict[str, Any]:
+            if self.advance_count == 10:
+                raise TransportError("synthetic partial-hour advance interruption")
+            return super().advance(controls)
+
+    source_root = tmp_path / "partial-source"
+    with pytest.raises(TransportError, match="partial-hour"):
+        execute_serial(
+            [_agent()],
+            suite="partial-resume-source",
+            output_root=source_root,
+            physical_factory=lambda endpoint: InterruptInsideThirdHour("partial-source-test"),
+            model_factory=lambda artifacts, model: FakeModelClient(artifacts, model, causal_id),
+        )
+    source_run = next((source_root / "partial-resume-source" / "SZ_Air").iterdir())
+    assert len(list(csv.DictReader((source_run / "performance.csv").open(encoding="utf-8")))) == 10
+    assert resume_plan(source_run)["next_step"] == 8
+
+    continuation_calls: list[tuple[int, Role]] = []
+
+    class TrackContinuation(FakeModelClient):
+        async def complete(
+            self,
+            *,
+            context: ModelCallContext,
+            role: Role,
+            system: str,
+            user: str,
+            thinking_mode: str,
+            response_schema: Mapping[str, Any] | None = None,
+        ) -> str:
+            continuation_calls.append((context.hour, role))
+            return await super().complete(
+                context=context,
+                role=role,
+                system=system,
+                user=user,
+                thinking_mode=thinking_mode,
+                response_schema=response_schema,
+            )
+
+    recovered = execute_resume(
+        source_run,
+        output_root=tmp_path / "partial-recovered",
+        physical_factory=lambda endpoint: FakePhysicalClient("partial-recovery-test"),
+        model_factory=lambda artifacts, model: TrackContinuation(artifacts, model, causal_id),
+    )
+    recovered_run = Path(recovered["completed_runs"][0]["completion"]).parent
+    assert min(hour for hour, role in continuation_calls) == 2
+    assert len(continuation_calls) == 12
+    assert verify_run(recovered_run)["passed"] is True
 
 
 def test_verifier_recomputes_single_field_tampering(tmp_path: Path, monkeypatch: Any) -> None:

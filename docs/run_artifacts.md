@@ -1,7 +1,10 @@
 # Run artifact contract
 
 Run paths are `outputs/runs/<suite>/<profile>/<run_id>/`. A run directory is
-created only if absent and is never resumed or overwritten.
+created only if absent and is never appended to or overwritten. An eligible
+`h3c resume` recovery creates a different run directory and fresh BOPTEST test,
+replays the source's atomic completed-hour physical prefix, and records the
+immutable source lineage in `resolved_config.yaml` and `timing.jsonl`.
 
 All editable declarations under `configs/` are strict JSON files. The historical
 artifact filename `resolved_config.yaml` is retained as a public run-contract
@@ -40,6 +43,13 @@ evaluation. The online and baseline verifiers replay the shared missing-occupanc
 owner from that source bundle and require both the resolved values and emitted audit events to
 match.
 `performance.csv` and `metrics.json` contain only the evaluation window.
+
+For a recovery run, imported completed-prefix Agent call/attempt evidence is
+joined to newly issued calls by logical identity. Every physical prefix step is
+executed again from the registered initial state under the fresh test identity;
+observation, program interpretation, action assurance, action, outcome and KPI
+must match before the first new Agent call. The verifier recomputes the prefix
+identity and recovery lineage and rejects reuse of the source test identity.
 
 Artifact schema version 3 ties each valid Orchestrator/Executor raw output to the
 complete parsed rationale stored in `hourly_decisions.jsonl` or

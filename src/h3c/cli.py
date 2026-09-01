@@ -223,6 +223,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--execute", action="store_true")
 
+    resume_run = commands.add_parser(
+        "resume",
+        help="audit or resume one eligible failed run by replaying its atomic physical prefix",
+    )
+    resume_run.add_argument("source_run", type=Path)
+    resume_run.add_argument("--execute", action="store_true")
+
     suite = commands.add_parser("suite", help="plan or execute a registered suite serially")
     suite.add_argument(
         "name",
@@ -303,6 +310,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run":
         plans = [_run_plan(args)]
         _execute(plans, "single-run") if args.execute else _print(_plan_view(plans))
+    elif args.command == "resume":
+        from h3c.runtime.engine import execute_resume, resume_plan
+
+        _print(execute_resume(args.source_run) if args.execute else resume_plan(args.source_run))
     elif args.command == "suite":
         plans = plan_suite(args.name)
         if args.arm_index is not None:

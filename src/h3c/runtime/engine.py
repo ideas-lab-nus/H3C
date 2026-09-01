@@ -6,6 +6,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import math
 import os
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -75,6 +76,7 @@ from h3c.runtime.protocol import (
     site_power,
     zone_temperature_c,
 )
+from h3c.runtime.resume import ResumePrefix, load_resume_prefix
 from h3c.runtime.source_identity import committed_source_identity
 from h3c.runtime.weather import weather_condition_inputs, weather_view
 
@@ -118,6 +120,27 @@ def _canonical(value: Any) -> str:
 
 def _identity(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _replay_equal(left: Any, right: Any, *, tolerance: float = 1e-9) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return left is right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return math.isclose(float(left), float(right), rel_tol=tolerance, abs_tol=tolerance)
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return set(left) == set(right) and all(
+            _replay_equal(left[key], right[key], tolerance=tolerance) for key in left
+        )
+    if (
+        isinstance(left, Sequence)
+        and not isinstance(left, (str, bytes))
+        and isinstance(right, Sequence)
+        and not isinstance(right, (str, bytes))
+    ):
+        return len(left) == len(right) and all(
+            _replay_equal(a, b, tolerance=tolerance) for a, b in zip(left, right, strict=True)
+        )
+    return bool(left == right)
 
 
 def _source_commit() -> str:
@@ -792,6 +815,7 @@ async def _evaluate(
     artifacts: RunArtifacts,
     boundary: EvaluationBoundaryState,
     run_identity: str,
+    resume_prefix: ResumePrefix | None = None,
 ) -> tuple[dict[str, Any], bool, int, int]:
     step_seconds = int(profile["control_step_seconds"])
     evaluation_steps = plan.evaluation_hours * 4
@@ -809,15 +833,16 @@ async def _evaluate(
         start_time_seconds=evaluation_start,
         step_seconds=step_seconds,
     )
-    artifacts.write_forecast_inputs(
-        build_forecast_evidence(
-            points,
-            source_forecast,
-            forecast,
-            start_time_seconds=evaluation_start,
-            step_seconds=step_seconds,
-        )
+    forecast_evidence = build_forecast_evidence(
+        points,
+        source_forecast,
+        forecast,
+        start_time_seconds=evaluation_start,
+        step_seconds=step_seconds,
     )
+    if resume_prefix is not None and forecast_evidence != resume_prefix.forecast_inputs:
+        raise ValueError("resume forecast evidence differs from the failed run")
+    artifacts.write_forecast_inputs(forecast_evidence)
     for event in resolution_events:
         artifacts.append_jsonl("timing.jsonl", event)
     zones = tuple(profile["zones"])
@@ -846,6 +871,30 @@ async def _evaluate(
     hour_program_decisions: list[dict[str, Any]] = []
     last_rejection_by_zone: dict[str, Mapping[str, Any] | None] = {zone: None for zone in zones}
     fallback_count = 0
+    replay_until_step = 0 if resume_prefix is None else resume_prefix.next_step
+    if resume_prefix is not None:
+        if resume_prefix.plan != plan:
+            raise ValueError("resume plan differs from the failed run")
+        if plan.identity(dict(profile)) != resume_prefix.source_plan_identity:
+            raise ValueError("resume profile or method identity differs from the failed run")
+        for stream_name in (
+            "agent_calls.jsonl",
+            "raw_model_io.jsonl",
+            "model_request_attempts.jsonl",
+        ):
+            for imported in resume_prefix.calls_for_import(stream_name):
+                artifacts.append_jsonl(stream_name, imported)
+        artifacts.append_jsonl(
+            "timing.jsonl",
+            {
+                "phase": "resume_replay",
+                "event": "started",
+                "source_run_identity": resume_prefix.source_run_identity,
+                "source_test_id": resume_prefix.source_test_id,
+                "source_prefix_identity": resume_prefix.prefix_identity,
+                "replay_step_count": replay_until_step,
+            },
+        )
 
     for step in range(evaluation_steps):
         action_time = evaluation_start + step * step_seconds
@@ -865,7 +914,62 @@ async def _evaluate(
         if step % 4 == 0:
             route = hourly_route(hour, current_occ, next_occ)
             hour_results = []
-            if plan.controller == "h3c_agent":
+            if step < replay_until_step:
+                assert resume_prefix is not None
+                source_decision = resume_prefix.decision_for_hour(hour)
+                if not _replay_equal(route, source_decision["route"]):
+                    raise ValueError("resume hourly route differs from source evidence")
+                hour_program_decisions = [dict(row) for row in resume_prefix.updates_for_hour(hour)]
+                if len(hour_program_decisions) != len(zones):
+                    raise ValueError("resume hour does not cover every zone program decision")
+                for source_update in hour_program_decisions:
+                    zone = str(source_update["zone"])
+                    program = programs[zone]
+                    if (
+                        program.version != int(source_update["program_version_before"])
+                        or program_hash(program.current_program)
+                        != source_update["program_hash_before"]
+                    ):
+                        raise ValueError("resume program before-state differs")
+                    patch = source_update["patch"]
+                    if (
+                        source_update.get("status") == "accepted"
+                        and isinstance(patch, Mapping)
+                        and patch.get("op") != "no_change"
+                    ):
+                        accepted = program.commit(
+                            patch,
+                            step=int(source_update["step"]),
+                            hour=int(source_update["hour"]),
+                        ).as_dict()
+                        if accepted != source_update.get("accepted_update"):
+                            raise ValueError("resume accepted program update differs")
+                    if (
+                        program.version != int(source_update["program_version_after"])
+                        or program_hash(program.current_program)
+                        != source_update["program_hash_after"]
+                    ):
+                        raise ValueError("resume program after-state differs")
+                    artifacts.append_jsonl("program_updates.jsonl", source_update)
+                    rejection = source_update.get("rejection")
+                    last_rejection_by_zone[zone] = (
+                        copy.deepcopy(rejection)
+                        if source_update.get("status") in {"rejected", "model_output_rejected"}
+                        and isinstance(rejection, Mapping)
+                        else None
+                    )
+                coordination_audit = source_decision.get("orchestration")
+                if plan.coordination_enabled:
+                    if not isinstance(coordination_audit, Mapping):
+                        raise ValueError("resume orchestration evidence is missing")
+                    previous_allocation = coordination_audit.get("allocation_audit")
+                    fallback = coordination_audit.get("fallback")
+                    if isinstance(fallback, Mapping):
+                        fallback_count += int(fallback.get("used") is True)
+                else:
+                    previous_allocation = None
+                ledger = None
+            elif plan.controller == "h3c_agent":
                 if model is None:
                     raise ValueError("Agent execution requires a model client")
                 (
@@ -899,6 +1003,20 @@ async def _evaluate(
         proposed, assured, assurance_audit = execute_zone_programs(
             {zone: programs[zone].current_program for zone in zones}, observations
         )
+        if step < replay_until_step:
+            assert resume_prefix is not None
+            source_by_zone = resume_prefix.zone_rows_for_step(step)
+            if set(source_by_zone) != set(zones):
+                raise ValueError("resume step does not cover every zone")
+            for zone in zones:
+                source_row = source_by_zone[zone]
+                if not (
+                    _replay_equal(observations[zone], source_row["observation"])
+                    and _replay_equal(proposed[zone], source_row["interpreter"])
+                    and _replay_equal(assurance_audit[zone], source_row["action_assurance"])
+                    and _replay_equal(assured[zone], source_row["final_setpoint_c"])
+                ):
+                    raise ValueError("resume observation/program/action replay differs")
         next_state = physical.advance(control_input(profile, assured))
         require_time(next_state, action_time + step_seconds)
         if physical.test_id != boundary.test_id:
@@ -949,22 +1067,72 @@ async def _evaluate(
                     "cost": cost,
                 },
             }
+            if step < replay_until_step:
+                assert resume_prefix is not None
+                source_row = resume_prefix.zone_rows_for_step(step)[zone]
+                comparable_source = {
+                    key: value for key, value in source_row.items() if key != "test_id"
+                }
+                comparable_current = {key: value for key, value in row.items() if key != "test_id"}
+                if not _replay_equal(comparable_current, comparable_source):
+                    raise ValueError("resume physical outcome differs from source evidence")
             artifacts.append_jsonl("zone_steps.jsonl", row)
             hour_results.append(row)
-        artifacts.append_performance(
-            (
-                action_time,
-                hour,
-                step,
-                power,
-                cost,
-                reward,
-                _canonical([temperatures[zone] for zone in zones]),
-                _canonical([assured[zone] for zone in zones]),
-                _canonical([pmv[zone] for zone in zones]),
-                _canonical([current_occ[zone] for zone in zones]),
-            )
+        performance_row = (
+            action_time,
+            hour,
+            step,
+            power,
+            cost,
+            reward,
+            _canonical([temperatures[zone] for zone in zones]),
+            _canonical([assured[zone] for zone in zones]),
+            _canonical([pmv[zone] for zone in zones]),
+            _canonical([current_occ[zone] for zone in zones]),
         )
+        if step < replay_until_step:
+            assert resume_prefix is not None
+            source_performance = resume_prefix.performance[step]
+            replayed_performance = {
+                "time_seconds": str(action_time),
+                "hour": str(hour),
+                "step": str(step),
+                "total_power_w": str(power),
+                "step_cost": str(cost),
+                "step_reward": str(reward),
+                "zone_temperatures_c": performance_row[6],
+                "zone_setpoints_c": performance_row[7],
+                "zone_pmv": performance_row[8],
+                "zone_occupancy": performance_row[9],
+            }
+            scalar_fields = (
+                "time_seconds",
+                "hour",
+                "step",
+                "total_power_w",
+                "step_cost",
+                "step_reward",
+            )
+            if not all(
+                _replay_equal(
+                    float(replayed_performance[field]),
+                    float(source_performance[field]),
+                )
+                for field in scalar_fields
+            ) or not all(
+                _replay_equal(
+                    json.loads(str(replayed_performance[field])),
+                    json.loads(source_performance[field]),
+                )
+                for field in (
+                    "zone_temperatures_c",
+                    "zone_setpoints_c",
+                    "zone_pmv",
+                    "zone_occupancy",
+                )
+            ):
+                raise ValueError("resume performance/KPI replay differs")
+        artifacts.append_performance(performance_row)
         state = next_state
         last_setpoint = assured
         last_pmv = pmv
@@ -1015,7 +1183,26 @@ async def _evaluate(
                         program_decision=decision,
                     )
                 )
-            if plan.controller == "h3c_agent":
+            if step < replay_until_step:
+                assert resume_prefix is not None
+                source_caol = resume_prefix.caol_for_hour(hour)
+                if len(source_caol) != len(zones):
+                    raise ValueError("resume completed hour lacks zone working memory")
+                source_caol_by_zone = {str(row["zone"]): row for row in source_caol}
+                for deterministic_cao in new_cao:
+                    source_record = source_caol_by_zone[str(deterministic_cao["zone"])]
+                    without_lesson = {
+                        key: value for key, value in source_record.items() if key != "lesson"
+                    }
+                    if not _replay_equal(deterministic_cao, without_lesson):
+                        raise ValueError("resume working-memory evidence differs")
+                completed_caol = [dict(row) for row in source_caol]
+                source_hourly = resume_prefix.decision_for_hour(hour)
+                previous_utilisation = (
+                    source_hourly.get("energy_budget") if plan.coordination_enabled else None
+                )
+                artifacts.append_jsonl("hourly_decisions.jsonl", source_hourly)
+            elif plan.controller == "h3c_agent":
                 assert model is not None
                 resolution, reflector_contract = await _reflect_hour(
                     plan=plan,
@@ -1070,12 +1257,19 @@ async def _evaluate(
                 },
             }
             if plan.coordination_enabled:
-                hourly["orchestration"] = coordination_audit
-                hourly["energy_budget"] = (
-                    {"status": "unavailable"} if ledger is None else ledger.utilisation()
-                )
+                if step < replay_until_step:
+                    assert resume_prefix is not None
+                    source_hourly = resume_prefix.decision_for_hour(hour)
+                    hourly["orchestration"] = source_hourly["orchestration"]
+                    hourly["energy_budget"] = source_hourly["energy_budget"]
+                else:
+                    hourly["orchestration"] = coordination_audit
+                    if ledger is None:
+                        raise ValueError("completed Agent hour lacks its Budget ledger")
+                    hourly["energy_budget"] = ledger.utilisation()
                 previous_utilisation = hourly["energy_budget"]
-            artifacts.append_jsonl("hourly_decisions.jsonl", hourly)
+            if step >= replay_until_step:
+                artifacts.append_jsonl("hourly_decisions.jsonl", hourly)
             artifacts.replace_completed_hour_checkpoint(
                 {
                     "artifact_schema": "h3c_completed_hour_checkpoint",
@@ -1088,6 +1282,24 @@ async def _evaluate(
                     "program_versions": {zone: programs[zone].version for zone in zones},
                 }
             )
+            if step + 1 == replay_until_step:
+                assert resume_prefix is not None
+                if {zone: programs[zone].version for zone in zones} != dict(
+                    resume_prefix.program_versions
+                ):
+                    raise ValueError("resume restored program versions differ at checkpoint")
+                artifacts.append_jsonl(
+                    "timing.jsonl",
+                    {
+                        "phase": "resume_replay",
+                        "event": "completed",
+                        "source_run_identity": resume_prefix.source_run_identity,
+                        "source_test_id": resume_prefix.source_test_id,
+                        "source_prefix_identity": resume_prefix.prefix_identity,
+                        "replay_step_count": replay_until_step,
+                        "next_step": replay_until_step,
+                    },
+                )
     replay_verified = all(bool(program.replay()) for program in programs.values())
     return metrics.resolved(), replay_verified, len(resolution_events), fallback_count
 
@@ -1099,6 +1311,7 @@ async def _execute_one(
     output_root: Path,
     physical_factory: PhysicalFactory,
     model_factory: ModelFactory | None,
+    resume_prefix: ResumePrefix | None = None,
 ) -> dict[str, Any]:
     resolved, graph = _resolved_plan(plan)
     profile = resolved["case_profile"]
@@ -1143,6 +1356,10 @@ async def _execute_one(
         "dispatch_mode": "auto",
         **model_identity_fields,
     }
+    if resume_prefix is not None:
+        lineage = resume_prefix.lineage()
+        execution_identity["resume_replay_identity"] = _identity(lineage)
+        resolved["resume_replay"] = lineage
     run_identity = _identity(execution_identity)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "-" + run_identity[:12]
     artifacts = RunArtifacts(output_root, suite, plan.profile, run_id)
@@ -1264,6 +1481,8 @@ async def _execute_one(
             evaluation_start_seconds=plan.evaluation_start_seconds(profile),
             on_initialized=record_initialization,
         )
+        if resume_prefix is not None and boundary.test_id == resume_prefix.source_test_id:
+            raise ValueError("resume requires a fresh physical test identity")
         manifest["occupancy_forecast_missing_value_resolution_count"] = (
             boundary.occupancy_missing_value_resolution_count
         )
@@ -1294,6 +1513,7 @@ async def _execute_one(
             artifacts=artifacts,
             boundary=boundary,
             run_identity=run_identity,
+            resume_prefix=resume_prefix,
         )
         manifest["occupancy_forecast_missing_value_resolution_count"] += evaluation_resolution_count
         artifacts.append_jsonl(
@@ -1367,6 +1587,7 @@ async def _execute_one(
             "run_identity": run_identity,
             "completion": str(completion_path),
             "metrics": metrics,
+            **({"resume_replay": resume_prefix.lineage()} if resume_prefix is not None else {}),
         }
     except TransportError as error:
         manifest["retry_count"] = _recorded_retry_count(artifacts.run_dir)
@@ -1484,3 +1705,55 @@ def execute_serial(
                 }
             results.append(result)
     return {"execution": "serial", "completed_runs": results}
+
+
+def resume_plan(source_run: Path) -> dict[str, Any]:
+    prefix = load_resume_prefix(source_run)
+    return {
+        "mode": "resume_dry_plan",
+        "source_run": str(prefix.source_run),
+        "profile": prefix.plan.profile,
+        "method": prefix.plan.method_config(),
+        "model_provider": prefix.plan.effective_model_provider(),
+        "completed_hour": prefix.completed_hour,
+        "completed_step": prefix.completed_step,
+        "next_step": prefix.next_step,
+        "remaining_steps": prefix.plan.evaluation_hours * 4 - prefix.next_step,
+        "replay_step_count": prefix.next_step,
+        "source_commit": prefix.source_commit,
+        "source_prefix_identity": prefix.prefix_identity,
+        "fresh_run_and_test_required": True,
+    }
+
+
+def execute_resume(
+    source_run: Path,
+    *,
+    output_root: Path | None = None,
+    physical_factory: PhysicalFactory | None = None,
+    model_factory: ModelFactory | None = None,
+) -> dict[str, Any]:
+    prefix = load_resume_prefix(source_run)
+    root = (output_root or repository_root() / "outputs" / "runs").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    with physical_execution_lock(root):
+        try:
+            result = asyncio.run(
+                _execute_one(
+                    prefix.plan,
+                    suite="resume-run",
+                    output_root=root,
+                    physical_factory=physical_factory or _real_physical_factory,
+                    model_factory=model_factory,
+                    resume_prefix=prefix,
+                )
+            )
+        except RunAcceptanceFailure as error:
+            result = {
+                "profile": prefix.plan.profile,
+                "status": "verification_failed",
+                "run_dir": str(error.run_dir),
+                "verification": error.verification,
+                "resume_replay": prefix.lineage(),
+            }
+    return {"execution": "resume_replay", "completed_runs": [result]}
