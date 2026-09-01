@@ -6,11 +6,15 @@ from typing import Any
 import pytest
 
 from h3c.control.program import (
+    MAX_PROGRAM_RULES,
     ProgramError,
     apply_patch,
     cited_weather_drivers,
+    current_interpreter_derivation,
+    interpreter_semantics,
     program_hash,
     run_program,
+    setpoint_effect_facts,
 )
 from h3c.memory.ledger import ProgramLedger
 
@@ -29,6 +33,140 @@ def test_canonical_program_matches_oracle(
         assert actual["matched_rule"] == expected["matched_rule"]
         assert actual["exempt_rate"] is expected["exempt_rate"]
         assert actual["branch"] == expected["semantic_branch"]
+
+
+def _observation(
+    *, current: float, previous: float, last_setpoint: float, last_pmv: float = 0.0
+) -> dict[str, Any]:
+    return {
+        "current_occupancy": current,
+        "last_occupancy": previous,
+        "last_pmv": last_pmv,
+        "last_setpoint": last_setpoint,
+        "occ_ahead": [current, current, current, current],
+    }
+
+
+@pytest.mark.parametrize(
+    ("action", "observation", "expected"),
+    (
+        (
+            {"op": "set_residual", "value": 0.0},
+            _observation(current=0, previous=0, last_setpoint=26.85),
+            30.0,
+        ),
+        (
+            {"op": "hold_setpoint"},
+            _observation(current=0, previous=0, last_setpoint=26.85),
+            26.85,
+        ),
+        (
+            {"op": "hold_setpoint"},
+            _observation(current=0, previous=0, last_setpoint=20.0),
+            25.0,
+        ),
+        (
+            {"op": "step_setpoint", "value": 0.3},
+            _observation(current=1, previous=1, last_setpoint=26.0),
+            26.3,
+        ),
+        (
+            {"op": "step_setpoint", "value": 0.3},
+            _observation(current=1, previous=0, last_setpoint=30.0),
+            25.3,
+        ),
+    ),
+)
+def test_three_rule_actions_follow_the_published_interpreter_semantics(
+    canonical_program: dict[str, Any],
+    action: dict[str, Any],
+    observation: dict[str, Any],
+    expected: float,
+) -> None:
+    program = copy.deepcopy(canonical_program)
+    current = 1 if observation["current_occupancy"] else 0
+    program["rules"] = [
+        {
+            "id": "semantic_fixture",
+            "when": [{"field": "occupied_now", "op": "==", "value": current}],
+            "then": action,
+        }
+    ]
+    assert run_program(program, observation)["setpoint"] == pytest.approx(expected)
+
+
+def test_ordered_program_executes_only_the_first_matching_rule(
+    canonical_program: dict[str, Any],
+) -> None:
+    program = copy.deepcopy(canonical_program)
+    program["rules"] = [
+        {
+            "id": "first",
+            "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+            "then": {"op": "set_residual", "value": 1.0},
+        },
+        {
+            "id": "second",
+            "when": [
+                {"field": "occupied_now", "op": "==", "value": 1},
+                {"field": "last_pmv", "op": ">", "value": -0.5},
+            ],
+            "then": {"op": "set_residual", "value": -1.0},
+        },
+    ]
+    result = run_program(
+        program,
+        _observation(current=1, previous=1, last_setpoint=25.0, last_pmv=0.0),
+    )
+    assert result["matched_rule"] == "first"
+    assert result["rules_fired"] == ["first"]
+    assert result["setpoint"] == pytest.approx(26.0)
+
+
+def test_agent_semantic_projection_uses_interpreter_owners() -> None:
+    semantics = interpreter_semantics()
+    assert semantics["rule_evaluation"] == "top_to_bottom_first_matching_rule_only"
+    assert set(semantics["action_formulas"]) == {
+        "set_residual",
+        "step_setpoint",
+        "hold_setpoint",
+    }
+    assert MAX_PROGRAM_RULES == 8
+    assert setpoint_effect_facts(current_occupancy=0, applied_setpoint_c=26.85) == {
+        "regime_base_setpoint_c": 30.0,
+        "setpoint_offset_from_regime_base_c": pytest.approx(-3.15),
+        "cooling_effect_relative_to_regime_base": "more_cooling_than_regime_base",
+    }
+
+
+def test_current_interpreter_derivation_is_the_executable_result(
+    canonical_program: dict[str, Any],
+) -> None:
+    program = copy.deepcopy(canonical_program)
+    program["rules"] = [
+        {
+            "id": "retain_unoccupied_setpoint",
+            "when": [{"field": "occupied_now", "op": "==", "value": 0}],
+            "then": {"op": "hold_setpoint"},
+        }
+    ]
+    observation = _observation(current=0, previous=0, last_setpoint=26.85)
+    derivation = current_interpreter_derivation(program, observation)
+    result = run_program(program, observation)
+    assert derivation == {
+        "rule_match_status": "matched",
+        "first_matching_rule_id": "retain_unoccupied_setpoint",
+        "first_matching_action": {"op": "hold_setpoint"},
+        "regime_base_setpoint_c": result["base_setpoint"],
+        "last_physical_setpoint_c": 26.85,
+        "residual_after_clamp_c": result["residual"],
+        "interpreter_setpoint_before_assurance_c": result["setpoint"],
+        "setpoint_change_from_last_physical_c": 0.0,
+        "cooling_effect_relative_to_last_physical_setpoint": (
+            "unchanged_from_last_physical_setpoint"
+        ),
+        "interpreter_branch": result["branch"],
+    }
 
 
 def test_patch_and_full_ledger_replay_are_identical(canonical_program: dict[str, Any]) -> None:

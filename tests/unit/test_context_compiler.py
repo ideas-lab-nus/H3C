@@ -164,6 +164,32 @@ def test_working_memory_has_explicit_time_state_action_and_derived_layers() -> N
     assert "ce_audit_only" not in rendered
 
 
+def test_derived_setpoint_effect_history_is_lossless_and_clocked() -> None:
+    record = _completed_record("EAS")
+    record["action"].update(
+        {
+            "regime_base_setpoints_c": [30.0, 30.0, 25.0, 25.0],
+            "setpoint_offsets_from_regime_base_c": [-3.15, -3.15, 1.0, 1.3],
+            "cooling_effects_relative_to_regime_base": [
+                "more_cooling_than_regime_base",
+                "more_cooling_than_regime_base",
+                "less_cooling_than_regime_base",
+                "less_cooling_than_regime_base",
+            ],
+        }
+    )
+    view = compile_working_memory([record])
+    assert decode_working_memory(view) == [record]
+    builder = ContextBuilder()
+    builder.add_working_memory("WORKING MEMORY", [record])
+    rendered = builder.build().agent_view
+    assert "regime_base_setpoint_c" in rendered
+    assert "setpoint_offset_from_regime_base_c" in rendered
+    assert "cooling_effect_relative_to_regime_base" in rendered
+    assert "more_cooling_than_regime_base" in rendered
+    assert "10:00" in rendered and "11:00" in rendered
+
+
 def test_objective_feedback_is_lossless_clocked_and_role_scoped() -> None:
     east = _completed_record("EAS")
     west = _completed_record("WES", 24.5)

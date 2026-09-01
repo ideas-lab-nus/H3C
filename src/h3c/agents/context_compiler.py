@@ -16,12 +16,17 @@ JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 SectionKind = Literal["json", "common_rows", "working_memory", "control_specification"]
 
-_STEP_ARRAY_PATHS = {
+_REQUIRED_STEP_ARRAY_PATHS = {
     "/action/actual_setpoints_c": "actual_setpoint_c",
     "/action/matched_rules": "matched_rule",
     "/outcome/zone_temperatures_c": "zone_temperature_c",
     "/outcome/pmv": "pmv",
     "/outcome/effective_occupancy": "effective_occupancy",
+}
+_DERIVED_ACTION_STEP_ARRAY_PATHS = {
+    "/action/regime_base_setpoints_c": "regime_base_setpoint_c",
+    "/action/setpoint_offsets_from_regime_base_c": "setpoint_offset_from_regime_base_c",
+    "/action/cooling_effects_relative_to_regime_base": ("cooling_effect_relative_to_regime_base"),
 }
 _DERIVED_OUTCOME_FIELDS = (
     "discomfort_zone_hours",
@@ -323,8 +328,25 @@ def compile_working_memory(
             zone = cast(str, record["zone"])
             base = copy.deepcopy(record)
             arrays: dict[str, list[JsonValue]] = {}
-            for path, column in _STEP_ARRAY_PATHS.items():
+            for path, column in _REQUIRED_STEP_ARRAY_PATHS.items():
                 value = _pop_path(base, path)
+                if not isinstance(value, list) or len(value) != 4:
+                    raise ValueError(f"working-memory field {path} must contain four steps")
+                arrays[column] = value
+            derived_action_values = {
+                path: _pop_path(base, path) for path in _DERIVED_ACTION_STEP_ARRAY_PATHS
+            }
+            derived_action_present = {
+                path for path, value in derived_action_values.items() if value is not None
+            }
+            if derived_action_present and derived_action_present != set(
+                _DERIVED_ACTION_STEP_ARRAY_PATHS
+            ):
+                raise ValueError("derived action facts must appear as one complete field group")
+            for path, column in _DERIVED_ACTION_STEP_ARRAY_PATHS.items():
+                value = derived_action_values[path]
+                if value is None:
+                    continue
                 if not isinstance(value, list) or len(value) != 4:
                     raise ValueError(f"working-memory field {path} must contain four steps")
                 arrays[column] = value
@@ -498,6 +520,9 @@ def compile_working_memory(
                     "setpoint_rate_limit": raw_shield.get("setpoint_rate_limit"),
                     "comfort_recovery": raw_shield.get("comfort_recovery"),
                 }
+                for column in _DERIVED_ACTION_STEP_ARRAY_PATHS.values():
+                    if column in arrays:
+                        action_row[column] = arrays[column][index]
                 if observed_arrays:
                     observed_context_rows.append(
                         {
@@ -765,6 +790,27 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
                 "/action/actual_setpoints_c",
                 [cast(JsonValue, row["actual_setpoint_c"]) for row in actions],
             )
+            present_derived_columns = {
+                column
+                for column in _DERIVED_ACTION_STEP_ARRAY_PATHS.values()
+                if all(column in row for row in actions)
+            }
+            partial_derived_columns = {
+                column
+                for column in _DERIVED_ACTION_STEP_ARRAY_PATHS.values()
+                if any(column in row for row in actions)
+            }
+            if partial_derived_columns and present_derived_columns != set(
+                _DERIVED_ACTION_STEP_ARRAY_PATHS.values()
+            ):
+                raise ValueError("derived action history lost a complete field group")
+            if present_derived_columns:
+                for path, column in _DERIVED_ACTION_STEP_ARRAY_PATHS.items():
+                    _put(
+                        record,
+                        path,
+                        [cast(JsonValue, row[column]) for row in actions],
+                    )
             _put(
                 record,
                 "/action/matched_rules",
@@ -1138,13 +1184,21 @@ def _render_action_history(
     source_fields = (
         "regime",
         "actual_setpoint_c",
+        "regime_base_setpoint_c",
+        "setpoint_offset_from_regime_base_c",
+        "cooling_effect_relative_to_regime_base",
         "matched_rule",
         "actuator_bounds",
         "setpoint_rate_limit",
         "comfort_recovery",
     )
+    available_fields = tuple(
+        field for field in source_fields if all(field in record for record in projected)
+    )
     variable_fields = tuple(
-        field for field in source_fields if _DISPLAY_FIELD_ALIASES.get(field, field) not in common
+        field
+        for field in available_fields
+        if _DISPLAY_FIELD_ALIASES.get(field, field) not in common
     )
     constants, variable_columns, variable_rows = _zone_constant_partition(
         projected,

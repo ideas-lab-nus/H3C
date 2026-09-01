@@ -66,6 +66,30 @@ from h3c.runtime.occupancy import (
 from h3c.runtime.protocol import reconstruct_forecast_evidence
 from h3c.runtime.resume import recompute_resume_prefix_identity
 
+_SETPOINT_EFFECT_ACTION_FIELDS = {
+    "regime_base_setpoints_c",
+    "setpoint_offsets_from_regime_base_c",
+    "cooling_effects_relative_to_regime_base",
+}
+
+
+def _align_expected_caol_with_persisted_schema(
+    expected: dict[str, Any],
+    persisted: dict[str, Any],
+) -> dict[str, Any]:
+    """Project newly derived action facts away only for an intact legacy record."""
+    persisted_action = persisted.get("action")
+    expected_action = expected.get("action")
+    if not isinstance(persisted_action, dict) or not isinstance(expected_action, dict):
+        raise ValueError("CAOL action evidence must be an object")
+    present = _SETPOINT_EFFECT_ACTION_FIELDS.intersection(persisted_action)
+    if present and present != _SETPOINT_EFFECT_ACTION_FIELDS:
+        raise ValueError("setpoint-effect action facts must be present as one complete group")
+    if not present:
+        for field in _SETPOINT_EFFECT_ACTION_FIELDS:
+            expected_action.pop(field, None)
+    return expected
+
 
 def _object(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -720,6 +744,7 @@ def _caol_memory_checks(
                 expected_cao[(hour, zone)] = expected
                 persisted = persisted_by_scope[(hour, zone)]
                 persisted_cao = {key: value for key, value in persisted.items() if key != "lesson"}
+                expected = _align_expected_caol_with_persisted_schema(expected, persisted_cao)
                 expected_lesson = lesson_by_scope.get((hour, zone))
                 caol_replayed = caol_replayed and persisted_cao == expected
                 caol_replayed = caol_replayed and (

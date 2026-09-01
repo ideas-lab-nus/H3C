@@ -4,20 +4,31 @@
 
 The production context compiler now renders model inputs from one typed canonical object using clock time, semantic field owners and compact scalar properties/tables. This report's compilation and character-accounting stage made no DeepSeek or BOPTEST call. A later, separately preregistered Baseten wire-contract regression is reported in `executor_output_envelope_recovery_result_20260901.md`. Character counts below are exact `system + user` lengths from the frozen MZ Air documentation fixture; they are not token, latency or behavior claims.
 
-Prompt-bundle identity: `sha256:d496d0ca7f2cb809626a4f8413391dabbff8bfc0f1a1735856cf2c72b08b9305`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
+Prompt-bundle identity: `sha256:b1a3416c71861a63252723ca0f0c4f9bd7c059a4cbdcbaf801e5bcbc08e0dc3f`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
 
-## Final evidence-closed view
+## Pre-interpreter-closure evidence view
 
 | Representative request | Previous candidate `8d3eecc` | Observed-context evidence | Registered reward feedback and objective guidance | Final excluding both new channels | Final total |
 |---|---:|---:|---:|---:|---:|
 | Orchestrator | 5,441 | 986 | 284 | 5,199 | 6,469 |
-| East Executor, memory on | 6,942 | 434 | 284 | 7,204 | 7,922 |
-| Reflector, memory on | 5,555 | 982 | 1,611 | 5,560 | 8,153 |
-| **Three-role total** | **17,938** | **2,402** | **2,179** | **17,963** | **22,544** |
+| East Executor, memory on | 6,942 | 434 | 284 | 7,294 | 8,012 |
+| Reflector, memory on | 5,555 | 982 | 1,611 | 5,813 | 8,406 |
+| **Three-role total** | **17,938** | **2,402** | **2,179** | **18,306** | **22,887** |
 
-The 2,402-character observed-context channel closes Reflector Lesson support. The separately registered reward channel adds the unchanged objective sentence to each role and exposes the completed interval's exact four-step reward breakdown to the Reflector fixture. With both new information channels removed for a like-for-like comparison, the three-role aggregate remains only 25 characters larger than `8d3eecc`.
+The 2,402-character observed-context channel closes Reflector Lesson support. The separately registered reward channel adds the unchanged objective sentence to each role and exposes the completed interval's exact four-step reward breakdown to the Reflector fixture.
 
-The Executor retains 262 additional non-evidence characters and Reflector retains five. These are deliberate contract clarification for dynamic allowance semantics, causal IDs, rule identifiers, zero-based indices, `then.value` types, memory references, and the exact historical `{"patch":[{...}]}` wire envelope. The user explicitly accepted this small difference rather than compressing away semantic detail. Character count is therefore a regression guard, not an optimization objective.
+Character count is a regression guard, not an optimization objective. The user explicitly accepted small differences rather than compressing away semantic detail.
+
+## Interpreter-semantics closure
+
+| Representative request | Pre-closure registered total | Added by interpreter-semantics closure | Current total |
+|---|---:|---:|---:|
+| Orchestrator | 6,469 | 30 | 6,499 |
+| East Executor, memory on | 8,012 | 1,265 | 9,277 |
+| Reflector, memory on | 8,406 | 663 | 9,069 |
+| **Three-role total** | **22,887** | **1,958** | **24,845** |
+
+The added characters carry model-relevant facts rather than additional admission constraints: the single-owner first-match interpreter semantics, the current program's deterministic pre-assurance derivation, explicit rule capacity, and four completed action times' regime base, offset and cooling-effect labels. The Executor system prompt itself grows by 69 English characters (19 Chinese characters); the remaining increase is dynamic evidence derived from the existing interpreter and completed physical actions. No action, parameter, P0 rule, validator condition, Safety rule or reward formula changed.
 
 ## Working-memory block
 

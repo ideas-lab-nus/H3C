@@ -8,9 +8,14 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from h3c.control.program import (
+    ACTUATOR_BOUNDS_C,
+    MAX_PROGRAM_RULES,
+    OCCUPIED_BASE_SETPOINT_C,
     PARAMETER_BOUNDS,
+    RESIDUAL_BOUNDS_C,
     RULE_ACTIONS,
     RULE_OPERATORS,
+    UNOCCUPIED_BASE_SETPOINT_C,
     condition_fields,
 )
 from h3c.runtime.comfort import COMFORT_BAND
@@ -95,9 +100,10 @@ COOLING_CONTROL_DOMAIN = {
     "domain_id": "cooling",
     "controlled_setpoint": "zone cooling setpoint",
     "unit": "degC",
-    "hard_bounds_c": [20.0, 30.0],
-    "occupied_base_c": 25.0,
-    "unoccupied_base_c": 30.0,
+    "hard_bounds_c": list(ACTUATOR_BOUNDS_C),
+    "residual_bounds_c": list(RESIDUAL_BOUNDS_C),
+    "occupied_base_c": OCCUPIED_BASE_SETPOINT_C,
+    "unoccupied_base_c": UNOCCUPIED_BASE_SETPOINT_C,
     "abs_pmv_score_limit": COMFORT_BAND,
     "preconditioning": {"label": "precool", "lead_steps": 4, "target_c": 25.0},
     "energy_intensive_setpoint_direction": "decrease",
@@ -333,7 +339,7 @@ def parameter_rule_limits() -> dict[str, Any]:
         "comparisons": list(RULE_OPERATORS),
         "compared_against": "a number, or the name of a parameter above",
         "actions": list(RULE_ACTIONS),
-        "most_rules_at_once": 8,
+        "most_rules_at_once": MAX_PROGRAM_RULES,
     }
     limits["weather_condition_values"] = {
         "must_be": "finite numeric literals",

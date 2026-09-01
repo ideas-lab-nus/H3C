@@ -122,6 +122,19 @@ def test_cao_is_deterministic_and_lesson_is_a_separate_attachment() -> None:
     assert cao["outcome"]["discomfort_zone_hours"] == 0.25
     assert cao["outcome"]["setpoint_total_variation_c"] == 2.5
     assert cao["outcome"]["setpoint_direction_reversals"] == 2
+    assert cao["action"]["regime_base_setpoints_c"] == [30.0, 30.0, 25.0, 25.0]
+    assert cao["action"]["setpoint_offsets_from_regime_base_c"] == [
+        -4.0,
+        -4.5,
+        0.0,
+        0.5,
+    ]
+    assert cao["action"]["cooling_effects_relative_to_regime_base"] == [
+        "more_cooling_than_regime_base",
+        "more_cooling_than_regime_base",
+        "at_regime_base",
+        "less_cooling_than_regime_base",
+    ]
     attached = attach_hourly_lessons([cao], {"EAS": "The zone retained heat after cooling."})
     assert attached[0]["lesson"] == "The zone retained heat after cooling."
     assert "lesson" not in cao

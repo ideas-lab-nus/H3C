@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from h3c.control.program import setpoint_effect_facts
 from h3c.runtime.comfort import COMFORT_BAND
 
 Regime = Literal[
@@ -103,6 +104,13 @@ def build_hourly_cao(
     covered = {regime: steps for regime, steps in regime_steps.items() if steps}
 
     setpoints = [float(row["final_setpoint_c"]) for row in rows]
+    setpoint_facts = [
+        setpoint_effect_facts(
+            current_occupancy=row["observation"]["current_occupancy"],
+            applied_setpoint_c=row["final_setpoint_c"],
+        )
+        for row in rows
+    ]
     pmv_values = [float(row["outcome"]["pmv"]) for row in rows]
     occupancies = [float(row["outcome"]["effective_occupancy"]) for row in rows]
     patch = program_decision.get("patch")
@@ -255,6 +263,13 @@ def build_hourly_cao(
             ),
             "program_version_after": int(program_decision["current_program_version"]),
             "actual_setpoints_c": setpoints,
+            "regime_base_setpoints_c": [fact["regime_base_setpoint_c"] for fact in setpoint_facts],
+            "setpoint_offsets_from_regime_base_c": [
+                fact["setpoint_offset_from_regime_base_c"] for fact in setpoint_facts
+            ],
+            "cooling_effects_relative_to_regime_base": [
+                fact["cooling_effect_relative_to_regime_base"] for fact in setpoint_facts
+            ],
             "matched_rules": [row["interpreter"].get("matched_rule") for row in rows],
             "shield": shield,
             **(

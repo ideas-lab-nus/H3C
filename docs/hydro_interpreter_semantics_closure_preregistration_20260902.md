@@ -22,14 +22,16 @@ interpreter formulas or the ordered first-match rule.
 
 ## Candidate comparison
 
-- `C0`: unchanged source `0901c09`, represented by the preserved historical outputs.
-- `S1`: C0 plus the exact ordered-first-match and three action formulas projected from
-  the interpreter owner.
-- `S2`: S1 plus deterministic current/history facts: regime base setpoint, applied
+- `baseline`: unchanged source `0901c09`, represented by the preserved historical outputs.
+- `semantics-only`: the baseline plus the exact ordered-first-match and three action
+  formulas projected from the interpreter owner.
+- `semantics-plus-derived-facts`: the semantics-only candidate plus deterministic
+  current/history facts: regime base setpoint, applied
   setpoint offset from that base, cooling effect relative to that base, and current
-  rule capacity.  S2 is the implementation candidate.
+  rule capacity. This is the implementation candidate.
 
-Only S2 may advance to a model call or physical run.  Character count is descriptive,
+Only the semantics-plus-derived-facts candidate may advance to a model call or physical
+run. Character count is descriptive,
 not an acceptance threshold; no useful semantic content will be removed to offset the
 new facts.
 
@@ -60,7 +62,8 @@ This work does not change:
 - the three rule action types;
 - the rule-count maximum of eight;
 - the deterministic interpreter result for any program and observation;
-- ProgramCheck, C1/C2/C8 causal proof, Budget, S3/S2/S1, G0, action mapping, reward,
+- ProgramCheck, the registered causal-proof constraints, Budget, the registered action
+  assurance order, the disabled graph shield, action mapping, reward,
   PMV thresholds, model settings, or acceptance thresholds;
 - the provider-native strict JSON schema, C0 Prompt structure,
   `occupancy_routed` low thinking, or long-term-memory-off identity;
@@ -68,7 +71,8 @@ This work does not change:
 
 ## Offline evaluation
 
-The same frozen cases are used for C0 evidence and S2 tests.  Development cases cover:
+The same frozen cases are used for baseline evidence and implementation-candidate tests.
+Development cases cover:
 
 1. unoccupied `set_residual(0)` returning to the 30 C base;
 2. unoccupied `hold_setpoint` retaining the last physical setpoint;

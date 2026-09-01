@@ -27,7 +27,13 @@ from h3c.agents.dynamic_prompt import (
 from h3c.agents.prompts import Role, system_prompt
 from h3c.agents.time_context import decision_window
 from h3c.control.budget import validate_allocation
-from h3c.control.program import validate_patch_shape
+from h3c.control.program import (
+    PARAMETER_BOUNDS,
+    current_interpreter_derivation,
+    interpreter_semantics,
+    setpoint_effect_facts,
+    validate_patch_shape,
+)
 from h3c.memory.caol import (
     ReflectorResolution,
     agent_visible_number,
@@ -185,6 +191,13 @@ def _executor_observation_views(
     if isinstance(headroom, Mapping):
         zone_state["temp_rise_to_warm_pmv_edge_c"] = headroom.get("warmer_c")
         zone_state["temp_drop_to_cool_pmv_edge_c"] = headroom.get("cooler_c")
+    if "occupancy" in zone_state and "setpoint_c" in zone_state:
+        zone_state.update(
+            setpoint_effect_facts(
+                current_occupancy=zone_state["occupancy"],
+                applied_setpoint_c=zone_state["setpoint_c"],
+            )
+        )
     transition_state = (
         {"previous_occupancy": current.pop("last_occupancy")} if "last_occupancy" in current else {}
     )
@@ -329,7 +342,11 @@ def _previous_budget_view(
     }
 
 
-def _control_specification(program: Mapping[str, Any], limits: Mapping[str, Any]) -> dict[str, Any]:
+def _control_specification(
+    program: Mapping[str, Any],
+    limits: Mapping[str, Any],
+    observation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     specification = copy.deepcopy(dict(program))
     params = specification.pop("params", None)
     if not isinstance(params, Mapping):
@@ -355,10 +372,42 @@ def _control_specification(program: Mapping[str, Any], limits: Mapping[str, Any]
                 "bounds_source": copy.deepcopy(raw_limit["bounds_come_from"]),
             }
         )
+    rules = specification.pop("rules")
+    if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes)):
+        raise ValueError("current executable program lacks an ordered rule sequence")
+    new_rule_limits = remaining_limits.get("a_rule_you_add")
+    if not isinstance(new_rule_limits, dict):
+        raise ValueError("current executable program lacks one rule-limit owner")
+    maximum_rules = new_rule_limits.pop("most_rules_at_once", None)
+    if not isinstance(maximum_rules, int) or isinstance(maximum_rules, bool):
+        raise ValueError("current executable program rule maximum is malformed")
+    if len(rules) > maximum_rules:
+        raise ValueError("current executable program exceeds its rule maximum")
+    required_derivation_fields = {
+        "current_occupancy",
+        "last_occupancy",
+        "last_pmv",
+        "last_setpoint",
+        "occ_ahead",
+    }
+    derivation = (
+        current_interpreter_derivation(program, observation)
+        if observation is not None
+        and required_derivation_fields <= set(observation)
+        and set(PARAMETER_BOUNDS) <= set(params)
+        else None
+    )
     return {
         "program_version": specification.pop("program_version"),
         "parameters": parameter_rows,
-        "rules": specification.pop("rules"),
+        "rules": rules,
+        "rule_capacity": {
+            "used": len(rules),
+            "maximum": maximum_rules,
+            "remaining_add_slots": maximum_rules - len(rules),
+        },
+        "interpreter_semantics": interpreter_semantics(),
+        **({"current_interpreter_derivation": derivation} if derivation is not None else {}),
         "rule_and_weather_limits": remaining_limits,
         "control_domain": copy.deepcopy(COOLING_CONTROL_DOMAIN),
         **specification,
@@ -708,7 +757,13 @@ class Executor:
             )
         builder.add_control_specification(
             "CONTROL SPECIFICATION",
-            display(_control_specification(cast(Mapping[str, Any], program_view), limits)),
+            display(
+                _control_specification(
+                    cast(Mapping[str, Any], program_view),
+                    limits,
+                    observation=observation,
+                )
+            ),
         )
         if edges is not None:
             builder.add_common_rows(

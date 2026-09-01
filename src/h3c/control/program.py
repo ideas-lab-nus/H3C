@@ -15,6 +15,11 @@ from typing import Any
 from h3c.agents.contracts import PATCH_OPERATIONS, patch_contract
 
 SPEC_VERSION = 2
+OCCUPIED_BASE_SETPOINT_C = 25.0
+UNOCCUPIED_BASE_SETPOINT_C = 30.0
+RESIDUAL_BOUNDS_C = (-5.0, 5.0)
+ACTUATOR_BOUNDS_C = (20.0, 30.0)
+MAX_PROGRAM_RULES = 8
 PARAMETER_BOUNDS: dict[str, tuple[float, float, type[int] | type[float]]] = {
     "precool_lead_steps": (0, 4, int),
     "precool_residual_c": (-5.0, 5.0, float),
@@ -89,6 +94,90 @@ def condition_fields(*, weather_enabled: bool = True) -> tuple[str, ...]:
     return BASE_CONDITION_FIELDS + (WEATHER_CONDITION_FIELDS if weather_enabled else ())
 
 
+def regime_base_setpoint(current_occupancy: Any) -> float:
+    """Return the executable program base for one currently observed regime."""
+    return (
+        OCCUPIED_BASE_SETPOINT_C
+        if _finite_number(current_occupancy, "current occupancy") > 0
+        else UNOCCUPIED_BASE_SETPOINT_C
+    )
+
+
+def setpoint_effect_facts(
+    *, current_occupancy: Any, applied_setpoint_c: Any
+) -> dict[str, float | str]:
+    """Derive model-facing setpoint facts without influencing program execution."""
+    base = regime_base_setpoint(current_occupancy)
+    offset = round(_finite_number(applied_setpoint_c, "applied setpoint") - base, 10)
+    if abs(offset) < 1e-9:
+        effect = "at_regime_base"
+        offset = 0.0
+    elif offset < 0:
+        effect = "more_cooling_than_regime_base"
+    else:
+        effect = "less_cooling_than_regime_base"
+    return {
+        "regime_base_setpoint_c": base,
+        "setpoint_offset_from_regime_base_c": offset,
+        "cooling_effect_relative_to_regime_base": effect,
+    }
+
+
+def interpreter_semantics() -> dict[str, Any]:
+    """Return the concise Agent view of the same semantics used by ``run_program``."""
+    return {
+        "rule_evaluation": "top_to_bottom_first_matching_rule_only",
+        "action_formulas": {
+            "set_residual": "candidate_setpoint_c = regime_base_setpoint_c + value",
+            "step_setpoint": (
+                "candidate_setpoint_c = last_physical_setpoint_c + value when "
+                "previous_occupancy > 0; otherwise regime_base_setpoint_c + value"
+            ),
+            "hold_setpoint": "candidate_setpoint_c = last_physical_setpoint_c",
+        },
+        "postprocessing": (
+            "clip candidate offset from regime_base_setpoint_c to residual_bounds_c, "
+            "then clip candidate_setpoint_c to hard_bounds_c"
+        ),
+    }
+
+
+def current_interpreter_derivation(
+    program: Mapping[str, Any], observation: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Explain the current program result using the same executable interpreter."""
+    result = run_program(program, observation)
+    matched_rule = result["matched_rule"]
+    matched_action: dict[str, Any] | None = None
+    if matched_rule is not None:
+        rule = next(item for item in program["rules"] if item["id"] == matched_rule)
+        action = rule["then"]
+        matched_action = {"op": action["op"]}
+        if action["op"] != "hold_setpoint":
+            matched_action["resolved_value_c"] = _resolved_value(program, action["value"])
+    last_setpoint = _finite_number(observation["last_setpoint"], "last setpoint")
+    setpoint_delta = round(float(result["setpoint"]) - last_setpoint, 10)
+    if abs(setpoint_delta) < 1e-9:
+        direction = "unchanged_from_last_physical_setpoint"
+        setpoint_delta = 0.0
+    elif setpoint_delta < 0:
+        direction = "more_cooling_than_last_physical_setpoint"
+    else:
+        direction = "less_cooling_than_last_physical_setpoint"
+    return {
+        "rule_match_status": "matched" if matched_rule is not None else "no_match_residual_zero",
+        **({"first_matching_rule_id": matched_rule} if matched_rule is not None else {}),
+        **({"first_matching_action": matched_action} if matched_action is not None else {}),
+        "regime_base_setpoint_c": result["base_setpoint"],
+        "last_physical_setpoint_c": last_setpoint,
+        "residual_after_clamp_c": result["residual"],
+        "interpreter_setpoint_before_assurance_c": result["setpoint"],
+        "setpoint_change_from_last_physical_c": setpoint_delta,
+        "cooling_effect_relative_to_last_physical_setpoint": direction,
+        "interpreter_branch": result["branch"],
+    }
+
+
 def validate_program(
     program: Mapping[str, Any], *, weather_enabled: bool = True
 ) -> Mapping[str, Any]:
@@ -112,7 +201,7 @@ def validate_program(
 
     allowed_fields = set(condition_fields(weather_enabled=weather_enabled))
     rules = program.get("rules")
-    if not isinstance(rules, list) or len(rules) > 8:
+    if not isinstance(rules, list) or len(rules) > MAX_PROGRAM_RULES:
         raise ProgramError("rules must be a list with at most eight entries", code="rules_invalid")
     seen_ids: set[str] = set()
     seen_shapes: set[tuple[tuple[str, str, str], ...]] = set()
@@ -164,7 +253,7 @@ def validate_program(
             raise ProgramError("rule action requires a value", code="rule_invalid")
         else:
             value = _resolved_value(program, action["value"])
-            if not -5.0 <= value <= 5.0:
+            if not RESIDUAL_BOUNDS_C[0] <= value <= RESIDUAL_BOUNDS_C[1]:
                 raise ProgramError("rule action is outside residual bounds", code="out_of_box")
     return program
 
@@ -315,7 +404,7 @@ def _matches(
 
 def run_program(program: Mapping[str, Any], observation: Mapping[str, Any]) -> dict[str, Any]:
     state = _state(program, observation)
-    base = 25.0 if state["occupied_now"] else 30.0
+    base = regime_base_setpoint(state["occupied_now"])
     residual = 0.0
     matched_rule: str | None = None
     for rule in program["rules"]:
@@ -334,8 +423,8 @@ def run_program(program: Mapping[str, Any], observation: Mapping[str, Any]) -> d
             residual = float(observation["last_setpoint"]) - base
         matched_rule = str(rule["id"])
         break
-    residual = max(-5.0, min(5.0, residual))
-    setpoint = max(20.0, min(30.0, base + residual))
+    residual = max(RESIDUAL_BOUNDS_C[0], min(RESIDUAL_BOUNDS_C[1], residual))
+    setpoint = max(ACTUATOR_BOUNDS_C[0], min(ACTUATOR_BOUNDS_C[1], base + residual))
     rate_base = (
         float(observation["last_setpoint"])
         if state["occupied_now"] and state["occupied_last"]

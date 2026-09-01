@@ -200,6 +200,44 @@ def test_executor_receives_current_program_but_not_internal_ledger(
     assert oracle_fixture_absent(user)
 
 
+def test_executor_sees_exact_interpreter_semantics_effect_facts_and_rule_capacity(
+    canonical_program: dict[str, Any],
+) -> None:
+    user = Executor.build_user(
+        hour=4,
+        zone="zone1",
+        observation={
+            "zone_temperature_c": 24.0,
+            "last_pmv": 0.1,
+            "current_occupancy": 0.0,
+            "last_occupancy": 0.0,
+            "last_setpoint": 26.85,
+            "occ_ahead": [0.0, 0.0, 0.0, 0.0],
+        },
+        current_executable_program=ProgramLedger(canonical_program).prompt_view(),
+        causal_edges=None,
+        allowance=None,
+        working_memory=None,
+    )
+    for expected in (
+        "top_to_bottom_first_matching_rule_only",
+        "candidate_setpoint_c = regime_base_setpoint_c + value",
+        "candidate_setpoint_c = last_physical_setpoint_c",
+        "regime_base_setpoint_c: 30.0",
+        "setpoint_offset_from_regime_base_c: -3.15",
+        "cooling_effect_relative_to_regime_base: more_cooling_than_regime_base",
+        'rule_capacity: {"used":6,"maximum":8,"remaining_add_slots":2}',
+        "current_interpreter_derivation:",
+        '"first_matching_rule_id":"unoccupied_hold"',
+        '"first_matching_action":{"op":"set_residual","resolved_value_c":0.0}',
+        '"interpreter_setpoint_before_assurance_c":30.0',
+        '"cooling_effect_relative_to_last_physical_setpoint":'
+        '"less_cooling_than_last_physical_setpoint"',
+    ):
+        assert expected in user
+    assert '"max_rules":8' not in user
+
+
 def oracle_fixture_absent(user: str) -> bool:
     forbidden = ("accepted_updates", "program_hash_before", "version_before")
     return all(token not in user for token in forbidden)
