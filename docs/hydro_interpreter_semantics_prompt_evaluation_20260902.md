@@ -165,6 +165,24 @@ P0, graph, causal, Budget, assurance, Safety, reward or profile file changed.
 Current Prompt bundle:
 `sha256:823dcf9e0f0992237cd1adbac480cc2a8b3c1d13e5c67fcc5930d451ff1fabe9`.
 
+## Second frozen input set
+
+The same six preregistered source cases were rebuilt after the projection fields and
+Prompt wording were frozen. The probe preparation gate now requires all three action
+tables, the rule-order field, the visible current last physical setpoint and the
+explicit pre-assurance interpreter result. This step made no Provider or BOPTEST call.
+
+| Hour | Zone | System SHA-256 | User SHA-256 |
+|---:|---|---|---|
+| 55 | NZ | `fda91578b9df54eae157757718707f6d574acdaaa8fd22c279f7fdbb76293875` | `98a715f3abcdc0887079a00bb3827a53b4c63dcbdbb0f7fd18fdddf3a148ef01` |
+| 41 | SZ | `fda91578b9df54eae157757718707f6d574acdaaa8fd22c279f7fdbb76293875` | `4c19e892dc633c44febbdef6f977e845bfeeb3032f7ab94960ab0193b4ef87b3` |
+| 55 | NZ | `fda91578b9df54eae157757718707f6d574acdaaa8fd22c279f7fdbb76293875` | `9757e282c64b86b823185f0deafea0c3c4382a13d6daf35452fff4edb401c435` |
+| 57 | SZ | `fda91578b9df54eae157757718707f6d574acdaaa8fd22c279f7fdbb76293875` | `cea549e3fafe6c17ee16efc31d621645a4812e078db0b69b097299ebbe6396ee` |
+| 67 | SZ | `fda91578b9df54eae157757718707f6d574acdaaa8fd22c279f7fdbb76293875` | `36cbb8e50b625c3584925901a62df22cfc626fcb5983b08a347539f82c1fdb56` |
+| 92 | SZ | `fda91578b9df54eae157757718707f6d574acdaaa8fd22c279f7fdbb76293875` | `776a220455b48112b5d0fbc56ec7b0e630afcecdf14237bf3e4b5e1e27d5d1d9` |
+
+Ignored frozen evidence is under
+`outputs/diagnostics/hydro-rule-effect-projection-probe-inputs-20260902-2bac002-v2/`.
 No second Provider batch or BOPTEST run has been executed. The first authorization
 was exhausted by exactly six requests, so external semantic revalidation requires a
 new explicit authorization.

@@ -224,6 +224,12 @@ def _build_input(
         "setpoint_offset_from_regime_base_c",
         "cooling_effect_relative_to_regime_base",
         "rule_capacity",
+        "RULE EFFECTS IF MATCHED — set_residual",
+        "RULE EFFECTS IF MATCHED — step_setpoint",
+        "RULE EFFECTS IF MATCHED — hold_setpoint",
+        "rule_order_index",
+        "visible_current_last_physical_setpoint_c",
+        "interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance",
     )
     if any(fragment not in user for fragment in required_fragments):
         raise ValueError("production render lacks preregistered interpreter-semantics facts")
