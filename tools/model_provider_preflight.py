@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from h3c.agents.contracts import orchestrator_response_schema
 from h3c.agents.prompts import system_prompt
 from h3c.agents.roles import (
     ModelCallContext,
@@ -23,7 +24,7 @@ from h3c.agents.roles import (
 from h3c.causal.graph import load_graph
 from h3c.experiments.profiles import repository_root
 from h3c.experiments.settings import load_model_provider_contract, load_runtime_contract
-from h3c.runtime.clients import OpenAICompatibleModelClient
+from h3c.runtime.clients import OpenAICompatibleModelClient, model_request_contract
 
 
 def _write_jsonl(path: Path, row: dict[str, Any]) -> None:
@@ -83,7 +84,6 @@ def _frozen_orchestrator_input() -> tuple[str, str, list[str], set[str], set[str
 
 
 async def _run(provider: str, output: Path) -> dict[str, Any]:
-    runtime = load_runtime_contract()
     contract = load_model_provider_contract(provider)
     endpoint_environment = contract["endpoint_environment_variable"]
     endpoint = (
@@ -121,6 +121,7 @@ async def _run(provider: str, output: Path) -> dict[str, Any]:
         provider_id=provider,
         extra_headers=extra_headers,
         retryable_status_codes=tuple(contract["retryable_status_codes"]),
+        response_format=str(contract["response_format"]),
     )
     started_at = datetime.now(UTC).isoformat()
     output_text = await client.complete(
@@ -129,6 +130,7 @@ async def _run(provider: str, output: Path) -> dict[str, Any]:
         system=system,
         user=user,
         thinking_mode="low",
+        response_schema=orchestrator_response_schema(zones=tuple(zones), causal_enabled=True),
     )
     contract_error: str | None = None
     try:
@@ -155,18 +157,25 @@ async def _run(provider: str, output: Path) -> dict[str, Any]:
     raw = rows.get("raw_model_io.jsonl", [])
     request_parameters = raw[0].get("request_parameters", {}) if len(raw) == 1 else {}
     usage = calls[0].get("usage", {}) if len(calls) == 1 else {}
+    expected_contract = model_request_contract(
+        model=str(contract["model"]),
+        system=system,
+        user=user,
+        thinking_mode="low",
+        response_format=str(contract["response_format"]),
+        response_schema=(
+            orchestrator_response_schema(zones=tuple(zones), causal_enabled=True)
+            if contract["response_format"] == "json_schema"
+            else None
+        ),
+    )
     checks = {
         "one_call": len(calls) == len(raw) == 1,
         "provider_identity": len(calls) == 1 and calls[0].get("model_provider") == provider,
         "response_model_identity": len(calls) == 1
         and calls[0].get("response_model") == contract["model"],
         "request_contract": request_parameters
-        == {
-            "model": contract["model"],
-            "response_format": {"type": runtime["model"]["response_format"]},
-            "thinking": {"type": "enabled"},
-            "reasoning_effort": runtime["model"]["thinking_reasoning_effort"],
-        },
+        == {key: value for key, value in expected_contract.items() if key != "messages"},
         "json_object_response": root_is_object,
         "orchestrator_schema": schema_valid,
         "usage_available": isinstance(usage, dict) and usage.get("available") is True,
