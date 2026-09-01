@@ -99,10 +99,12 @@ h3c-baseline report outputs/baselines/runs/formal
 Add `--execute` only after reviewing the resolved plan.
 
 Online H3C uses the previous completed hour's per-zone Context–Action–Outcome–Lesson record as
-its sole Agent-visible `k=1` working memory. `--long-term-memory` enables a separate experimental
-module with one zone-specific experience slot for each of `unoccupied`, `occupancy_transition`,
-and `steady_state_occupancy`. Without that flag, no long-term-memory, CRUD, revision, or reference
-field is rendered or accepted. Complete bilingual one-hour contracts are in
+its sole Agent-visible `k=1` working memory. This is the production default. The retained
+`--long-term-memory` interface enables a separate, non-default reproducibility ablation with one
+zone-specific experience slot for each of `unoccupied`, `occupancy_transition`, and
+`steady_state_occupancy`; it is not used by the current experiment programme. Without that flag,
+no long-term-memory, CRUD, revision, or reference field is rendered or accepted. Complete
+bilingual one-hour contracts are in
 [English](docs/h3c_complete_hour_io_en.md) and [Chinese](docs/h3c_complete_hour_io_zh.md).
 
 Offline onboarding has explicit human review pauses and checkpointed recovery:
