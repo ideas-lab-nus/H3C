@@ -133,8 +133,9 @@ def build_hourly_cao(
         max(0.0, abs(pmv) - 0.5) * 0.25 if occupancy > 0 else 0.0
         for pmv, occupancy in zip(pmv_values, occupancies, strict=True)
     )
+    setpoint_path = [float(rows[0]["observation"]["last_setpoint"]), *setpoints]
     total_variation = sum(
-        abs(right - left) for left, right in zip(setpoints, setpoints[1:], strict=False)
+        abs(right - left) for left, right in zip(setpoint_path, setpoint_path[1:], strict=False)
     )
 
     objective_fields = (
@@ -200,6 +201,18 @@ def build_hourly_cao(
         ):
             observed_context_history[output_name] = [float(value) for value in values]
 
+    deterministic_program_effect: dict[str, Any] | None = None
+    if proposal is not None:
+        expected_effects = proposal.get("expected_effects")
+        proof = proposal.get("consistent_program_direction_proof")
+        if isinstance(expected_effects, list) and isinstance(proof, Mapping):
+            program_direction = proof.get("program_direction")
+            if isinstance(program_direction, str):
+                deterministic_program_effect = {
+                    "program_direction": program_direction,
+                    "expected_effects": copy.deepcopy(expected_effects),
+                }
+
     cao = {
         "hour": hour,
         "zone": zone,
@@ -244,6 +257,11 @@ def build_hourly_cao(
             "actual_setpoints_c": setpoints,
             "matched_rules": [row["interpreter"].get("matched_rule") for row in rows],
             "shield": shield,
+            **(
+                {"deterministic_program_effect": deterministic_program_effect}
+                if deterministic_program_effect is not None
+                else {}
+            ),
         },
         "outcome": {
             "zone_temperatures_c": [float(row["outcome"]["zone_temperature_c"]) for row in rows],
@@ -257,7 +275,7 @@ def build_hourly_cao(
             "discomfort_pmv_hours": pmv_h,
             "occupied_peak_absolute_pmv": max(occupied_absolute_pmv, default=0.0),
             "setpoint_total_variation_c": total_variation,
-            "setpoint_direction_reversals": _direction_reversals(setpoints),
+            "setpoint_direction_reversals": _direction_reversals(setpoint_path),
             **(
                 {"objective_feedback": objective_feedback} if objective_feedback is not None else {}
             ),

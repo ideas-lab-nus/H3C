@@ -460,10 +460,56 @@ def program_delta(
     }
 
 
+def _references_parameter(value: Any, parameter: str) -> bool:
+    if isinstance(value, Mapping):
+        if value.get("param") == parameter or value.get("neg_param") == parameter:
+            return True
+        return any(_references_parameter(item, parameter) for item in value.values())
+    if isinstance(value, list):
+        return any(_references_parameter(item, parameter) for item in value)
+    return False
+
+
+def _rules_affected_by_patch(
+    patch: Mapping[str, Any], program: Mapping[str, Any]
+) -> Iterable[Mapping[str, Any]]:
+    """Return only rules whose behaviour or priority can change under one patch."""
+    rules = list(program["rules"])
+    operation = patch.get("op")
+    if operation == "add_rule":
+        rule = patch.get("rule")
+        return [rule] if isinstance(rule, Mapping) else []
+    if operation == "replace_rule":
+        rule = patch.get("rule")
+        if not isinstance(rule, Mapping):
+            return []
+        original = next((item for item in rules if item.get("id") == rule.get("id")), None)
+        return [item for item in (original, rule) if item is not None]
+    if operation == "remove_rule":
+        return [item for item in rules if item.get("id") == patch.get("id")]
+    if operation == "move_rule":
+        identifiers = [item.get("id") for item in rules]
+        rule_id = patch.get("id")
+        destination = patch.get("to_index")
+        if (
+            rule_id not in identifiers
+            or not isinstance(destination, int)
+            or isinstance(destination, bool)
+        ):
+            return []
+        source = identifiers.index(rule_id)
+        lower, upper = sorted((source, destination))
+        return rules[lower : upper + 1]
+    if operation == "set_param":
+        parameter = patch.get("param")
+        if not isinstance(parameter, str):
+            return []
+        return [rule for rule in rules if _references_parameter(rule, parameter)]
+    return []
+
+
 def cited_weather_drivers(patch: Mapping[str, Any], program: Mapping[str, Any]) -> set[str]:
-    rules: Iterable[Mapping[str, Any]] = program["rules"]
-    if patch.get("op") in ("add_rule", "replace_rule") and isinstance(patch.get("rule"), Mapping):
-        rules = [*rules, patch["rule"]]
+    rules = _rules_affected_by_patch(patch, program)
     return {
         WEATHER_DRIVER_NODES[condition["field"]]
         for rule in rules

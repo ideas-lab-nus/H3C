@@ -101,7 +101,7 @@ def test_semantic_clock_character_counts_and_prompt_bundle_identity(
         observed_lengths.append(
             len(marker + user.split(marker, 1)[1].split("\ncontrol_action_history:", 1)[0])
         )
-    assert totals == (6469, 7922, 8153)
+    assert totals == (6469, 8012, 8406)
     assert tuple(observed_lengths) == (986, 434, 982)
 
     # Exact totals, rather than a cosmetic upper bound, protect the registered

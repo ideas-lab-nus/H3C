@@ -112,9 +112,9 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "decision",
             "DECISION",
-            "From current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.",
+            "From current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5. Before a parameter edit, trace its comparator, rule-match frequency and action direction.",
             "决策",
-            "根据当前状态、舒适余量、因果证据、额度与 WORKING MEMORY，选择一个原子规格操作，权衡能耗与 |PMV| ≤ 0.5。",
+            "根据当前状态、舒适余量、因果证据、额度与 WORKING MEMORY，选择一个原子规格操作，权衡能耗与 |PMV| ≤ 0.5。修改参数前，先追踪其比较条件、规则匹配频率与动作方向。",
         ),
         _unit(
             "hard_boundaries",
@@ -143,9 +143,9 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "evidence",
             "EVIDENCE",
-            "For each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome.",
+            "For each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome. Ground it in the observed reward components: site energy is shared, while comfort and smoothness contributions are zone-specific.",
             "证据",
-            "从每区已完成的 Context、Action 与 Outcome 中提炼一条有用的已观察关系或权衡。",
+            "从每区已完成的 Context、Action 与 Outcome 中提炼一条有用的已观察关系或权衡，并以已观测的 reward 分量为依据：站点能耗是共享量，舒适与平滑贡献属于各区域。",
             "information",
         ),
         _unit(

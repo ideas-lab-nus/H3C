@@ -4,7 +4,7 @@
 
 The production context compiler now renders model inputs from one typed canonical object using clock time, semantic field owners and compact scalar properties/tables. This report's compilation and character-accounting stage made no DeepSeek or BOPTEST call. A later, separately preregistered Baseten wire-contract regression is reported in `executor_output_envelope_recovery_result_20260901.md`. Character counts below are exact `system + user` lengths from the frozen MZ Air documentation fixture; they are not token, latency or behavior claims.
 
-Prompt-bundle identity: `sha256:f4de978a7f9f3d22a06f97f154365bd2d94ad1df75f039187250d0e2202c91d2`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
+Prompt-bundle identity: `sha256:d496d0ca7f2cb809626a4f8413391dabbff8bfc0f1a1735856cf2c72b08b9305`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
 
 ## Final evidence-closed view
 

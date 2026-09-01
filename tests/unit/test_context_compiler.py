@@ -34,7 +34,15 @@ def _completed_record(zone: str, temperature: float = 24.0) -> dict[str, Any]:
             },
         },
         "action": {
-            "proposal": {"op": "no_change", "rationale": "温度 | 稳定"},
+            "proposal": {
+                "op": "no_change",
+                "rationale": "温度 | 稳定",
+                "causal_edge_ids": ["ce_audit_only"],
+            },
+            "deterministic_program_effect": {
+                "program_direction": "up",
+                "expected_effects": [{"node": "zone_temp", "direction": "up"}],
+            },
             "admission": {"status": "accepted", "completed_validation_stages": []},
             "program_version_before": 0,
             "program_version_after": 0,
@@ -151,6 +159,9 @@ def test_working_memory_has_explicit_time_state_action_and_derived_layers() -> N
     )
     assert "[25.0,25.0" not in rendered
     assert '"[{\\"' not in rendered
+    assert "deterministic_program_effect" in rendered
+    assert "program_direction" in rendered
+    assert "ce_audit_only" not in rendered
 
 
 def test_objective_feedback_is_lossless_clocked_and_role_scoped() -> None:

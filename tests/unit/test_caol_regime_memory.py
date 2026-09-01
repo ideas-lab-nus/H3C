@@ -120,10 +120,46 @@ def test_cao_is_deterministic_and_lesson_is_a_separate_attachment() -> None:
     }
     assert cao["outcome"]["site_energy_kwh"] == 1.0
     assert cao["outcome"]["discomfort_zone_hours"] == 0.25
-    assert cao["outcome"]["setpoint_direction_reversals"] == 1
+    assert cao["outcome"]["setpoint_total_variation_c"] == 2.5
+    assert cao["outcome"]["setpoint_direction_reversals"] == 2
     attached = attach_hourly_lessons([cao], {"EAS": "The zone retained heat after cooling."})
     assert attached[0]["lesson"] == "The zone retained heat after cooling."
     assert "lesson" not in cao
+
+
+def test_cao_preserves_compact_deterministic_program_effect() -> None:
+    decision = {
+        "status": "accepted",
+        "patch": {
+            "op": "set_param",
+            "param": "pmv_band_lo",
+            "to": -0.5,
+            "rationale": "change the lower comparator",
+            "causal_edge_ids": ["ce_private"],
+            "expected_effects": [{"node": "zone_temp", "direction": "down"}],
+            "consistent_program_direction_proof": {
+                "mode": "full_program",
+                "program_direction": "down",
+                "expected_effects": [{"node": "zone_temp", "direction": "down"}],
+                "witness_count": 12,
+                "cited_edge_ids": ["ce_private"],
+            },
+        },
+        "completed_validation_stages": ["program_check", "causal_admissibility"],
+        "program_version_before": 2,
+        "current_program_version": 3,
+        "rejection": None,
+    }
+    cao = build_hourly_cao(
+        hour=0,
+        zone="EAS",
+        step_rows=_hour_rows(),
+        program_decision=decision,
+    )
+    assert cao["action"]["deterministic_program_effect"] == {
+        "program_direction": "down",
+        "expected_effects": [{"node": "zone_temp", "direction": "down"}],
+    }
 
 
 def test_cao_aggregates_only_completed_step_objective_feedback() -> None:

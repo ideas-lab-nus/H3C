@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from h3c.control.program import (
     ProgramError,
     apply_patch,
+    cited_weather_drivers,
     program_hash,
     run_program,
 )
@@ -86,6 +88,79 @@ def test_weather_rule_requires_explicit_weather_input(canonical_program: dict[st
     }
     with pytest.raises(ProgramError, match="weather condition input is missing"):
         run_program(candidate, observation)
+
+
+def test_weather_citation_scope_is_limited_to_rules_affected_by_patch(
+    canonical_program: dict[str, Any],
+) -> None:
+    program = apply_patch(
+        canonical_program,
+        {
+            "op": "add_rule",
+            "rule": {
+                "id": "solar_rule",
+                "when": [{"field": "solar_irr_max_next_1h_w_m2", "op": ">=", "value": 400.0}],
+                "then": {"op": "step_setpoint", "value": 0.3},
+            },
+            "index": 0,
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "add a weather-conditioned rule",
+        },
+    )
+    unrelated = {
+        "op": "replace_rule",
+        "rule": {
+            "id": "occupied_hold",
+            "when": [{"field": "occupied_now", "op": "==", "value": 1}],
+            "then": {"op": "set_residual", "value": 1.5},
+        },
+        "causal_edge_ids": ["ce_00000000"],
+        "rationale": "change only the non-weather occupied rule",
+    }
+    assert cited_weather_drivers(unrelated, program) == set()
+
+    affected = copy.deepcopy(unrelated)
+    affected["rule"] = copy.deepcopy(program["rules"][0])
+    affected["rule"]["then"]["value"] = 0.2
+    assert cited_weather_drivers(affected, program) == {"solar_irr"}
+
+
+def test_parameter_weather_citation_scope_follows_actual_references(
+    canonical_program: dict[str, Any],
+) -> None:
+    assert (
+        cited_weather_drivers(
+            {
+                "op": "set_param",
+                "param": "pmv_band_lo",
+                "to": -0.5,
+                "causal_edge_ids": ["ce_00000000"],
+                "rationale": "change the PMV comparator",
+            },
+            canonical_program,
+        )
+        == set()
+    )
+
+    program = copy.deepcopy(canonical_program)
+    program["rules"].insert(
+        0,
+        {
+            "id": "solar_param_rule",
+            "when": [{"field": "solar_irr_max_next_1h_w_m2", "op": ">=", "value": 400.0}],
+            "then": {"op": "step_setpoint", "value": {"param": "pmv_step_c"}},
+        },
+    )
+    assert cited_weather_drivers(
+        {
+            "op": "set_param",
+            "param": "pmv_step_c",
+            "to": 0.2,
+            "causal_edge_ids": ["ce_00000000"],
+            "rationale": "change a parameter used by a weather rule",
+        },
+        program,
+    ) == {"solar_irr"}
 
 
 def test_exact_direction_proof_fails_before_combinatorial_witness_expansion(
