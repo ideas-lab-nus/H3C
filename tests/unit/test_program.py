@@ -13,6 +13,7 @@ from h3c.control.program import (
     current_interpreter_derivation,
     interpreter_semantics,
     program_hash,
+    rule_effects_if_matched,
     run_program,
     setpoint_effect_facts,
 )
@@ -93,6 +94,15 @@ def test_three_rule_actions_follow_the_published_interpreter_semantics(
         }
     ]
     assert run_program(program, observation)["setpoint"] == pytest.approx(expected)
+    projected = next(
+        row
+        for row in rule_effects_if_matched(program, observation)[action["op"]]
+        if row["matching_current_occupancy"] == int(bool(observation["current_occupancy"]))
+        and row["matching_previous_occupancy"] == int(bool(observation["last_occupancy"]))
+    )
+    assert projected[
+        "interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance"
+    ] == pytest.approx(expected)
 
 
 def test_ordered_program_executes_only_the_first_matching_rule(
@@ -167,6 +177,83 @@ def test_current_interpreter_derivation_is_the_executable_result(
         ),
         "interpreter_branch": result["branch"],
     }
+
+
+def test_rule_effect_projection_closes_occupancy_onset_anchor_semantics(
+    canonical_program: dict[str, Any],
+) -> None:
+    projection = rule_effects_if_matched(
+        canonical_program,
+        _observation(current=0, previous=0, last_setpoint=30.0),
+    )
+    anchor = next(item for item in projection["set_residual"] if item["rule_id"] == "anchor")
+    assert anchor == {
+        "rule_id": "anchor",
+        "rule_order_index": 3,
+        "matching_current_occupancy": 1,
+        "matching_previous_occupancy": 0,
+        "resolved_value_c": 0.0,
+        "regime_base_setpoint_c": 25.0,
+        "formula": "regime_base_setpoint_c + resolved_value_c",
+        "last_setpoint_basis": "independent_of_visible_current_last_physical_setpoint",
+        "visible_current_last_physical_setpoint_c": 30.0,
+        "candidate_setpoint_c": 25.0,
+        "interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance": 25.0,
+        "offset_from_regime_base_c": 0.0,
+        "cooling_effect_relative_to_regime_base": "at_regime_base",
+    }
+
+
+def test_rule_effect_projection_closes_unoccupied_hold_semantics(
+    canonical_program: dict[str, Any],
+) -> None:
+    # This is the actual pre-edit information available to the Executor: the target
+    # rule's matching-state base/result plus the generic proposed-action formula.
+    assert (
+        interpreter_semantics()["action_formulas"]["hold_setpoint"]
+        == "candidate_setpoint_c = last_physical_setpoint_c"
+    )
+    projection = rule_effects_if_matched(
+        canonical_program,
+        _observation(current=0, previous=0, last_setpoint=26.85),
+    )
+    unoccupied = [
+        item for item in projection["set_residual"] if item["rule_id"] == "unoccupied_hold"
+    ]
+    assert [item["matching_previous_occupancy"] for item in unoccupied] == [0, 1]
+    assert all(item["resolved_value_c"] == 0.0 for item in unoccupied)
+    assert all(item["regime_base_setpoint_c"] == 30.0 for item in unoccupied)
+    assert all(
+        item["last_setpoint_basis"] == "independent_of_visible_current_last_physical_setpoint"
+        for item in unoccupied
+    )
+    assert all(item["visible_current_last_physical_setpoint_c"] == 26.85 for item in unoccupied)
+    assert all(
+        item["interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance"] == 30.0
+        for item in unoccupied
+    )
+    assert all(
+        item["cooling_effect_relative_to_regime_base"] == "at_regime_base" for item in unoccupied
+    )
+
+    edited = copy.deepcopy(canonical_program)
+    next(item for item in edited["rules"] if item["id"] == "unoccupied_hold")["then"] = {
+        "op": "hold_setpoint"
+    }
+    held = next(
+        item
+        for item in rule_effects_if_matched(
+            edited,
+            _observation(current=0, previous=0, last_setpoint=26.85),
+        )["hold_setpoint"]
+        if item["rule_id"] == "unoccupied_hold"
+    )
+    assert held[
+        "interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance"
+    ] == pytest.approx(26.85)
+    assert held["last_setpoint_basis"] == "uses_visible_current_last_physical_setpoint"
+    assert held["visible_current_last_physical_setpoint_c"] == pytest.approx(26.85)
+    assert held["cooling_effect_relative_to_regime_base"] == "more_cooling_than_regime_base"
 
 
 def test_patch_and_full_ledger_replay_are_identical(canonical_program: dict[str, Any]) -> None:

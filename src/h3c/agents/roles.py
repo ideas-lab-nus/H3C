@@ -29,8 +29,10 @@ from h3c.agents.time_context import decision_window
 from h3c.control.budget import validate_allocation
 from h3c.control.program import (
     PARAMETER_BOUNDS,
+    RULE_ACTIONS,
     current_interpreter_derivation,
     interpreter_semantics,
+    rule_effects_if_matched,
     setpoint_effect_facts,
     validate_patch_shape,
 )
@@ -408,6 +410,15 @@ def _control_specification(
         },
         "interpreter_semantics": interpreter_semantics(),
         **({"current_interpreter_derivation": derivation} if derivation is not None else {}),
+        **(
+            {
+                "rule_effects_if_matched": rule_effects_if_matched(
+                    program, cast(Mapping[str, Any], observation)
+                )
+            }
+            if derivation is not None
+            else {}
+        ),
         "rule_and_weather_limits": remaining_limits,
         "control_domain": copy.deepcopy(COOLING_CONTROL_DOMAIN),
         **specification,
@@ -755,16 +766,26 @@ class Executor:
                 cast(Sequence[Mapping[str, Any]], display(forecast_rows)),
                 identity_fields=("forecast_outcome_time",),
             )
-        builder.add_control_specification(
-            "CONTROL SPECIFICATION",
-            display(
-                _control_specification(
-                    cast(Mapping[str, Any], program_view),
-                    limits,
-                    observation=observation,
-                )
-            ),
+        control_specification = _control_specification(
+            cast(Mapping[str, Any], program_view),
+            limits,
+            observation=observation,
         )
+        effect_rows = control_specification.pop("rule_effects_if_matched", None)
+        builder.add_control_specification("CONTROL SPECIFICATION", display(control_specification))
+        if isinstance(effect_rows, Mapping):
+            for action in RULE_ACTIONS:
+                rows = effect_rows.get(action)
+                if isinstance(rows, list) and rows:
+                    builder.add_common_rows(
+                        f"RULE EFFECTS IF MATCHED — {action}",
+                        cast(Sequence[Mapping[str, Any]], display(rows)),
+                        identity_fields=(
+                            "rule_id",
+                            "matching_current_occupancy",
+                            "matching_previous_occupancy",
+                        ),
+                    )
         if edges is not None:
             builder.add_common_rows(
                 "CAUSAL EVIDENCE",

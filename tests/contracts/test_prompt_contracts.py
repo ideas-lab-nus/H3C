@@ -233,6 +233,17 @@ def test_executor_sees_exact_interpreter_semantics_effect_facts_and_rule_capacit
         '"interpreter_setpoint_before_assurance_c":30.0',
         '"cooling_effect_relative_to_last_physical_setpoint":'
         '"less_cooling_than_last_physical_setpoint"',
+        "RULE EFFECTS IF MATCHED — set_residual",
+        "RULE EFFECTS IF MATCHED — step_setpoint",
+        "RULE EFFECTS IF MATCHED — hold_setpoint",
+        "anchor",
+        "unoccupied_hold",
+        "regime_base_setpoint_c",
+        "last_setpoint_basis",
+        "uses_visible_current_last_physical_setpoint",
+        "visible_current_last_physical_setpoint_c",
+        "rule_order_index",
+        "interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance",
     ):
         assert expected in user
     assert '"max_rules":8' not in user

@@ -112,9 +112,9 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
         _unit(
             "decision",
             "DECISION",
-            "From current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5. Before any edit, use the supplied first-match semantics and current derivation to trace the selected rule, regime base, action formula and setpoint direction.",
+            "From current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5. Before an edit, take the target rule's matching-state base from its effect projection and apply both the current and proposed action formulas. If a formula uses the last setpoint, use the explicitly shown current last physical setpoint.",
             "决策",
-            "根据当前状态、舒适余量、因果证据、额度与 WORKING MEMORY，选择一个原子规格操作，权衡能耗与 |PMV| ≤ 0.5。任何修改前，使用给定的首条匹配语义与当前推导，追踪命中规则、状态基准、动作公式和设定点方向。",
+            "根据当前状态、舒适余量、因果证据、额度与 WORKING MEMORY，选择一个原子规格操作，权衡能耗与 |PMV| ≤ 0.5。修改前，从目标规则的命中状态作用投影取得状态基准，并分别套用当前与拟议动作公式；公式使用上一设定点时，采用明确显示的当前上一物理设定点。",
         ),
         _unit(
             "hard_boundaries",

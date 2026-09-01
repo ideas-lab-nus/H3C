@@ -142,6 +142,156 @@ def interpreter_semantics() -> dict[str, Any]:
     }
 
 
+def _execute_rule_action(
+    program: Mapping[str, Any],
+    action: Mapping[str, Any],
+    *,
+    current_occupancy: float,
+    previous_occupancy: float,
+    last_physical_setpoint_c: float,
+) -> dict[str, Any]:
+    """Apply one rule action using the same arithmetic as the program interpreter."""
+    base = regime_base_setpoint(current_occupancy)
+    operation = str(action["op"])
+    resolved_value: float | None = None
+    if operation == "set_residual":
+        resolved_value = _resolved_value(program, action["value"])
+        candidate = base + resolved_value
+        residual = resolved_value
+        formula = "regime_base_setpoint_c + resolved_value_c"
+        depends_on_last = False
+    elif operation == "step_setpoint":
+        resolved_value = _resolved_value(program, action["value"])
+        step_base = last_physical_setpoint_c if previous_occupancy > 0 else base
+        candidate = step_base + resolved_value
+        residual = candidate - base
+        formula = (
+            "last_physical_setpoint_c + resolved_value_c"
+            if previous_occupancy > 0
+            else "regime_base_setpoint_c + resolved_value_c"
+        )
+        depends_on_last = previous_occupancy > 0
+    elif operation == "hold_setpoint":
+        candidate = last_physical_setpoint_c
+        residual = candidate - base
+        formula = "last_physical_setpoint_c"
+        depends_on_last = True
+    else:
+        raise ProgramError("rule action is unsupported", code="rule_invalid")
+
+    residual = max(RESIDUAL_BOUNDS_C[0], min(RESIDUAL_BOUNDS_C[1], residual))
+    setpoint = max(ACTUATOR_BOUNDS_C[0], min(ACTUATOR_BOUNDS_C[1], base + residual))
+    return {
+        "operation": operation,
+        **({"resolved_value_c": resolved_value} if resolved_value is not None else {}),
+        "formula": formula,
+        "depends_on_last_physical_setpoint": depends_on_last,
+        "regime_base_setpoint_c": base,
+        "candidate_setpoint_c": candidate,
+        "residual_after_clamp_c": residual,
+        "final_setpoint_after_existing_clips_c": setpoint,
+    }
+
+
+def _binary_condition_matches(
+    program: Mapping[str, Any], condition: Mapping[str, Any], value: float
+) -> bool:
+    right = _resolved_value(program, condition["value"])
+    return {
+        "<": value < right,
+        "<=": value <= right,
+        ">": value > right,
+        ">=": value >= right,
+        "==": abs(value - right) < 1e-9,
+        "!=": abs(value - right) >= 1e-9,
+    }[str(condition["op"])]
+
+
+def rule_effects_if_matched(
+    program: Mapping[str, Any], observation: Mapping[str, Any]
+) -> dict[str, list[dict[str, Any]]]:
+    """Project each rule's effect in the occupancy states where that rule can match.
+
+    These are explanatory facts only. They do not participate in matching, admission,
+    settlement, or physical execution.
+    """
+    last_setpoint = _finite_number(observation["last_setpoint"], "last setpoint")
+
+    def visible_number(value: Any) -> float:
+        number = round(_finite_number(value, "projected interpreter value"), 10)
+        return 0.0 if abs(number) < 1e-9 else number
+
+    rows_by_action: dict[str, list[dict[str, Any]]] = {action: [] for action in RULE_ACTIONS}
+    for rule_order_index, rule in enumerate(program["rules"]):
+        occupancy_conditions = [
+            condition
+            for condition in rule["when"]
+            if condition["field"] in {"occupied_now", "occupied_last"}
+        ]
+        allowed_current = [
+            value
+            for value in (0.0, 1.0)
+            if all(
+                _binary_condition_matches(program, condition, value)
+                for condition in occupancy_conditions
+                if condition["field"] == "occupied_now"
+            )
+        ]
+        allowed_previous = [
+            value
+            for value in (0.0, 1.0)
+            if all(
+                _binary_condition_matches(program, condition, value)
+                for condition in occupancy_conditions
+                if condition["field"] == "occupied_last"
+            )
+        ]
+        for current, previous in itertools.product(allowed_current, allowed_previous):
+            executed = _execute_rule_action(
+                program,
+                rule["then"],
+                current_occupancy=current,
+                previous_occupancy=previous,
+                last_physical_setpoint_c=last_setpoint,
+            )
+            effect = setpoint_effect_facts(
+                current_occupancy=current,
+                applied_setpoint_c=executed["final_setpoint_after_existing_clips_c"],
+            )
+            rows_by_action[str(rule["then"]["op"])].append(
+                {
+                    "rule_id": rule["id"],
+                    "rule_order_index": rule_order_index,
+                    "matching_current_occupancy": int(current),
+                    "matching_previous_occupancy": int(previous),
+                    **(
+                        {"resolved_value_c": visible_number(executed["resolved_value_c"])}
+                        if "resolved_value_c" in executed
+                        else {}
+                    ),
+                    "regime_base_setpoint_c": visible_number(executed["regime_base_setpoint_c"]),
+                    "formula": executed["formula"],
+                    "last_setpoint_basis": (
+                        "uses_visible_current_last_physical_setpoint"
+                        if executed["depends_on_last_physical_setpoint"]
+                        else "independent_of_visible_current_last_physical_setpoint"
+                    ),
+                    "visible_current_last_physical_setpoint_c": visible_number(last_setpoint),
+                    "candidate_setpoint_c": visible_number(executed["candidate_setpoint_c"]),
+                    "interpreter_setpoint_c_after_residual_and_hard_clips_before_assurance": visible_number(
+                        executed["final_setpoint_after_existing_clips_c"]
+                    ),
+                    "offset_from_regime_base_c": visible_number(
+                        effect["setpoint_offset_from_regime_base_c"]
+                    ),
+                    "cooling_effect_relative_to_regime_base": effect[
+                        "cooling_effect_relative_to_regime_base"
+                    ],
+                }
+            )
+    return rows_by_action
+
+
 def current_interpreter_derivation(
     program: Mapping[str, Any], observation: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -410,21 +560,20 @@ def run_program(program: Mapping[str, Any], observation: Mapping[str, Any]) -> d
     for rule in program["rules"]:
         if not _matches(program, rule, state):
             continue
-        action = rule["then"]["op"]
-        value = (
-            0.0 if action == "hold_setpoint" else _resolved_value(program, rule["then"]["value"])
+        executed = _execute_rule_action(
+            program,
+            rule["then"],
+            current_occupancy=state["occupied_now"],
+            previous_occupancy=state["occupied_last"],
+            last_physical_setpoint_c=float(observation["last_setpoint"]),
         )
-        if action == "set_residual":
-            residual = value
-        elif action == "step_setpoint":
-            step_base = float(observation["last_setpoint"]) if state["occupied_last"] else base
-            residual = step_base + value - base
-        else:
-            residual = float(observation["last_setpoint"]) - base
+        residual = float(executed["residual_after_clamp_c"])
+        setpoint = float(executed["final_setpoint_after_existing_clips_c"])
         matched_rule = str(rule["id"])
         break
-    residual = max(RESIDUAL_BOUNDS_C[0], min(RESIDUAL_BOUNDS_C[1], residual))
-    setpoint = max(ACTUATOR_BOUNDS_C[0], min(ACTUATOR_BOUNDS_C[1], base + residual))
+    else:
+        residual = max(RESIDUAL_BOUNDS_C[0], min(RESIDUAL_BOUNDS_C[1], residual))
+        setpoint = max(ACTUATOR_BOUNDS_C[0], min(ACTUATOR_BOUNDS_C[1], base + residual))
     rate_base = (
         float(observation["last_setpoint"])
         if state["occupied_now"] and state["occupied_last"]

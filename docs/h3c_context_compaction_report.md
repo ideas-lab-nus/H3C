@@ -4,7 +4,7 @@
 
 The production context compiler now renders model inputs from one typed canonical object using clock time, semantic field owners and compact scalar properties/tables. This report's compilation and character-accounting stage made no DeepSeek or BOPTEST call. A later, separately preregistered Baseten wire-contract regression is reported in `executor_output_envelope_recovery_result_20260901.md`. Character counts below are exact `system + user` lengths from the frozen MZ Air documentation fixture; they are not token, latency or behavior claims.
 
-Prompt-bundle identity: `sha256:b1a3416c71861a63252723ca0f0c4f9bd7c059a4cbdcbaf801e5bcbc08e0dc3f`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
+Prompt-bundle identity: `sha256:823dcf9e0f0992237cd1adbac480cc2a8b3c1d13e5c67fcc5930d451ff1fabe9`. This is SHA-256 over the sorted canonical map of role/language prompt hashes in `tests/fixtures/prompts/caol_prompt_golden.json`, excluding `schema_version`.
 
 ## Pre-interpreter-closure evidence view
 
@@ -29,6 +29,28 @@ Character count is a regression guard, not an optimization objective. The user e
 | **Three-role total** | **22,887** | **1,958** | **24,845** |
 
 The added characters carry model-relevant facts rather than additional admission constraints: the single-owner first-match interpreter semantics, the current program's deterministic pre-assurance derivation, explicit rule capacity, and four completed action times' regime base, offset and cooling-effect labels. The Executor system prompt itself grows by 69 English characters (19 Chinese characters); the remaining increase is dynamic evidence derived from the existing interpreter and completed physical actions. No action, parameter, P0 rule, validator condition, Safety rule or reward formula changed.
+
+## Per-rule matching-state projection
+
+The first six-call Provider evaluation showed that generic formulas and the current
+state derivation did not reliably transfer to a different target rule's own matching
+state. The final candidate therefore adds three homogeneous tables, one for each
+existing rule-action type. Each row gives its rule-order index, matching
+current/previous occupancy, resolved value, regime base, formula, the current visible
+last physical setpoint and whether the formula uses it, candidate, interpreter result
+after residual/hard clipping but before action assurance, base offset and cooling
+effect. The same arithmetic owner drives runtime execution and these tables. A row
+describes the effect if that rule becomes the first match; the order index does not
+claim that earlier rules are unreachable.
+
+| Representative request | Before projection | Final | Added |
+|---|---:|---:|---:|
+| East Executor, memory on | 9,277 | 12,240 | 2,963 |
+
+The tabular form replaces a 4,718-character nested prototype and retains the complete
+semantic chain without custom abbreviations. Orchestrator and Reflector requests are
+unchanged. It is 1,755 characters shorter than that prototype. Character growth is
+reported, not used as a reason to remove necessary evidence.
 
 ## Working-memory block
 

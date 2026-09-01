@@ -123,3 +123,48 @@ STRUCTURAL-PASS / SEMANTIC-FAIL / HYDRO-NOT-ELIGIBLE
 The next candidate is preregistered in
 `docs/hydro_rule_effect_projection_preregistration_20260902.md`. It adds per-rule
 matching-state projections from the interpreter owner, not a control constraint.
+
+## Per-rule projection offline result
+
+The refinement keeps the three generic formulas and adds three homogeneous tables,
+grouped by the existing rule-action types. Each scalar row is the exact effect of one
+current rule under one occupancy combination allowed by that rule's own conditions.
+The table representation is self-explanatory and has no custom shorthand.
+
+The two failed facts are now direct regression assertions:
+
+- occupancy-onset `anchor`: current occupancy 1, previous occupancy 0, occupied base
+  25 C, `set_residual(0)`, final setpoint 25 C;
+- `unoccupied_hold`: current occupancy 0, unoccupied base 30 C,
+  `set_residual(0)`, final setpoint 30 C; replacing its action with
+  `hold_setpoint` at a visible last setpoint of 26.85 C retains more cooling than
+  the unoccupied base.
+
+The production interpreter and every projected row share the same action arithmetic.
+The five existing action cases, including onset stepping and clipping, assert that the
+projection equals `run_program()`.
+
+Offline gates:
+
+| Gate | Result |
+|---|---:|
+| Direct interpreter/Prompt/document suite | 61 passed |
+| Full pytest | 527 passed |
+| Ruff and format | passed |
+| Strict mypy | 81 source files passed |
+| Generated document freshness | passed |
+
+The representative Executor request is 12,240 characters, 2,963 above the first
+candidate and 1,755 below the rejected nested projection prototype. The final field
+names distinguish rule order from first-match reachability and distinguish the
+interpreter's clipped result from the later action-assurance result. Each row also
+shows the current visible last physical setpoint and whether its formula actually
+uses that conditional value. Orchestrator and Reflector requests are unchanged. No
+P0, graph, causal, Budget, assurance, Safety, reward or profile file changed.
+
+Current Prompt bundle:
+`sha256:823dcf9e0f0992237cd1adbac480cc2a8b3c1d13e5c67fcc5930d451ff1fabe9`.
+
+No second Provider batch or BOPTEST run has been executed. The first authorization
+was exhausted by exactly six requests, so external semantic revalidation requires a
+new explicit authorization.
