@@ -66,6 +66,22 @@ def _completed_record(zone: str, temperature: float = 24.0) -> dict[str, Any]:
     }
 
 
+def _add_objective_feedback(record: dict[str, Any], *, local_scale: float = 1.0) -> None:
+    record["outcome"]["objective_feedback"] = {
+        "interval_reward": -10.0,
+        "site_step_reward": [-1.0, -2.0, -3.0, -4.0],
+        "site_energy_penalty": [0.8, 1.8, 2.8, 3.8],
+        "site_comfort_penalty": [0.1, 0.1, 0.1, 0.1],
+        "site_smoothness_penalty": [0.1, 0.1, 0.1, 0.1],
+        "zone_comfort_penalty_contribution": [
+            local_scale * value for value in (0.01, 0.02, 0.03, 0.04)
+        ],
+        "zone_smoothness_penalty_contribution": [
+            local_scale * value for value in (0.04, 0.03, 0.02, 0.01)
+        ],
+    }
+
+
 def test_common_rows_preserves_scalars_empty_lists_unicode_and_delimiters() -> None:
     records = [
         {
@@ -135,6 +151,45 @@ def test_working_memory_has_explicit_time_state_action_and_derived_layers() -> N
     )
     assert "[25.0,25.0" not in rendered
     assert '"[{\\"' not in rendered
+
+
+def test_objective_feedback_is_lossless_clocked_and_role_scoped() -> None:
+    east = _completed_record("EAS")
+    west = _completed_record("WES", 24.5)
+    _add_objective_feedback(east)
+    _add_objective_feedback(west, local_scale=2.0)
+    records = [east, west]
+
+    view = compile_working_memory(records)
+    assert decode_working_memory(view) == records
+    feedback = view["hours"][0]["objective_feedback"]
+    assert feedback["interval_reward"] == -10.0
+
+    orchestrator_builder = ContextBuilder()
+    orchestrator_builder.add_working_memory("WORKING MEMORY", records)
+    orchestrator_text = orchestrator_builder.build().agent_view
+    assert orchestrator_text.count("site_reward_history") == 1
+    assert "zone_penalty_contributions" not in orchestrator_text
+    for action, outcome in zip(
+        ("10:00", "10:15", "10:30", "10:45"),
+        ("10:15", "10:30", "10:45", "11:00"),
+        strict=True,
+    ):
+        assert action in orchestrator_text and outcome in orchestrator_text
+
+    executor_builder = ContextBuilder()
+    executor_builder.add_working_memory("WORKING MEMORY", [east])
+    assert "zone_penalty_contributions" in executor_builder.build().agent_view
+
+    reflector_builder = ContextBuilder()
+    reflector_builder.add_working_memory(
+        "COMPLETED CONTROL INTERVAL",
+        records,
+        presentation="completed_interval",
+    )
+    reflector_text = reflector_builder.build().agent_view
+    assert "zone_penalty_contributions" in reflector_text
+    assert "EAS" in reflector_text and "WES" in reflector_text
 
 
 def test_clock_context_marks_midnight_without_a_date_or_year() -> None:

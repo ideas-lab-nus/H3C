@@ -253,6 +253,14 @@ def build_parser() -> argparse.ArgumentParser:
     verify = commands.add_parser("verify", help="verify one completed run")
     verify.add_argument("run_dir", type=Path)
 
+    recertify = commands.add_parser(
+        "recertify",
+        help="append a zero-call re-verification to one immutable historical run",
+    )
+    recertify.add_argument("run_dir", type=Path)
+    recertify.add_argument("--output", type=Path, required=True)
+    recertify.add_argument("--recertifier-source-commit", required=True)
+
     report = commands.add_parser("report", help="build a report for one run or suite directory")
     report.add_argument("target", type=Path)
     report.add_argument("--reports-root", type=Path)
@@ -328,6 +336,16 @@ def main(argv: list[str] | None = None) -> None:
         _print(result)
         if not result["passed"]:
             raise SystemExit(1)
+    elif args.command == "recertify":
+        from h3c.outputs.verification import recertify_run
+
+        _print(
+            recertify_run(
+                args.run_dir,
+                output_path=args.output,
+                recertifier_source_commit=args.recertifier_source_commit,
+            )
+        )
     elif args.command == "report":
         from h3c.outputs.reporting import generate_report
 

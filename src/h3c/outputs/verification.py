@@ -7,10 +7,12 @@ import hashlib
 import json
 import math
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from h3c.agents.contracts import (
+    DEFAULT_PER_ZONE_RESERVED_CAP_C,
     executor_response_schema,
     orchestrator_response_schema,
     rationale_length_telemetry,
@@ -25,6 +27,7 @@ from h3c.agents.roles import (
 from h3c.assurance.action import ACTION_ASSURANCE_ORDER, action_assurance
 from h3c.causal.graph import ConfirmedGraph, derive_variant, load_graph, validate_graph
 from h3c.control.budget import (
+    BUDGET_ABS_TOLERANCE,
     BudgetLedger,
     allocation_fallback_audit,
     site_cap_max,
@@ -55,7 +58,7 @@ from h3c.runtime.clients import (
     normalized_usage,
     provider_neutral_request_identity,
 )
-from h3c.runtime.comfort import step_reward
+from h3c.runtime.comfort import step_reward, step_reward_breakdown
 from h3c.runtime.occupancy import (
     hourly_route,
     verify_missing_occupancy_resolution_evidence,
@@ -98,6 +101,19 @@ def _same_number(left: Any, right: Any) -> bool:
         _finite_number(left)
         and _finite_number(right)
         and math.isclose(float(left), float(right), rel_tol=1e-12, abs_tol=1e-12)
+    )
+
+
+def _same_budget_number(left: Any, right: Any) -> bool:
+    return (
+        _finite_number(left)
+        and _finite_number(right)
+        and math.isclose(
+            float(left),
+            float(right),
+            rel_tol=0.0,
+            abs_tol=BUDGET_ABS_TOLERANCE,
+        )
     )
 
 
@@ -157,6 +173,14 @@ def _identity(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
+def _file_identity(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _performance_rows(path: Path) -> tuple[list[dict[str, str]], bool]:
     with path.open(encoding="utf-8", newline="") as file:
         reader = csv.DictReader(file)
@@ -178,6 +202,8 @@ def _raw_contract(
     allowed_edge_ids: set[str] | None,
     shared_power_edge_ids: set[str] | None,
     long_term_memory: bool,
+    expected_site_cap_c: float,
+    expected_per_zone_reserved_cap_c: float,
 ) -> bool:
     try:
         value = json.loads(row["output"])
@@ -191,6 +217,8 @@ def _raw_contract(
                 causal_enabled=causal_enabled,
                 allowed_causal_edge_ids=allowed_edge_ids,
                 site_causal_edge_ids=shared_power_edge_ids,
+                expected_site_cap_c=expected_site_cap_c,
+                expected_per_zone_reserved_cap_c=expected_per_zone_reserved_cap_c,
             )
             return True
         if role == "executor":
@@ -373,6 +401,8 @@ def _rationale_persistence(
     zones: list[str],
     allowed_edge_ids: set[str] | None,
     shared_power_edge_ids: set[str] | None,
+    expected_site_cap_c: float,
+    expected_per_zone_reserved_cap_c: float,
 ) -> bool:
     """Tie every raw Orchestrator/Executor rationale to its parsed artifact."""
     if method["controller"] == "deterministic_baseline":
@@ -412,12 +442,38 @@ def _rationale_persistence(
                     return False
             else:
                 stored_patch = parsed.get("patch")
-                public_patch_matches = (
-                    isinstance(stored_patch, dict)
-                    and all(stored_patch.get(field) == value for field, value in patch.items())
-                    and set(stored_patch) - set(patch)
-                    <= {"expected_effects", "consistent_program_direction_proof"}
-                )
+                public_patch_matches = False
+                if isinstance(stored_patch, dict):
+                    derived_fields = {
+                        "expected_effects",
+                        "consistent_program_direction_proof",
+                    }
+                    raw_public = {
+                        key: value
+                        for key, value in patch.items()
+                        if key not in {"causal_edge_ids", *derived_fields}
+                    }
+                    stored_public = {
+                        key: value
+                        for key, value in stored_patch.items()
+                        if key not in {"causal_edge_ids", *derived_fields}
+                    }
+                    raw_ids = patch.get("causal_edge_ids", [])
+                    stored_ids = stored_patch.get("causal_edge_ids", [])
+                    causal_completion_ok = raw_ids == stored_ids
+                    if causal_enabled and patch.get("op") != "no_change":
+                        causal_completion_ok = (
+                            isinstance(raw_ids, list)
+                            and isinstance(stored_ids, list)
+                            and stored_ids[: len(raw_ids)] == raw_ids
+                            and len(stored_ids) - len(raw_ids) in {0, 1}
+                            and set(stored_ids[len(raw_ids) :]) <= set(shared_power_edge_ids or ())
+                        )
+                    public_patch_matches = (
+                        raw_public == stored_public
+                        and causal_completion_ok
+                        and set(stored_patch) - set(patch) <= derived_fields
+                    )
                 if not (
                     parsed.get("status") != "model_output_rejected"
                     and public_patch_matches
@@ -441,6 +497,8 @@ def _rationale_persistence(
                     causal_enabled=causal_enabled,
                     allowed_causal_edge_ids=allowed_edge_ids,
                     site_causal_edge_ids=shared_power_edge_ids,
+                    expected_site_cap_c=expected_site_cap_c,
+                    expected_per_zone_reserved_cap_c=expected_per_zone_reserved_cap_c,
                 )
             except (KeyError, ModelContractError):
                 rejection = audit.get("raw_contract", {}).get("rejection")
@@ -571,7 +629,7 @@ def _decision_clock_surface_is_valid(text: str, *, expect_working_memory: bool) 
         completed_start, completed_end = map(_clock_minute, completed_interval)
         rendered_state_times = [_clock_minute(value) for value in state_times]
         return (
-            completed_end == _clock_minute(current_time)
+            completed_end % 1440 == _clock_minute(current_time) % 1440
             and completed_end - completed_start == 60
             and rendered_state_times == [completed_start + offset for offset in (0, 15, 30, 45)]
             and "control_action_history:" in text
@@ -804,15 +862,18 @@ EXECUTION_CHECKS = {
     "agent_call_counts",
     "agent_call_alignment",
     "model_identity",
+    "model_request_identity",
     "manifest_identity",
     "conditioning_prefix_identity",
     "evaluation_boundary_identity",
     "metrics_recomputed",
+    "objective_feedback_replayed",
     "model_transport_retry_accounting",
-    "transport_error_count_zero",
     "secret_exposure_count_zero",
     "orchestration_resolution_recomputed",
-    "rationale_persistence",
+    "deterministic_settlement",
+    "thinking_route",
+    "causal_surface",
     "caol_replayed",
     "caol_working_memory_surface",
     "memory_off_isolation",
@@ -821,21 +882,20 @@ EXECUTION_CHECKS = {
 }
 
 MODEL_CHECKS = {
-    "deterministic_settlement",
     "json_schema",
     "usage_contract",
-    "thinking_route",
-    "causal_surface",
+    "transport_error_count_zero",
     "coordination_surface",
     "fallback_count_zero",
     "role_contract_audit",
     "model_finish_clean",
+    "rationale_persistence",
     "memory_refs_valid",
     "memory_crud_clean",
 }
 
 
-def _classified(checks: dict[str, bool]) -> dict[str, Any]:
+def _classified(checks: dict[str, bool], *, performance_pass: bool = False) -> dict[str, Any]:
     execution_integrity = all(checks.get(name, False) for name in EXECUTION_CHECKS)
     model_contract_clean = all(checks.get(name, False) for name in MODEL_CHECKS)
     if not execution_integrity:
@@ -856,13 +916,71 @@ def _classified(checks: dict[str, bool]) -> dict[str, Any]:
         "completion_eligible": classification != "RUN-INVALID",
         "execution_integrity": execution_integrity,
         "model_contract_clean": model_contract_clean,
+        "trajectory_status": ("EXECUTION-HEALTHY" if execution_integrity else "EXECUTION-INVALID"),
+        "model_contract_status": "CLEAN" if model_contract_clean else "DEGRADED",
+        "performance_status": "REWARD-PMV-PASS" if performance_pass else "METHOD-DEGRADED",
         "classification": classification,
         "checks": checks,
         "errors": errors,
     }
 
 
-def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, Any]:
+def _performance_evaluation(
+    profile: dict[str, Any], method: dict[str, Any], metrics: dict[str, Any]
+) -> tuple[bool, dict[str, Any]]:
+    criteria_document = _object(
+        repository_root() / "configs" / "evaluation" / "reward_pmv_release_criteria.json"
+    )
+    if set(criteria_document) != {"criteria_schema", "schema_version", "application", "cases"}:
+        raise ValueError("reward/PMV release criteria have an invalid root contract")
+    if (
+        criteria_document["criteria_schema"] != "h3c_reward_pmv_release_criteria"
+        or criteria_document["schema_version"] != 1
+        or criteria_document["application"] != "terminal_evaluation_only_never_runtime_admission"
+    ):
+        raise ValueError("reward/PMV release criteria identity is invalid")
+    profile_name = str(profile["profile"])
+    criteria = criteria_document["cases"].get(profile_name)
+    if not isinstance(criteria, dict) or set(criteria) != {
+        "formal_evaluation_hours",
+        "reward_strictly_greater_than",
+        "occupied_peak_absolute_pmv_at_most",
+    }:
+        raise ValueError("case reward/PMV release criteria are missing or malformed")
+    physical = metrics["physical"]
+    reward = float(physical["reward"])
+    peak = float(physical["occupied_peak_absolute_pmv"])
+    formal_hours = int(criteria["formal_evaluation_hours"])
+    is_formal_window = int(method["evaluation_hours"]) == formal_hours
+    reward_pass = reward > float(criteria["reward_strictly_greater_than"])
+    peak_pass = peak <= float(criteria["occupied_peak_absolute_pmv_at_most"])
+    passed = is_formal_window and reward_pass and peak_pass
+    return passed, {
+        "criteria_identity": _identity(criteria_document),
+        "application": criteria_document["application"],
+        "profile": profile_name,
+        "formal_window": is_formal_window,
+        "observed": {
+            "evaluation_hours": int(method["evaluation_hours"]),
+            "reward": reward,
+            "occupied_peak_absolute_pmv": peak,
+        },
+        "criteria": criteria,
+        "checks": {
+            "formal_evaluation_hours": is_formal_window,
+            "reward_strictly_greater_than": reward_pass,
+            "occupied_peak_absolute_pmv_at_most": peak_pass,
+        },
+        "passed": passed,
+    }
+
+
+def verify_run(
+    run_dir: Path,
+    *,
+    require_completion: bool = True,
+    historical_runtime_contract: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     directory = run_dir.resolve()
     checks: dict[str, bool] = {}
     required = {
@@ -889,6 +1007,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         method = resolved["method"]
         zones = list(profile["zones"])
         zone_set = set(zones)
+        resolved_site_cap = site_cap_max(zones)
+        resolved_per_zone_reserved_cap = DEFAULT_PER_ZONE_RESERVED_CAP_C
         hours = int(method["evaluation_hours"])
         expected_steps = hours * 4
         streams = {name: _rows(directory / name) for name in STREAM_FILES}
@@ -997,6 +1117,16 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             "power_w",
             "cost",
         }
+        reward_feedback_expected = (
+            method["controller"] == "h3c_agent"
+            and manifest.get("schema_version") == 5
+            and manifest.get("objective_feedback_contract")
+            == "completed_interval_reward_breakdown_v1"
+        )
+        expected_outcome_fields = set(outcome_fields)
+        if reward_feedback_expected:
+            expected_outcome_fields.add("objective_feedback")
+        objective_feedback_ok = True
         for step in range(expected_steps):
             rows = step_groups.get(step, [])
             if {row.get("zone") for row in rows} != zone_set or len(rows) != len(zones):
@@ -1025,6 +1155,53 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     ],
                     objective=profile["objective"],
                 )
+                expected_breakdown = step_reward_breakdown(
+                    cost=step_cost,
+                    pmv=[float(value) for value in pmv_values],
+                    occupancy=[float(value) for value in occupancy_values],
+                    setpoints_c=[float(value) for value in setpoints],
+                    previous_setpoints_c=[
+                        float(by_zone[zone]["observation"]["last_setpoint"]) for zone in zones
+                    ],
+                    objective=profile["objective"],
+                    zone_names=zones,
+                )
+                if reward_feedback_expected:
+                    expected_feedback_fields = {
+                        "site_step_reward",
+                        "site_energy_penalty",
+                        "site_comfort_penalty",
+                        "site_smoothness_penalty",
+                        "zone_comfort_penalty_contribution",
+                        "zone_smoothness_penalty_contribution",
+                    }
+                    for zone in zones:
+                        feedback = by_zone[zone]["outcome"].get("objective_feedback")
+                        objective_feedback_ok = objective_feedback_ok and (
+                            isinstance(feedback, dict)
+                            and set(feedback) == expected_feedback_fields
+                            and _same_number(feedback["site_step_reward"], expected_reward)
+                            and _same_number(
+                                feedback["site_energy_penalty"],
+                                expected_breakdown["site_energy_penalty"],
+                            )
+                            and _same_number(
+                                feedback["site_comfort_penalty"],
+                                expected_breakdown["site_comfort_penalty"],
+                            )
+                            and _same_number(
+                                feedback["site_smoothness_penalty"],
+                                expected_breakdown["site_smoothness_penalty"],
+                            )
+                            and _same_number(
+                                feedback["zone_comfort_penalty_contribution"],
+                                expected_breakdown["zone_comfort_penalty_contributions"][zone],
+                            )
+                            and _same_number(
+                                feedback["zone_smoothness_penalty_contribution"],
+                                expected_breakdown["zone_smoothness_penalty_contributions"][zone],
+                            )
+                        )
                 timeline_ok = timeline_ok and (
                     performance_row["time_seconds"] == str(evaluation_start + step * 900)
                     and int(performance_row["step"]) == step
@@ -1035,8 +1212,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                         and isinstance(row["interpreter"], dict)
                         and isinstance(row["action_assurance"], dict)
                         and isinstance(row["outcome"], dict)
-                        and set(row["outcome"]) == outcome_fields
-                        and all(_finite_number(value) for value in row["outcome"].values())
+                        and set(row["outcome"]) == expected_outcome_fields
+                        and all(_finite_number(row["outcome"][field]) for field in outcome_fields)
                         and _finite_number(row["final_setpoint_c"])
                         for row in rows
                     )
@@ -1070,6 +1247,7 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         checks["timeline_and_stream_alignment"] = (
             conditioning_timeline and conditioning_contract and timeline_ok
         )
+        checks["objective_feedback_replayed"] = objective_feedback_ok
         checks["occupancy_forecast_missing_value_resolution"] = _occupancy_resolution_evidence(
             profile, method, manifest, streams, forecast_evidence
         )
@@ -1244,7 +1422,11 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         checks["agent_call_alignment"] = (
             call_alignment and observed_surface == expected_call_surface
         )
-        runtime = load_runtime_contract()
+        runtime = (
+            historical_runtime_contract
+            if historical_runtime_contract is not None
+            else load_runtime_contract()
+        )
         selected_provider = resolved.get("model_provider")
         provider_contract = (
             runtime["model"]["providers"].get(selected_provider)
@@ -1311,6 +1493,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 expected_execution_fields.update(
                     {"model_provider", "model_name", "model_endpoint_identity"}
                 )
+                if manifest.get("schema_version") == 5:
+                    expected_execution_fields.add("objective_feedback_contract")
             if resume_lineage is not None:
                 expected_execution_fields.add("resume_replay_identity")
             expected_resolved_fields = {
@@ -1346,6 +1530,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 "evaluation_boundary_identity",
                 "lifecycle",
             }
+            if manifest.get("schema_version") == 5:
+                expected_manifest_fields.add("objective_feedback_contract")
             source_commit = execution_identity["source_commit"]
             endpoint_fields = {"physical_endpoint_identity"}
             if plan.controller == "h3c_agent":
@@ -1456,7 +1642,22 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 )
                 and set(manifest) == expected_manifest_fields
                 and manifest["manifest_schema"] == "h3c_run_manifest"
-                and manifest["schema_version"] == 4
+                and manifest["schema_version"] in {4, 5}
+                and (
+                    manifest["schema_version"] == 4
+                    or manifest["objective_feedback_contract"]
+                    == (
+                        "completed_interval_reward_breakdown_v1"
+                        if plan.controller == "h3c_agent"
+                        else "not_applicable"
+                    )
+                )
+                and (
+                    plan.controller != "h3c_agent"
+                    or manifest["schema_version"] == 4
+                    or execution_identity["objective_feedback_contract"]
+                    == "completed_interval_reward_breakdown_v1"
+                )
                 and manifest["source_commit"] == source_commit
                 and manifest["run_identity"] == _identity(execution_identity)
                 and manifest["controller"] == plan.controller
@@ -1885,6 +2086,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             zones=zones,
             allowed_edge_ids=allowed_edge_ids,
             shared_power_edge_ids=shared_power_edge_ids,
+            expected_site_cap_c=resolved_site_cap,
+            expected_per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
         )
 
         raw_schema = all(
@@ -1895,6 +2098,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 allowed_edge_ids=allowed_edge_ids,
                 shared_power_edge_ids=shared_power_edge_ids,
                 long_term_memory=bool(method.get("long_term_memory")),
+                expected_site_cap_c=resolved_site_cap,
+                expected_per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
             )
             for row in raw_calls
         )
@@ -1966,6 +2171,9 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 )
             except (KeyError, TypeError):
                 request_contract_ok = False
+        checks["model_request_identity"] = (
+            request_contract_ok if calls else method["controller"] == "deterministic_baseline"
+        )
         checks["usage_contract"] = (
             all(
                 isinstance(row.get("usage"), dict)
@@ -1985,7 +2193,6 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                 and normalized_usage(row.get("provider_usage")) == row["usage"]
                 for row in calls
             )
-            and request_contract_ok
             if calls
             else method["controller"] == "deterministic_baseline"
         )
@@ -2041,6 +2248,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                         causal_enabled=causal_enabled,
                         allowed_causal_edge_ids=allowed_edge_ids,
                         site_causal_edge_ids=shared_power_edge_ids,
+                        expected_site_cap_c=resolved_site_cap,
+                        expected_per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
                     )
                     budget = decision["energy_budget"]
                     granted = sum(float(value) for value in allocation["zone_budgets_c"].values())
@@ -2062,6 +2271,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                             causal_enabled=causal_enabled,
                             allowed_causal_edge_ids=allowed_edge_ids,
                             site_causal_edge_ids=shared_power_edge_ids,
+                            expected_site_cap_c=resolved_site_cap,
+                            expected_per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
                         )
                     except ModelContractError as error:
                         expected_rejection = {
@@ -2072,11 +2283,12 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                         expected_allocation, expected_source = validated_fallback_allocation(
                             zones,
                             previous_expected_allocation,
-                            site_cap_c=site_cap_max(zones),
+                            site_cap_c=resolved_site_cap,
                             causal_enabled=causal_enabled,
                             causal_edge_ids=fallback_causal_edge_ids,
                             allowed_causal_edge_ids=allowed_edge_ids,
                             site_causal_edge_ids=shared_power_edge_ids,
+                            per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
                         )
                         expected_status = "fallback"
                         expected_telemetry = None
@@ -2106,10 +2318,10 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
                     previous_expected_allocation = expected_allocation
                     coordination_ok = coordination_ok and (
                         audit["settlement_order"] == allocation["priority"]
-                        and float(budget["site_cap_c"]) == float(allocation["site_cap_c"])
-                        and float(budget["granted_c"]) == granted
-                        and float(budget["residual_initial_c"]) == initial
-                        and float(budget["used_c"]) <= granted + initial + 1e-9
+                        and _same_budget_number(budget["site_cap_c"], allocation["site_cap_c"])
+                        and _same_budget_number(budget["granted_c"], granted)
+                        and _same_budget_number(budget["residual_initial_c"], initial)
+                        and float(budget["used_c"]) <= granted + initial + BUDGET_ABS_TOLERANCE
                         and audit["raw_contract"]["status"]
                         == ("rejected" if audit["fallback"]["used"] else "accepted")
                     )
@@ -2149,7 +2361,15 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         result["errors"] = [str(error), *result["errors"]]
         return result
 
-    base_result = _classified(checks)
+    try:
+        performance_pass, performance_evaluation = _performance_evaluation(
+            profile, method, recorded_metrics
+        )
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as error:
+        performance_pass = False
+        performance_evaluation = {"passed": False, "error": str(error)}
+    base_result = _classified(checks, performance_pass=performance_pass)
+    base_result["performance_evaluation"] = performance_evaluation
     if not require_completion:
         return base_result
 
@@ -2172,12 +2392,16 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
     except (OSError, ValueError, json.JSONDecodeError):
         completion_checks["recorded_verification"] = False
         completion_checks["completion"] = False
-    final = _classified(completion_checks)
+    final = _classified(completion_checks, performance_pass=performance_pass)
+    final["performance_evaluation"] = performance_evaluation
     if not completion_checks.get("recorded_verification") or not completion_checks.get(
         "completion"
     ):
         final["execution_integrity"] = False
         final["model_contract_clean"] = base_result["model_contract_clean"]
+        final["trajectory_status"] = "EXECUTION-INVALID"
+        final["model_contract_status"] = base_result["model_contract_status"]
+        final["performance_status"] = base_result["performance_status"]
         final["classification"] = "RUN-INVALID"
         final["passed"] = False
         final["completion_eligible"] = False
@@ -2186,3 +2410,55 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             *base_result["errors"],
         ]
     return final
+
+
+def recertify_run(
+    run_dir: Path,
+    *,
+    output_path: Path,
+    recertifier_source_commit: str,
+) -> dict[str, Any]:
+    """Append a zero-call re-verification without changing historical evidence."""
+    directory = run_dir.resolve()
+    destination = output_path.resolve()
+    if destination.parent != directory:
+        raise ValueError("recertification artifact must be created inside the source run")
+    if not re.fullmatch(r"[0-9a-f]{40}", recertifier_source_commit):
+        raise ValueError("recertifier source commit must be a lowercase 40-character git hash")
+    resolved = _object(directory / "resolved_config.yaml")
+    runtime_contract = resolved.get("runtime_contract")
+    if not isinstance(runtime_contract, dict):
+        raise ValueError("historical run does not embed its runtime contract")
+    manifest = _object(directory / "manifest.json")
+    terminal_artifacts = {
+        name: _file_identity(directory / name)
+        for name in ("completion.json", "failure.json", "verification.json")
+        if (directory / name).is_file()
+    }
+    result = verify_run(
+        directory,
+        require_completion=False,
+        historical_runtime_contract=runtime_contract,
+    )
+    artifact = {
+        "recertification_schema": "h3c_zero_call_run_recertification",
+        "schema_version": 1,
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        "source_run": {
+            "directory": str(directory),
+            "run_identity": manifest.get("run_identity"),
+            "source_commit": manifest.get("source_commit"),
+            "original_terminal_artifacts_sha256": terminal_artifacts,
+        },
+        "recertifier": {
+            "source_commit": recertifier_source_commit,
+            "external_calls": 0,
+            "historical_runtime_contract_identity": _identity(runtime_contract),
+        },
+        "result": result,
+    }
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("x", encoding="utf-8", newline="\n") as file:
+        file.write(json.dumps(artifact, ensure_ascii=False, sort_keys=True, indent=2))
+        file.write("\n")
+    return artifact

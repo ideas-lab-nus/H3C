@@ -1647,7 +1647,7 @@ def test_verifier_recomputes_single_field_tampering(tmp_path: Path, monkeypatch:
         ("program-hash", program_hash_identity, "program_replay_recomputed"),
         ("graph-edge", resolved_graph_edge, "causal_surface"),
         ("raw-role", raw_call_role, "agent_call_alignment"),
-        ("request-contract", request_contract, "usage_contract"),
+        ("request-contract", request_contract, "model_request_identity"),
         ("usage-accounting", usage_accounting, "usage_contract"),
         ("expected-calls", expected_call_count, "agent_call_counts"),
         ("prefix-identity", prefix_identity, "conditioning_prefix_identity"),

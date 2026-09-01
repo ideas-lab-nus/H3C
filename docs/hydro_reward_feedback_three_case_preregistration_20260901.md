@@ -47,7 +47,8 @@ No future, counterfactual, eRBC, or target-threshold reward is exposed.
 
 The reward formula, weights, scales, P0, `pmv_step_c=0.3`, interpreter, action
 mapping, case profiles, C0 Prompt structure, `occupancy_routed` low thinking,
-ProgramCheck, CausalProof, Budget, and `S3 -> S2 -> S1` remain unchanged.
+ProgramCheck, CausalProof, Budget, and the frozen ordered action-assurance chain
+remain unchanged.
 
 ## Runtime constraint boundary
 
@@ -55,13 +56,16 @@ The runtime control surface remains limited to:
 
 1. the existing wire/output and executable-DSL format;
 2. ProgramCheck (historical C0/C6);
-3. CausalProof C1, C2, and C8;
+3. the existing confirmed-edge, direction-compatibility and whole-program
+   direction CausalProof checks;
 4. the existing shared Budget settlement;
-5. the existing `S3 -> S2 -> S1` action-assurance chain;
+5. the existing comfort-recovery, setpoint-rate and actuator-bound
+   action-assurance chain in its frozen order;
 6. the unchanged P0 program, interpreter, and action mapping.
 
-C3/C4 remain offline graph-compilation concerns; C5 and C7 remain retired; G0
-remains off. The implementation must not add reward thresholds, reward vetoes,
+Graph discovery/confirmation remains an offline concern; the previously retired
+checks remain retired and the optional extra guard remains off. The implementation
+must not add reward thresholds, reward vetoes,
 cooldowns, minimum holds, reversal bans, delayed-edge control laws, a new PMV
 recovery rule, case-specific Prompt/code/config branches, or verifier-to-runtime
 feedback. The constraint inventory is an offline audit artifact only.

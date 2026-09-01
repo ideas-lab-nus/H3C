@@ -137,6 +137,37 @@ def build_hourly_cao(
         abs(right - left) for left, right in zip(setpoints, setpoints[1:], strict=False)
     )
 
+    objective_fields = (
+        "site_step_reward",
+        "site_energy_penalty",
+        "site_comfort_penalty",
+        "site_smoothness_penalty",
+        "zone_comfort_penalty_contribution",
+        "zone_smoothness_penalty_contribution",
+    )
+    raw_objective_feedback = [row["outcome"].get("objective_feedback") for row in rows]
+    objective_feedback: dict[str, Any] | None = None
+    if any(feedback is not None for feedback in raw_objective_feedback):
+        if any(feedback is None for feedback in raw_objective_feedback):
+            raise ValueError("objective feedback cannot cover only part of a completed hour")
+        objective_history: dict[str, list[float]] = {field: [] for field in objective_fields}
+        for feedback in raw_objective_feedback:
+            if not isinstance(feedback, Mapping) or set(feedback) != set(objective_fields):
+                raise ValueError("completed step lacks the exact objective-feedback contract")
+            for field in objective_fields:
+                value = feedback[field]
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(float(value))
+                ):
+                    raise ValueError("objective-feedback values must be finite numbers")
+                objective_history[field].append(agent_visible_number(float(value)))
+        objective_feedback = {
+            "interval_reward": agent_visible_number(sum(objective_history["site_step_reward"])),
+            **objective_history,
+        }
+
     observed_context_history: dict[str, list[float]] = {}
     scalar_observation_fields = {
         "outdoor_temperature_c": "outdoor_temp_c",
@@ -227,6 +258,9 @@ def build_hourly_cao(
             "occupied_peak_absolute_pmv": max(occupied_absolute_pmv, default=0.0),
             "setpoint_total_variation_c": total_variation,
             "setpoint_direction_reversals": _direction_reversals(setpoints),
+            **(
+                {"objective_feedback": objective_feedback} if objective_feedback is not None else {}
+            ),
         },
     }
     return cast(dict[str, Any], _rounded(cao))

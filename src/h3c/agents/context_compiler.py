@@ -37,6 +37,16 @@ _OBSERVED_CONTEXT_FIELDS = (
     "temp_rise_to_warm_pmv_edge_c",
     "temp_drop_to_cool_pmv_edge_c",
 )
+_SITE_OBJECTIVE_HISTORY_FIELDS = (
+    "site_step_reward",
+    "site_energy_penalty",
+    "site_comfort_penalty",
+    "site_smoothness_penalty",
+)
+_ZONE_OBJECTIVE_HISTORY_FIELDS = (
+    "zone_comfort_penalty_contribution",
+    "zone_smoothness_penalty_contribution",
+)
 
 
 def _normalize(value: Any) -> JsonValue:
@@ -123,6 +133,12 @@ def _nested(leaves: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
 
 def _is_scalar(value: JsonValue) -> bool:
     return not isinstance(value, (dict, list))
+
+
+def _strict_integer(value: JsonValue, *, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{field} must be an integer")
+    return value
 
 
 def factor_common_rows(
@@ -299,6 +315,10 @@ def compile_working_memory(
         derived_feature_rows: list[dict[str, JsonValue]] = []
         forecast_rows: list[JsonValue] = []
         site_result: dict[str, JsonValue] | None = None
+        site_objective_feedback: dict[str, JsonValue] | None = None
+        site_objective_rows: list[dict[str, JsonValue]] = []
+        zone_objective_rows: list[dict[str, JsonValue]] = []
+        objective_feedback_present: bool | None = None
         for record in hour_records:
             zone = cast(str, record["zone"])
             base = copy.deepcopy(record)
@@ -385,6 +405,56 @@ def compile_working_memory(
             elif site_result != current_site:
                 raise ValueError("repeated site-result owners disagree across zones")
 
+            objective_raw = _pop_path(base, "/outcome/objective_feedback")
+            current_objective_present = objective_raw is not None
+            if objective_feedback_present is None:
+                objective_feedback_present = current_objective_present
+            elif objective_feedback_present != current_objective_present:
+                raise ValueError("objective feedback must cover every zone in a completed hour")
+            if objective_raw is not None:
+                if not isinstance(objective_raw, dict):
+                    raise ValueError("objective feedback must be an object")
+                expected_objective_fields = {
+                    "interval_reward",
+                    *_SITE_OBJECTIVE_HISTORY_FIELDS,
+                    *_ZONE_OBJECTIVE_HISTORY_FIELDS,
+                }
+                if set(objective_raw) != expected_objective_fields:
+                    raise ValueError("objective feedback does not match its exact field contract")
+                interval_reward = objective_raw["interval_reward"]
+                if not _is_scalar(interval_reward):
+                    raise ValueError("interval reward must be scalar")
+                site_arrays: dict[str, list[JsonValue]] = {}
+                zone_arrays: dict[str, list[JsonValue]] = {}
+                for field in _SITE_OBJECTIVE_HISTORY_FIELDS:
+                    values = objective_raw[field]
+                    if not isinstance(values, list) or len(values) != 4:
+                        raise ValueError(
+                            f"objective feedback field {field} must contain four steps"
+                        )
+                    if any(not _is_scalar(value) for value in values):
+                        raise ValueError("objective feedback history values must be scalar")
+                    site_arrays[field] = copy.deepcopy(values)
+                for field in _ZONE_OBJECTIVE_HISTORY_FIELDS:
+                    values = objective_raw[field]
+                    if not isinstance(values, list) or len(values) != 4:
+                        raise ValueError(
+                            f"objective feedback field {field} must contain four steps"
+                        )
+                    if any(not _is_scalar(value) for value in values):
+                        raise ValueError("zone objective contributions must be scalar")
+                    zone_arrays[field] = copy.deepcopy(values)
+                current_site_objective = {
+                    "interval_reward": copy.deepcopy(interval_reward),
+                    **copy.deepcopy(site_arrays),
+                }
+                if site_objective_feedback is None:
+                    site_objective_feedback = current_site_objective
+                elif site_objective_feedback != current_site_objective:
+                    raise ValueError(
+                        "repeated site objective-feedback owners disagree across zones"
+                    )
+
             first_step = cast(dict[str, JsonValue], shield_raw[0]).get("step")
             if not isinstance(first_step, int) or isinstance(first_step, bool):
                 raise ValueError("working-memory first physical step is invalid")
@@ -441,6 +511,27 @@ def compile_working_memory(
                     raise ValueError("working-memory history row is incomplete")
                 state_history_rows.append(state_row)
                 action_history_rows.append(action_row)
+                if objective_raw is not None:
+                    if not site_objective_rows or len(site_objective_rows) <= index:
+                        site_objective_rows.append(
+                            {
+                                "physical_step": step,
+                                **{
+                                    field: site_arrays[field][index]
+                                    for field in _SITE_OBJECTIVE_HISTORY_FIELDS
+                                },
+                            }
+                        )
+                    zone_objective_rows.append(
+                        {
+                            "zone": zone,
+                            "physical_step": step,
+                            **{
+                                field: zone_arrays[field][index]
+                                for field in _ZONE_OBJECTIVE_HISTORY_FIELDS
+                            },
+                        }
+                    )
 
             final_state = state_history_rows[-1]
             current_state_rows.append(
@@ -499,6 +590,22 @@ def compile_working_memory(
                     "action_history": "setpoint and assurance applied before each outcome",
                 },
                 "site_result": site_result or {},
+                **(
+                    {
+                        "objective_feedback": {
+                            "interval_reward": site_objective_feedback["interval_reward"],
+                            "site_history": factor_common_rows(
+                                site_objective_rows, identity_fields=("physical_step",)
+                            ),
+                            "zone_contributions": factor_common_rows(
+                                zone_objective_rows,
+                                identity_fields=("zone", "physical_step"),
+                            ),
+                        }
+                    }
+                    if site_objective_feedback is not None
+                    else {}
+                ),
                 "hourly_decision": factor_common_rows(base_records, identity_fields=("zone",)),
                 "current_state": factor_common_rows(current_state_rows, identity_fields=("zone",)),
                 "recent_state_history": factor_common_rows(
@@ -564,6 +671,26 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
             for row in decode_common_rows(cast(Mapping[str, Any], raw_hour["derived_features"]))
         }
         site_result = cast(Mapping[str, JsonValue], raw_hour["site_result"])
+        objective_block = raw_hour.get("objective_feedback")
+        site_objective_rows: list[dict[str, JsonValue]] = []
+        zone_objective_index: dict[str, list[dict[str, JsonValue]]] = {}
+        interval_reward: JsonValue | None = None
+        if objective_block is not None:
+            if not isinstance(objective_block, Mapping):
+                raise ValueError("objective-feedback compact view must be an object")
+            interval_reward = objective_block["interval_reward"]
+            site_objective_rows = sorted(
+                decode_common_rows(cast(Mapping[str, Any], objective_block["site_history"])),
+                key=lambda row: _strict_integer(
+                    row["physical_step"], field="site objective physical_step"
+                ),
+            )
+            if len(site_objective_rows) != 4:
+                raise ValueError("site objective feedback lost a four-step sequence")
+            for row in decode_common_rows(
+                cast(Mapping[str, Any], objective_block["zone_contributions"])
+            ):
+                zone_objective_index.setdefault(str(row["zone"]), []).append(row)
         for record in records:
             zone = str(record["zone"])
             forecast = sorted(forecast_index.pop(zone), key=lambda row: int(row["step_ahead"]))
@@ -671,8 +798,30 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
                 _put(record, f"/outcome/{name}", derived[name])
             _put(record, "/outcome/site_cost", site_result["site_cost"])
             _put(record, "/outcome/site_energy_kwh", site_result["site_energy_kwh"])
+            if objective_block is not None:
+                zone_objective_rows = sorted(
+                    zone_objective_index.pop(zone, []),
+                    key=lambda row: _strict_integer(
+                        row["physical_step"], field="zone objective physical_step"
+                    ),
+                )
+                if len(zone_objective_rows) != 4:
+                    raise ValueError("zone objective feedback lost a four-step sequence")
+                feedback: dict[str, JsonValue] = {"interval_reward": interval_reward}
+                for field in _SITE_OBJECTIVE_HISTORY_FIELDS:
+                    feedback[field] = [row[field] for row in site_objective_rows]
+                for field in _ZONE_OBJECTIVE_HISTORY_FIELDS:
+                    feedback[field] = [row[field] for row in zone_objective_rows]
+                _put(record, "/outcome/objective_feedback", feedback)
             decoded.append(record)
-        if forecast_index or state_index or action_index or observed_index or derived_index:
+        if (
+            forecast_index
+            or state_index
+            or action_index
+            or observed_index
+            or derived_index
+            or zone_objective_index
+        ):
             raise ValueError("working-memory step rows have no matching zone record")
         record_hours = [record["hour"] for record in records]
         if any(
@@ -1029,6 +1178,75 @@ def _render_action_history(
     return "\n".join(parts)
 
 
+def _render_objective_feedback(
+    view: Mapping[str, Any],
+    *,
+    action_times: Sequence[str],
+    outcome_times: Sequence[str],
+    show_zone_contributions: bool,
+) -> str:
+    """Render retrospective reward facts with site quantities owned once per step."""
+    if len(action_times) != 4 or len(outcome_times) != 4:
+        raise ValueError("objective feedback requires four action/outcome clock pairs")
+    site_rows = sorted(
+        decode_common_rows(cast(Mapping[str, Any], view["site_history"])),
+        key=lambda row: _strict_integer(row["physical_step"], field="site objective physical_step"),
+    )
+    if len(site_rows) != 4:
+        raise ValueError("objective feedback requires four site rows")
+    rendered_site: list[dict[str, JsonValue]] = []
+    step_clock: dict[int, tuple[str, str]] = {}
+    for index, source in enumerate(site_rows):
+        step = source["physical_step"]
+        if not isinstance(step, int) or isinstance(step, bool):
+            raise ValueError("objective-feedback physical step must be an integer")
+        step_clock[step] = (action_times[index], outcome_times[index])
+        rendered_site.append(
+            {
+                "action_time": action_times[index],
+                "outcome_time": outcome_times[index],
+                **{field: source[field] for field in _SITE_OBJECTIVE_HISTORY_FIELDS},
+            }
+        )
+    parts = [f"interval_reward: {_cell(cast(JsonValue, view['interval_reward']))}"]
+    parts.append(
+        "site_reward_history:\n"
+        + _table(
+            rendered_site,
+            ("action_time", "outcome_time", *_SITE_OBJECTIVE_HISTORY_FIELDS),
+        )
+    )
+    if show_zone_contributions:
+        contribution_rows = decode_common_rows(cast(Mapping[str, Any], view["zone_contributions"]))
+        rendered_zone: list[dict[str, JsonValue]] = []
+        for source in contribution_rows:
+            step = source["physical_step"]
+            if not isinstance(step, int) or isinstance(step, bool) or step not in step_clock:
+                raise ValueError("zone objective contribution has no site-step owner")
+            action_time, outcome_time = step_clock[step]
+            rendered_zone.append(
+                {
+                    "zone": source["zone"],
+                    "action_time": action_time,
+                    "outcome_time": outcome_time,
+                    **{field: source[field] for field in _ZONE_OBJECTIVE_HISTORY_FIELDS},
+                }
+            )
+        parts.append(
+            "zone_penalty_contributions:\n"
+            + _table(
+                rendered_zone,
+                (
+                    "zone",
+                    "action_time",
+                    "outcome_time",
+                    *_ZONE_OBJECTIVE_HISTORY_FIELDS,
+                ),
+            )
+        )
+    return "\n".join(parts)
+
+
 def _render_occupancy_forecast(view: Mapping[str, Any], *, outcome_times: Sequence[str]) -> str:
     records = decode_common_rows(view)
     grouped: dict[int, list[dict[str, JsonValue]]] = {}
@@ -1185,6 +1403,16 @@ def render_working_memory(view: Mapping[str, Any]) -> str:
             parts.append("control_period: 15 min")
         site = cast(Mapping[str, JsonValue], raw_hour["site_result"])
         parts.append("site_result: " + json.dumps(site, ensure_ascii=False, separators=(",", ":")))
+        if "objective_feedback" in raw_hour:
+            parts.append(
+                "OBJECTIVE FEEDBACK:\n"
+                + _render_objective_feedback(
+                    cast(Mapping[str, Any], raw_hour["objective_feedback"]),
+                    action_times=action_times,
+                    outcome_times=outcome_times,
+                    show_zone_contributions=presentation == "completed_interval" or len(zones) == 1,
+                )
+            )
         parts.append(
             "completed_decision:\n"
             + _render_scoped_common_rows(

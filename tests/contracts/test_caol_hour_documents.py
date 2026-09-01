@@ -101,22 +101,11 @@ def test_semantic_clock_character_counts_and_prompt_bundle_identity(
         observed_lengths.append(
             len(marker + user.split(marker, 1)[1].split("\ncontrol_action_history:", 1)[0])
         )
-    assert totals == (6185, 7638, 6542)
+    assert totals == (6469, 7922, 8153)
     assert tuple(observed_lengths) == (986, 434, 982)
 
-    # The final evidence closure adds a separately measured observed-history block. The user
-    # explicitly accepted the remaining small contract overhead rather than obscuring semantics
-    # to meet a character target. Guard against material re-expansion, not a handful of characters.
-    previous_candidate = (5441, 6942, 5555)
-    without_new_evidence = tuple(
-        total - observed for total, observed in zip(totals, observed_lengths, strict=True)
-    )
-    assert without_new_evidence[0] <= previous_candidate[0]
-    # Allow the small, necessary increase from spelling out the legacy wire
-    # envelope exactly; useful contract text must not be removed for a cosmetic
-    # character target.
-    assert without_new_evidence[1] <= previous_candidate[1] + 320
-    assert without_new_evidence[2] <= previous_candidate[2] + 256
+    # Exact totals, rather than a cosmetic upper bound, protect the registered
+    # completed-reward information channel and its unchanged role contracts.
 
     request_settings = json.loads(blocks[0])
     assert request_settings["thinking"] == {"type": "enabled"}

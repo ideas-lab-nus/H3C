@@ -61,7 +61,7 @@ from h3c.runtime.clients import (
     OpenAICompatibleModelClient,
     TransportError,
 )
-from h3c.runtime.comfort import MetricsAccumulator, comfort_headroom, step_reward
+from h3c.runtime.comfort import MetricsAccumulator, comfort_headroom, step_reward_breakdown
 from h3c.runtime.execution_lock import physical_execution_lock
 from h3c.runtime.occupancy import effective_count, hourly_route
 from h3c.runtime.protocol import (
@@ -1032,14 +1032,16 @@ async def _evaluate(
         power = site_power(profile, next_state)
         price = float(forecast[profile["global_inputs"]["electricity_price"]][step])
         cost = power * step_seconds / 3.6e6 * price
-        reward = step_reward(
+        reward_breakdown = step_reward_breakdown(
             cost=cost,
             pmv=[pmv[zone] for zone in zones],
             occupancy=[current_occ[zone] for zone in zones],
             setpoints_c=[assured[zone] for zone in zones],
             previous_setpoints_c=[last_setpoint[zone] for zone in zones],
             objective=profile["objective"],
+            zone_names=zones,
         )
+        reward = float(reward_breakdown["reward"])
         metrics.add(
             cost=cost,
             power_w=power,
@@ -1065,6 +1067,26 @@ async def _evaluate(
                     "effective_occupancy": current_occ[zone],
                     "power_w": power,
                     "cost": cost,
+                    **(
+                        {
+                            "objective_feedback": {
+                                "site_step_reward": reward,
+                                "site_energy_penalty": reward_breakdown["site_energy_penalty"],
+                                "site_comfort_penalty": reward_breakdown["site_comfort_penalty"],
+                                "site_smoothness_penalty": reward_breakdown[
+                                    "site_smoothness_penalty"
+                                ],
+                                "zone_comfort_penalty_contribution": reward_breakdown[
+                                    "zone_comfort_penalty_contributions"
+                                ][zone],
+                                "zone_smoothness_penalty_contribution": reward_breakdown[
+                                    "zone_smoothness_penalty_contributions"
+                                ][zone],
+                            }
+                        }
+                        if plan.controller == "h3c_agent"
+                        else {}
+                    ),
                 },
             }
             if step < replay_until_step:
@@ -1347,6 +1369,7 @@ async def _execute_one(
             "model_provider": provider_id,
             "model_name": provider_contract["model"],
             "model_endpoint_identity": _endpoint_identity(model_endpoint),
+            "objective_feedback_contract": "completed_interval_reward_breakdown_v1",
         }
     execution_identity = {
         "plan_identity": plan.identity(profile),
@@ -1367,7 +1390,7 @@ async def _execute_one(
     resolved["execution_identity"] = execution_identity
     manifest: dict[str, Any] = {
         "manifest_schema": "h3c_run_manifest",
-        "schema_version": 4,
+        "schema_version": 5,
         "run_identity": run_identity,
         "source_commit": source_commit,
         "controller": plan.controller,
@@ -1377,6 +1400,11 @@ async def _execute_one(
         "transport_error_count": 0,
         "fallback_count": 0,
         "secret_exposure_count": 0,
+        "objective_feedback_contract": (
+            "completed_interval_reward_breakdown_v1"
+            if plan.controller == "h3c_agent"
+            else "not_applicable"
+        ),
         "secret_scan_status": ("pending" if plan.controller == "h3c_agent" else "not_applicable"),
         "occupancy_forecast_missing_value_resolution_count": 0,
         "program_replay_verified": False,

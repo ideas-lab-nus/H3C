@@ -330,4 +330,6 @@ def test_rationale_verifier_compares_public_patch_not_internal_proof_fields() ->
         zones=["zone1"],
         allowed_edge_ids=None,
         shared_power_edge_ids=None,
+        expected_site_cap_c=5.0,
+        expected_per_zone_reserved_cap_c=5.0,
     )

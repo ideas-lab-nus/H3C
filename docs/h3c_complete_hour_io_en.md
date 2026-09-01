@@ -27,7 +27,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nAllocate cross-zone allowance over action_times in control_interval.\n\nDECISION\nBalance comfort and energy cost from the supplied state, forecast, working memory and previous Budget use. Output allocation, priority and per-zone rationales.\n\nHARD BOUNDARIES\nFor accepted program changes, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); not cumulative action, power or pre-cooling offset.\n\nOUTPUT\nBare JSON only. Keys exactly: site_cap_c, zone_budgets_c, priority, rationale_per_zone, causal_edge_ids. site_cap_c=input. zone_budgets_c: keys=zones; each finite in [0,per_zone_reserved_cap_c]; sum≤cap; unused allowed. priority=permutation(zones), highest first. rationale_per_zone: keys=zones; values nonempty. causal_edge_ids: unique, nonempty, visible-ID subset including at least one visible edge with target=power_meters.\n",
+      "content": "ROLE\nAllocate cross-zone allowance over action_times in control_interval.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nBalance comfort and energy cost from the supplied state, forecast, working memory and previous Budget use. Output allocation, priority and per-zone rationales.\n\nHARD BOUNDARIES\nFor accepted program changes, charge_c = max over proof states of max(0, setpoint_before_c - setpoint_after_c); not cumulative action, power or pre-cooling offset.\n\nOUTPUT\nBare JSON only. Keys exactly: site_cap_c, zone_budgets_c, priority, rationale_per_zone, causal_edge_ids. site_cap_c=input. zone_budgets_c: keys=zones; each finite in [0,per_zone_reserved_cap_c]; sum≤cap; unused allowed. priority=permutation(zones), highest first. rationale_per_zone: keys=zones; values nonempty. causal_edge_ids: unique, nonempty, visible-ID subset including at least one visible edge with target=power_meters.\n",
       "role": "system"
     },
     {
@@ -99,7 +99,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
@@ -152,7 +152,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
@@ -225,7 +225,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
@@ -272,7 +272,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
@@ -325,7 +325,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
@@ -699,6 +699,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7639,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.83144454516,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.83376613716,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.34,
           "power_w": 21480.0,
           "zone_temperature_c": 24.3
@@ -798,6 +806,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7639,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.83144454516,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.83376613716,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0023215920000000056
+          },
           "pmv": 0.36,
           "power_w": 21480.0,
           "zone_temperature_c": 24.4
@@ -897,6 +913,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7639,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.83144454516,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.83376613716,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.31,
           "power_w": 21480.0,
           "zone_temperature_c": 24.23
@@ -996,6 +1020,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7639,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.83144454516,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.83376613716,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.39,
           "power_w": 21480.0,
           "zone_temperature_c": 24.47
@@ -1095,6 +1127,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7639,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.83144454516,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.83376613716,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.36,
           "power_w": 21480.0,
           "zone_temperature_c": 24.37
@@ -1199,6 +1239,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.776,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.8762939744000002,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.8762939744000002,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.35,
           "power_w": 21820.0,
           "zone_temperature_c": 24.32
@@ -1298,6 +1346,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.776,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.8762939744000002,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.8762939744000002,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.3,
           "power_w": 21820.0,
           "zone_temperature_c": 24.25
@@ -1397,6 +1453,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.776,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.8762939744000002,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.8762939744000002,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.32,
           "power_w": 21820.0,
           "zone_temperature_c": 24.24
@@ -1496,6 +1560,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.776,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.8762939744000002,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.8762939744000002,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.4,
           "power_w": 21820.0,
           "zone_temperature_c": 24.49
@@ -1595,6 +1667,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.776,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.8762939744000002,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.8762939744000002,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.37,
           "power_w": 21820.0,
           "zone_temperature_c": 24.38
@@ -1699,6 +1779,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7863,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.91447158772,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.91447158772,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.35,
           "power_w": 22110.0,
           "zone_temperature_c": 24.34
@@ -1798,6 +1886,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7863,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.91447158772,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.91447158772,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.28,
           "power_w": 22110.0,
           "zone_temperature_c": 24.18
@@ -1897,6 +1993,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7863,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.91447158772,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.91447158772,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.32,
           "power_w": 22110.0,
           "zone_temperature_c": 24.25
@@ -1996,6 +2100,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7863,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.91447158772,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.91447158772,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.4,
           "power_w": 22110.0,
           "zone_temperature_c": 24.5
@@ -2095,6 +2207,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7863,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.91447158772,
+            "site_smoothness_penalty": 0.0,
+            "site_step_reward": -2.91447158772,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.37,
           "power_w": 22110.0,
           "zone_temperature_c": 24.4
@@ -2199,6 +2319,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7952,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.94746001088,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.94978160288,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.36,
           "power_w": 22360.0,
           "zone_temperature_c": 24.35
@@ -2298,6 +2426,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7952,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.94746001088,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.94978160288,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0023215920000000056
+          },
           "pmv": 0.31,
           "power_w": 22360.0,
           "zone_temperature_c": 24.24
@@ -2397,6 +2533,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7952,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.94746001088,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.94978160288,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.33,
           "power_w": 22360.0,
           "zone_temperature_c": 24.27
@@ -2496,6 +2640,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7952,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.94746001088,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.94978160288,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.41,
           "power_w": 22360.0,
           "zone_temperature_c": 24.52
@@ -2595,6 +2747,14 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         "outcome": {
           "cost": 0.7952,
           "effective_occupancy": 1.0,
+          "objective_feedback": {
+            "site_comfort_penalty": 0.0,
+            "site_energy_penalty": 2.94746001088,
+            "site_smoothness_penalty": 0.0023215920000000056,
+            "site_step_reward": -2.94978160288,
+            "zone_comfort_penalty_contribution": 0.0,
+            "zone_smoothness_penalty_contribution": 0.0
+          },
           "pmv": 0.38,
           "power_w": 22360.0,
           "zone_temperature_c": 24.41
@@ -2615,11 +2775,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nDerive zone Lessons from the completed control interval.\n\nEVIDENCE\nFor each zone, derive one observed relationship or trade-off from completed Context, Action and Outcome; compare shown eligible slots and select at most one operation.\n\nHARD BOUNDARIES\nThe completed interval is the sole Lesson evidence; slots are comparison-only. Experiences summarize run-wide thermal response, control preference or trade-off by regime. No commands, targets or unsupported claims. Modify a shown regime only; replace/delete uses its revision.\n\nOUTPUT\nBare JSON: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}],\"memory_operations\":[...]}. Each zone once per list. Operations require zone,op; extra fields:\n| op | required |\n| --- | --- |\n| no_change | — |\n| add | regime, experience |\n| replace | regime, expected_revision, experience |\n| delete | regime, expected_revision |\nNo prose, fence or extra fields.\n",
+      "content": "ROLE\nDerive zone Lessons from the completed control interval.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nEVIDENCE\nFor each zone, derive one observed relationship or trade-off from completed Context, Action and Outcome; compare shown eligible slots and select at most one operation.\n\nHARD BOUNDARIES\nThe completed interval is the sole Lesson evidence; slots are comparison-only. Experiences summarize run-wide thermal response, control preference or trade-off by regime. No commands, targets or unsupported claims. Modify a shown regime only; replace/delete uses its revision.\n\nOUTPUT\nBare JSON: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}],\"memory_operations\":[...]}. Each zone once per list. Operations require zone,op; extra fields:\n| op | required |\n| --- | --- |\n| no_change | — |\n| add | regime, experience |\n| replace | regime, expected_revision, experience |\n| delete | regime, expected_revision |\nNo prose, fence or extra fields.\n",
       "role": "system"
     },
     {
-      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nno_change_rows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\nset_param_rows:\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime | revision | experience |\n| --- | --- | --- | --- |\n| cor | steady_state_occupancy | 2 | Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive. |\n| eas | steady_state_occupancy | 1 | East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone. |\n| sou | steady_state_occupancy | 2 | South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions. |\n| wes | steady_state_occupancy | 1 | West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions. |\n\n### EMPTY LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime |\n| --- | --- |\n| nor | steady_state_occupancy |\n",
+      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\nOBJECTIVE FEEDBACK:\ninterval_reward: -11.5744\nsite_reward_history:\n| action_time | outcome_time | site_step_reward | site_energy_penalty | site_comfort_penalty | site_smoothness_penalty |\n| --- | --- | --- | --- | --- | --- |\n| 14:00 | 14:15 | -2.8338 | 2.8314 | 0.0 | 0.0023 |\n| 14:15 | 14:30 | -2.8763 | 2.8763 | 0.0 | 0.0 |\n| 14:30 | 14:45 | -2.9145 | 2.9145 | 0.0 | 0.0 |\n| 14:45 | 15:00 | -2.9498 | 2.9475 | 0.0 | 0.0023 |\nzone_penalty_contributions:\n| zone | action_time | outcome_time | zone_comfort_penalty_contribution | zone_smoothness_penalty_contribution |\n| --- | --- | --- | --- | --- |\n| cor | 14:00 | 14:15 | 0.0 | 0.0 |\n| cor | 14:15 | 14:30 | 0.0 | 0.0 |\n| cor | 14:30 | 14:45 | 0.0 | 0.0 |\n| cor | 14:45 | 15:00 | 0.0 | 0.0 |\n| eas | 14:00 | 14:15 | 0.0 | 0.0023 |\n| eas | 14:15 | 14:30 | 0.0 | 0.0 |\n| eas | 14:30 | 14:45 | 0.0 | 0.0 |\n| eas | 14:45 | 15:00 | 0.0 | 0.0023 |\n| nor | 14:00 | 14:15 | 0.0 | 0.0 |\n| nor | 14:15 | 14:30 | 0.0 | 0.0 |\n| nor | 14:30 | 14:45 | 0.0 | 0.0 |\n| nor | 14:45 | 15:00 | 0.0 | 0.0 |\n| sou | 14:00 | 14:15 | 0.0 | 0.0 |\n| sou | 14:15 | 14:30 | 0.0 | 0.0 |\n| sou | 14:30 | 14:45 | 0.0 | 0.0 |\n| sou | 14:45 | 15:00 | 0.0 | 0.0 |\n| wes | 14:00 | 14:15 | 0.0 | 0.0 |\n| wes | 14:15 | 14:30 | 0.0 | 0.0 |\n| wes | 14:30 | 14:45 | 0.0 | 0.0 |\n| wes | 14:45 | 15:00 | 0.0 | 0.0 |\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nno_change_rows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\nset_param_rows:\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime | revision | experience |\n| --- | --- | --- | --- |\n| cor | steady_state_occupancy | 2 | Core temperature has remained slow-changing under occupied holding actions while warm-side comfort headroom stayed positive. |\n| eas | steady_state_occupancy | 1 | East has shown the smallest occupied warm-side comfort headroom and a faster temperature response than the other periods observed for this zone. |\n| sou | steady_state_occupancy | 2 | South has retained moderate occupied comfort headroom during stable setpoint periods despite elevated solar conditions. |\n| wes | steady_state_occupancy | 1 | West has shown moderate occupied thermal response with positive warm-side comfort headroom during stable actions. |\n\n### EMPTY LONG-TERM EXPERIENCE SLOTS\nrows:\n| zone | regime |\n| --- | --- |\n| nor | steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -2817,6 +2977,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.36,
       "pmv": [
         0.34,
@@ -2995,6 +3194,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.36,
       "pmv": [
         0.36,
@@ -3138,6 +3376,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.33,
       "pmv": [
         0.31,
@@ -3281,6 +3558,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.41,
       "pmv": [
         0.39,
@@ -3424,6 +3740,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.38,
       "pmv": [
         0.36,
@@ -3573,6 +3928,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.36,
       "pmv": [
         0.34,
@@ -3751,6 +4145,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.36,
       "pmv": [
         0.36,
@@ -3894,6 +4327,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.33,
       "pmv": [
         0.31,
@@ -4037,6 +4509,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.41,
       "pmv": [
         0.39,
@@ -4180,6 +4691,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.38,
       "pmv": [
         0.36,
@@ -4364,6 +4914,45 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
         1.0,
         1.0
       ],
+      "objective_feedback": {
+        "interval_reward": -11.5744,
+        "site_comfort_penalty": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "site_energy_penalty": [
+          2.8314,
+          2.8763,
+          2.9145,
+          2.9475
+        ],
+        "site_smoothness_penalty": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ],
+        "site_step_reward": [
+          -2.8338,
+          -2.8763,
+          -2.9145,
+          -2.9498
+        ],
+        "zone_comfort_penalty_contribution": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "zone_smoothness_penalty_contribution": [
+          0.0023,
+          0.0,
+          0.0,
+          0.0023
+        ]
+      },
       "occupied_peak_absolute_pmv": 0.36,
       "pmv": [
         0.36,
@@ -4662,11 +5251,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nJSON only: {\"patch\":[{...}],\"memory_refs\":[{\"regime\":...,\"revision\":...}]}. memory_refs lists each shown active experience used at most once; [] allowed. No extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
-      "content": "### DECISION WINDOW\ncurrent_time: 15:00\ncontrol_interval: [15:00, 16:00)\naction_times: [\"15:00\",\"15:15\",\"15:30\",\"15:45\"]\nforecast_outcome_times: [\"15:15\",\"15:30\",\"15:45\",\"16:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.24\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 15:15 | 31.6 | 628.0 |\n| 15:30 | 31.8 | 646.0 |\n| 15:45 | 32.0 | 668.0 |\n| 16:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 1\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.4 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.7,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [14:00, 15:00)\nzones: [\"eas\"]\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"set_param\",\"rationale\":\"Tighten the active upper PMV threshold while East has the smallest warm-side headroom.\",\"param\":\"pmv_band_hi\",\"to\":0.4},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":1}\nlesson: A tighter upper threshold preceded a bounded cooling response while occupied PMV stayed within the comfort band.\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\ntime_varying_measurements:\n| state_time | eas.temp_c | eas.pmv | eas.setpoint_c |\n| --- | --- | --- | --- |\n| 14:00 | 24.58 | 0.43 | 25.0 |\n| 14:15 | 24.4 | 0.36 | 24.7 |\n| 14:30 | 24.25 | 0.3 | 24.7 |\n| 14:45 | 24.18 | 0.28 | 24.7 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.34 | 2.72 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.34 | 2.72 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.34 | 2.72 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.06\ntemp_delta_1h_c: -0.34\ntemp_slope_c_per_hour: -0.34\npmv_delta_15min: 0.03\npmv_delta_1h: -0.12\nsetpoint_delta_15min_c: 0.3\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.36\nsetpoint_tv_c: 0.3\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 2\nexperience: East has repeatedly shown limited occupied warm-side comfort headroom and a bounded cooling response after tighter upper-threshold admission.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
+      "content": "### DECISION WINDOW\ncurrent_time: 15:00\ncontrol_interval: [15:00, 16:00)\naction_times: [\"15:00\",\"15:15\",\"15:30\",\"15:45\"]\nforecast_outcome_times: [\"15:15\",\"15:30\",\"15:45\",\"16:00\"]\ncontrol_period: 15 min\ncoordination_period: 60 min\n\n### CURRENT DECISION STATE\nzone: eas\nzone_temperature_c: 24.24\npmv: 0.31\noccupancy: 1.0\nsetpoint_c: 25.0\ntemp_rise_to_warm_pmv_edge_c: 0.34\ntemp_drop_to_cool_pmv_edge_c: 2.72\n\n### OCCUPANCY TRANSITION CONTEXT\nprevious_occupancy: 1.0\n\n### CURRENT EXTERNAL STATE\noutdoor_temp_c: 31.4\nsolar_irr: 612.0\nprice_now: 0.14231\n\n### FORECAST SUMMARY\noutdoor_temp_change_next_1h_c: 0.8\nsolar_irr_max_next_1h_w_m2: 668.0\nsolar_irr_mean_next_1h_w_m2: 642.5\n\n### ZONE FORECAST\nvalues_shared_by_all_rows:\noccupancy: 1.0\nrows:\n| forecast_outcome_time | outdoor_temp_c | solar_irr |\n| --- | --- | --- |\n| 15:15 | 31.6 | 628.0 |\n| 15:30 | 31.8 | 646.0 |\n| 15:45 | 32.0 | 668.0 |\n| 16:00 | 32.2 | 628.0 |\n\n### CONTROL SPECIFICATION\nprogram_version: 1\nparameters:\n| param | current | min | max | source |\n| --- | --- | --- | --- | --- |\n| precool_lead_steps | 4 | 0 | 4 | visible forecast horizon |\n| precool_residual_c | -5.0 | -5.0 | 5.0 | residual safety bound |\n| pmv_band_lo | 0.3 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_band_hi | 0.4 | -0.5 | 0.5 | PMV evaluation range |\n| pmv_step_c | 0.3 | 0.0 | 5.0 | residual safety bound |\nrules:\n{\"id\":\"precool\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0},{\"field\":\"precool_due\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"set_residual\",\"value\":{\"param\":\"precool_residual_c\"}}}\n{\"id\":\"pmv_raise\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\"<\",\"value\":{\"param\":\"pmv_band_lo\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"param\":\"pmv_step_c\"}}}\n{\"id\":\"pmv_lower\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"last_pmv\",\"op\":\">\",\"value\":{\"param\":\"pmv_band_hi\"}}],\"then\":{\"op\":\"step_setpoint\",\"value\":{\"neg_param\":\"pmv_step_c\"}}}\n{\"id\":\"anchor\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1},{\"field\":\"occupied_last\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\n{\"id\":\"occupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":1}],\"then\":{\"op\":\"hold_setpoint\"}}\n{\"id\":\"unoccupied_hold\",\"when\":[{\"field\":\"occupied_now\",\"op\":\"==\",\"value\":0}],\"then\":{\"op\":\"set_residual\",\"value\":0.0}}\nrule_and_weather_limits: {\"new_rule\":{\"condition_fields\":[\"last_pmv\",\"occupied_last\",\"occupied_now\",\"outdoor_temp_change_next_1h_c\",\"precool_due\",\"solar_irr_max_next_1h_w_m2\",\"solar_irr_mean_next_1h_w_m2\"],\"comparisons\":[\"<\",\"<=\",\">\",\">=\",\"==\",\"!=\"],\"comparison_value\":\"number or parameter name\",\"action_types\":[\"set_residual\",\"step_setpoint\",\"hold_setpoint\"],\"max_rules\":8},\"weather_literals\":{\"must_be\":\"finite numbers\",\"parameter_refs\":\"forbidden\"}}\ncontrol_domain: {\"domain_id\":\"cooling\",\"controlled_setpoint\":\"zone cooling setpoint\",\"unit\":\"degC\",\"hard_bounds_c\":[20.0,30.0],\"occupied_base_c\":25.0,\"unoccupied_base_c\":30.0,\"abs_pmv_score_limit\":0.5,\"preconditioning\":{\"label\":\"precool\",\"lead_steps\":4,\"target_c\":25.0},\"energy_intensive_setpoint_direction\":\"decrease\"}\n\n### CAUSAL EVIDENCE\nvalues_shared_by_all_rows:\nundirected: false\nrows:\n| id | source | relation | target | tags_1 | tags_2 |\n| --- | --- | --- | --- | --- | --- |\n| ce_aa18e859 | outdoor_temp | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_fc68b8f7 | solar_irr | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_ebd13728 | cooling_setpoint | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_d8c6ee57 | occupancy | Positive Corr | zone_temp | Immediate | Strong Impact |\n| ce_e8f5f362 | outdoor_temp | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_5a968228 | solar_irr | Positive Corr | power_meters | Delayed | Weak Impact |\n| ce_00f91137 | occupancy | Positive Corr | power_meters | Delayed | Strong Impact |\n| ce_660795c7 | cooling_setpoint | Negative Corr | power_meters | Immediate | Strong Impact |\n\n### ALLOCATION\nallocation: {\"zone_reserved_allowance_c\":1.7,\"shared_pool_available_before_settlement_c\":4.0,\"shared_settlement_priority_rank\":1}\n\n### WORKING MEMORY\ncompleted_interval: [14:00, 15:00)\nzones: [\"eas\"]\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\nOBJECTIVE FEEDBACK:\ninterval_reward: -11.5744\nsite_reward_history:\n| action_time | outcome_time | site_step_reward | site_energy_penalty | site_comfort_penalty | site_smoothness_penalty |\n| --- | --- | --- | --- | --- | --- |\n| 14:00 | 14:15 | -2.8338 | 2.8314 | 0.0 | 0.0023 |\n| 14:15 | 14:30 | -2.8763 | 2.8763 | 0.0 | 0.0 |\n| 14:30 | 14:45 | -2.9145 | 2.9145 | 0.0 | 0.0 |\n| 14:45 | 15:00 | -2.9498 | 2.9475 | 0.0 | 0.0023 |\nzone_penalty_contributions:\n| zone | action_time | outcome_time | zone_comfort_penalty_contribution | zone_smoothness_penalty_contribution |\n| --- | --- | --- | --- | --- |\n| eas | 14:00 | 14:15 | 0.0 | 0.0023 |\n| eas | 14:15 | 14:30 | 0.0 | 0.0 |\n| eas | 14:30 | 14:45 | 0.0 | 0.0 |\n| eas | 14:45 | 15:00 | 0.0 | 0.0023 |\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"proposal\":{\"op\":\"set_param\",\"rationale\":\"Tighten the active upper PMV threshold while East has the smallest warm-side headroom.\",\"param\":\"pmv_band_hi\",\"to\":0.4},\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0,\"program_version_after\":1}\nlesson: A tighter upper threshold preceded a bounded cooling response while occupied PMV stayed within the comfort band.\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\ntime_varying_measurements:\n| state_time | eas.temp_c | eas.pmv | eas.setpoint_c |\n| --- | --- | --- | --- |\n| 14:00 | 24.58 | 0.43 | 25.0 |\n| 14:15 | 24.4 | 0.36 | 24.7 |\n| 14:30 | 24.25 | 0.3 | 24.7 |\n| 14:45 | 24.18 | 0.28 | 24.7 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.34 | 2.72 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.34 | 2.72 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.34 | 2.72 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.34 | 2.72 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\ntemp_delta_15min_c: 0.06\ntemp_delta_1h_c: -0.34\ntemp_slope_c_per_hour: -0.34\npmv_delta_15min: 0.03\npmv_delta_1h: -0.12\nsetpoint_delta_15min_c: 0.3\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\noccupied_peak_abs_pmv: 0.36\nsetpoint_tv_c: 0.3\nsetpoint_reversals: 0\n\n### ACTIVE LONG-TERM EXPERIENCE SLOTS\nvalues_shared_by_all_rows:\nrevision: 2\nexperience: East has repeatedly shown limited occupied warm-side comfort headroom and a bounded cooling response after tighter upper-threshold admission.\nrows:\n| regime |\n| --- |\n| steady_state_occupancy |\n",
       "role": "user"
     }
   ],
@@ -4719,7 +5308,7 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nMaintain one zone's control specification.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nBare JSON only; no prose, fence or extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
+      "content": "ROLE\nMaintain one zone's control specification.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nDECISION\nFrom current state, comfort headroom, causal evidence, allowance and WORKING MEMORY, choose one atomic specification operation balancing energy and |PMV| ≤ 0.5.\n\nHARD BOUNDARIES\ncharge_c=max over proof states of max(0,setpoint_before_c-setpoint_after_c), excluding cumulative actions, power and pre-cooling offset. Reserved allowance is zone-only; the site-wide shared pool settles after all proposals by ascending shared_settlement_priority_rank. Edit only the supplied specification; no direct setpoint.\n\nOUTPUT\nBare JSON only; no prose, fence or extra fields.\nRoot object exactly: {\"patch\":[{...}]}. patch is a list containing exactly one operation. Operation common fields: op, rationale.\nEdits also require causal_edge_ids: unique, nonempty visible IDs.\nOperations:\nset_param: required=param,to\nadd_rule: required=rule; optional=index\nreplace_rule: required=rule\nremove_rule: required=id\nmove_rule: required=id,to_index\nno_change: required=none\nrule={id,when:[{field,op,value}],then:{op,value?}}. IDs: add=new rule.id; replace=existing rule.id; remove/move=existing id. Zero-based indices: add index 0..N (default N); move to_index 0..N-1. then.value: finite number | {\"param\":name} | {\"neg_param\":name}; omit for hold_setpoint.\n",
       "role": "system"
     },
     {
@@ -4760,11 +5349,11 @@ This is one frozen, non-executed documentation fixture. Every prompt is produced
 {
   "messages": [
     {
-      "content": "ROLE\nDerive zone Lessons from the completed control interval.\n\nEVIDENCE\nFor each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome.\n\nHARD BOUNDARIES\nThe completed interval is the sole Lesson evidence. Write observations or trade-offs, not commands, targets or unsupported claims.\n\nOUTPUT\nBare JSON only: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}]}. Each zone once; no extra fields.\n",
+      "content": "ROLE\nDerive zone Lessons from the completed control interval.\n\nOBJECTIVE\nMaintain comfort while reducing energy cost as much as possible. The reward from a completed interval is a quantitative reference for the same frozen trade-off among energy cost, comfort, and action smoothness; a higher cumulative reward indicates a better overall result.\n\nEVIDENCE\nFor each zone, derive one useful observed relationship or trade-off from completed Context, Action and Outcome.\n\nHARD BOUNDARIES\nThe completed interval is the sole Lesson evidence. Write observations or trade-offs, not commands, targets or unsupported claims.\n\nOUTPUT\nBare JSON only: {\"hourly_lessons\":[{\"zone\":...,\"lesson\":...}]}. Each zone once; no extra fields.\n",
       "role": "system"
     },
     {
-      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nno_change_rows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\nset_param_rows:\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n",
+      "content": "### COMPLETED CONTROL INTERVAL\ninterval: [14:00, 15:00)\naction_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\"]\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nzones: [\"cor\",\"eas\",\"nor\",\"sou\",\"wes\"]\ncontrol_period: 15 min\nsite_result: {\"site_cost\":3.1214,\"site_energy_kwh\":21.9425}\nOBJECTIVE FEEDBACK:\ninterval_reward: -11.5744\nsite_reward_history:\n| action_time | outcome_time | site_step_reward | site_energy_penalty | site_comfort_penalty | site_smoothness_penalty |\n| --- | --- | --- | --- | --- | --- |\n| 14:00 | 14:15 | -2.8338 | 2.8314 | 0.0 | 0.0023 |\n| 14:15 | 14:30 | -2.8763 | 2.8763 | 0.0 | 0.0 |\n| 14:30 | 14:45 | -2.9145 | 2.9145 | 0.0 | 0.0 |\n| 14:45 | 15:00 | -2.9498 | 2.9475 | 0.0 | 0.0023 |\nzone_penalty_contributions:\n| zone | action_time | outcome_time | zone_comfort_penalty_contribution | zone_smoothness_penalty_contribution |\n| --- | --- | --- | --- | --- |\n| cor | 14:00 | 14:15 | 0.0 | 0.0 |\n| cor | 14:15 | 14:30 | 0.0 | 0.0 |\n| cor | 14:30 | 14:45 | 0.0 | 0.0 |\n| cor | 14:45 | 15:00 | 0.0 | 0.0 |\n| eas | 14:00 | 14:15 | 0.0 | 0.0023 |\n| eas | 14:15 | 14:30 | 0.0 | 0.0 |\n| eas | 14:30 | 14:45 | 0.0 | 0.0 |\n| eas | 14:45 | 15:00 | 0.0 | 0.0023 |\n| nor | 14:00 | 14:15 | 0.0 | 0.0 |\n| nor | 14:15 | 14:30 | 0.0 | 0.0 |\n| nor | 14:30 | 14:45 | 0.0 | 0.0 |\n| nor | 14:45 | 15:00 | 0.0 | 0.0 |\n| sou | 14:00 | 14:15 | 0.0 | 0.0 |\n| sou | 14:15 | 14:30 | 0.0 | 0.0 |\n| sou | 14:30 | 14:45 | 0.0 | 0.0 |\n| sou | 14:45 | 15:00 | 0.0 | 0.0 |\n| wes | 14:00 | 14:15 | 0.0 | 0.0 |\n| wes | 14:15 | 14:30 | 0.0 | 0.0 |\n| wes | 14:30 | 14:45 | 0.0 | 0.0 |\n| wes | 14:45 | 15:00 | 0.0 | 0.0 |\ncompleted_decision:\nvalues_shared_by_all_rows:\naction: {\"admission\":{\"status\":\"accepted\"},\"program_version_before\":0}\ncontext: {\"initial_observation\":{\"last_occupancy\":1.0}}\nno_change_rows:\n| zone | op | rationale | program_version_after |\n| --- | --- | --- | --- |\n| cor | no_change | The current program retained occupied comfort headroom without an evidenced beneficial edit. | 0 |\n| nor | no_change | The current program matched the observed stable occupied conditions. | 0 |\n| sou | no_change | Observed comfort headroom and the current program did not support a different atomic edit. | 0 |\n| wes | no_change | The supplied evidence did not support changing the executable specification this hour. | 0 |\nset_param_rows:\n| zone | op | rationale | program_version_after | param | to |\n| --- | --- | --- | --- | --- | --- |\n| eas | set_param | Tighten the active upper PMV threshold while East has the smallest warm-side headroom. | 1 | pmv_band_hi | 0.4 |\nrecent_state_history:\nvalues_shared_by_all_rows:\noccupancy: 1.0\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0}\n{\"zone\":\"nor\",\"setpoint_c\":25.0}\n{\"zone\":\"sou\",\"setpoint_c\":25.0}\n{\"zone\":\"wes\",\"setpoint_c\":25.0}\nstate_times: [\"14:00\",\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\ntime_varying_measurements:\n| state_time | cor.temp_c | cor.pmv | eas.temp_c | eas.pmv | eas.setpoint_c | nor.temp_c | nor.pmv | sou.temp_c | sou.pmv | wes.temp_c | wes.pmv |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 24.31 | 0.34 | 24.58 | 0.43 | 25.0 | 24.22 | 0.31 | 24.47 | 0.39 | 24.36 | 0.36 |\n| 14:15 | 24.3 | 0.34 | 24.4 | 0.36 | 24.7 | 24.23 | 0.31 | 24.47 | 0.39 | 24.37 | 0.36 |\n| 14:30 | 24.32 | 0.35 | 24.25 | 0.3 | 24.7 | 24.24 | 0.32 | 24.49 | 0.4 | 24.38 | 0.37 |\n| 14:45 | 24.34 | 0.35 | 24.18 | 0.28 | 24.7 | 24.25 | 0.32 | 24.5 | 0.4 | 24.4 | 0.37 |\n| 15:00 | 24.35 | 0.36 | 24.24 | 0.31 | 25.0 | 24.27 | 0.33 | 24.52 | 0.41 | 24.41 | 0.38 |\nOBSERVED CONTEXT HISTORY:\nabs_pmv_score_limit: 0.5\n| action_time | outdoor_temperature_c | solar_irradiance_w_m2 | electricity_price | cor.temp_rise_to_warm_pmv_edge_c | cor.temp_drop_to_cool_pmv_edge_c | eas.temp_rise_to_warm_pmv_edge_c | eas.temp_drop_to_cool_pmv_edge_c | nor.temp_rise_to_warm_pmv_edge_c | nor.temp_drop_to_cool_pmv_edge_c | sou.temp_rise_to_warm_pmv_edge_c | sou.temp_drop_to_cool_pmv_edge_c | wes.temp_rise_to_warm_pmv_edge_c | wes.temp_drop_to_cool_pmv_edge_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| 14:00 | 31.4 | 612.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:15 | 31.6 | 628.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:30 | 31.8 | 646.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\n| 14:45 | 32.0 | 668.0 | 0.1423 | 0.62 | 2.45 | 0.34 | 2.72 | 0.72 | 2.36 | 0.45 | 2.61 | 0.57 | 2.5 |\ncontrol_action_history:\nvalues_shared_by_all_rows:\nregime: steady_state_occupancy\nactuator_bounds: false\nsetpoint_rate_limit: false\ncomfort_recovery: false\nvalues_constant_within_each_zone:\n{\"zone\":\"cor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"nor\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"sou\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\n{\"zone\":\"wes\",\"setpoint_c\":25.0,\"matched_rule\":\"occupied_hold\"}\ntime_varying_actions:\n| action_time | outcome_time | eas.setpoint_c | eas.matched_rule |\n| --- | --- | --- | --- |\n| 14:00 | 14:15 | 24.7 | pmv_lower |\n| 14:15 | 14:30 | 24.7 | occupied_hold |\n| 14:30 | 14:45 | 24.7 | occupied_hold |\n| 14:45 | 15:00 | 25.0 | pmv_raise |\nprevious_decision_forecast:\nvalues_shared_by_all_rows:\noccupancy: 1.0\noutcome_times: [\"14:15\",\"14:30\",\"14:45\",\"15:00\"]\nderived_feature_interval: [14:00, 15:00)\nderived_features:\nvalues_shared_by_all_rows:\nsetpoint_delta_1h_c: 0.0\ndiscomfort_zone_h: 0.0\ndiscomfort_pmv_h: 0.0\nsetpoint_reversals: 0\nrows:\n| zone | temp_delta_15min_c | temp_delta_1h_c | temp_slope_c_per_hour | pmv_delta_15min | pmv_delta_1h | setpoint_delta_15min_c | occupied_peak_abs_pmv | setpoint_tv_c |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| cor | 0.01 | 0.04 | 0.04 | 0.01 | 0.02 | 0.0 | 0.36 | 0.0 |\n| eas | 0.06 | -0.34 | -0.34 | 0.03 | -0.12 | 0.3 | 0.36 | 0.3 |\n| nor | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.33 | 0.0 |\n| sou | 0.02 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.41 | 0.0 |\n| wes | 0.01 | 0.05 | 0.05 | 0.01 | 0.02 | 0.0 | 0.38 | 0.0 |\n",
       "role": "user"
     }
   ],
@@ -5541,6 +6130,38 @@ outcome_times: ["14:15","14:30","14:45","15:00"]
 zones: ["cor","eas","nor","sou","wes"]
 control_period: 15 min
 site_result: {"site_cost":3.1214,"site_energy_kwh":21.9425}
+OBJECTIVE FEEDBACK:
+interval_reward: -11.5744
+site_reward_history:
+| action_time | outcome_time | site_step_reward | site_energy_penalty | site_comfort_penalty | site_smoothness_penalty |
+| --- | --- | --- | --- | --- | --- |
+| 14:00 | 14:15 | -2.8338 | 2.8314 | 0.0 | 0.0023 |
+| 14:15 | 14:30 | -2.8763 | 2.8763 | 0.0 | 0.0 |
+| 14:30 | 14:45 | -2.9145 | 2.9145 | 0.0 | 0.0 |
+| 14:45 | 15:00 | -2.9498 | 2.9475 | 0.0 | 0.0023 |
+zone_penalty_contributions:
+| zone | action_time | outcome_time | zone_comfort_penalty_contribution | zone_smoothness_penalty_contribution |
+| --- | --- | --- | --- | --- |
+| cor | 14:00 | 14:15 | 0.0 | 0.0 |
+| cor | 14:15 | 14:30 | 0.0 | 0.0 |
+| cor | 14:30 | 14:45 | 0.0 | 0.0 |
+| cor | 14:45 | 15:00 | 0.0 | 0.0 |
+| eas | 14:00 | 14:15 | 0.0 | 0.0023 |
+| eas | 14:15 | 14:30 | 0.0 | 0.0 |
+| eas | 14:30 | 14:45 | 0.0 | 0.0 |
+| eas | 14:45 | 15:00 | 0.0 | 0.0023 |
+| nor | 14:00 | 14:15 | 0.0 | 0.0 |
+| nor | 14:15 | 14:30 | 0.0 | 0.0 |
+| nor | 14:30 | 14:45 | 0.0 | 0.0 |
+| nor | 14:45 | 15:00 | 0.0 | 0.0 |
+| sou | 14:00 | 14:15 | 0.0 | 0.0 |
+| sou | 14:15 | 14:30 | 0.0 | 0.0 |
+| sou | 14:30 | 14:45 | 0.0 | 0.0 |
+| sou | 14:45 | 15:00 | 0.0 | 0.0 |
+| wes | 14:00 | 14:15 | 0.0 | 0.0 |
+| wes | 14:15 | 14:30 | 0.0 | 0.0 |
+| wes | 14:30 | 14:45 | 0.0 | 0.0 |
+| wes | 14:45 | 15:00 | 0.0 | 0.0 |
 completed_decision:
 values_shared_by_all_rows:
 action: {"admission":{"status":"accepted"},"program_version_before":0}
@@ -5637,8 +6258,8 @@ rows:
 
 ```json
 {
-  "canonical_sha256": "3eef8d12505228391699fe60abea9c21f400800863369f2481264918525bb4d3",
-  "compact_sha256": "fe8c7cca80f411d46d0c8f0978c725769e0deb29274d867efaa1c5c675482d3b",
+  "canonical_sha256": "2ac6f4670a8c26600fcfbc22858eda23c0e370425ad301efba947db114091ab4",
+  "compact_sha256": "6f24c5d0bbfde4c6754655811f276bd7fb9618bd2c70203c7d3a8d681dcb0d41",
   "field_manifest": {
     "ACTIVE LONG-TERM EXPERIENCE SLOTS": [
       "/[]/zone",
@@ -5684,6 +6305,13 @@ rows:
       "/[]/outcome/occupied_peak_absolute_pmv",
       "/[]/outcome/setpoint_total_variation_c",
       "/[]/outcome/setpoint_direction_reversals",
+      "/[]/outcome/objective_feedback/interval_reward",
+      "/[]/outcome/objective_feedback/site_step_reward/[]",
+      "/[]/outcome/objective_feedback/site_energy_penalty/[]",
+      "/[]/outcome/objective_feedback/site_comfort_penalty/[]",
+      "/[]/outcome/objective_feedback/site_smoothness_penalty/[]",
+      "/[]/outcome/objective_feedback/zone_comfort_penalty_contribution/[]",
+      "/[]/outcome/objective_feedback/zone_smoothness_penalty_contribution/[]",
       "/[]/action/proposal/param",
       "/[]/action/proposal/to",
       "/[]/action/proposal/causal_edge_ids/[]",

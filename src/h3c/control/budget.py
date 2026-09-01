@@ -13,6 +13,7 @@ from h3c.agents.contracts import DEFAULT_PER_ZONE_RESERVED_CAP_C
 
 EDGE_IDENTIFIER = re.compile(r"^ce_[0-9a-f]{8}$")
 ALLOCATION_RATIONALE_ERROR = "allocation rationale must cover every zone with a nonempty string"
+BUDGET_ABS_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,10 @@ def validate_allocation(
     ):
         raise ValueError("site allocation is outside its bound")
     if expected_site_cap_c is not None and not math.isclose(
-        float(cap), float(expected_site_cap_c), rel_tol=0.0, abs_tol=1e-9
+        float(cap),
+        float(expected_site_cap_c),
+        rel_tol=0.0,
+        abs_tol=BUDGET_ABS_TOLERANCE,
     ):
         raise ValueError("site allocation must equal the supplied site cap")
     if (
@@ -76,7 +80,7 @@ def validate_allocation(
         for value in budgets.values()
     ):
         raise ValueError("zone allocation is outside its bound")
-    if sum(float(value) for value in budgets.values()) > float(cap) + 1e-9:
+    if sum(float(value) for value in budgets.values()) > float(cap) + BUDGET_ABS_TOLERANCE:
         raise ValueError("zone allocations exceed the site cap")
     if (
         not isinstance(priority, list)
@@ -181,6 +185,7 @@ def validated_fallback_allocation(
         causal_enabled=causal_enabled,
         allowed_causal_edge_ids=allowed_causal_edge_ids,
         site_causal_edge_ids=site_causal_edge_ids,
+        expected_site_cap_c=site_cap_c,
         expected_per_zone_reserved_cap_c=per_zone_reserved_cap_c,
     )
     return allocation, "equal_split_current_zones"

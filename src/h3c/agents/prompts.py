@@ -53,6 +53,21 @@ def _causal_unit(
     return unit
 
 
+def _objective_unit() -> dict[str, str]:
+    return _unit(
+        "objective_reference",
+        "OBJECTIVE",
+        "Maintain comfort while reducing energy cost as much as possible. The reward from a "
+        "completed interval is a quantitative reference for the same frozen trade-off among "
+        "energy cost, comfort, and action smoothness; a higher cumulative reward indicates a "
+        "better overall result.",
+        "目标",
+        "在维持舒适的同时尽可能降低能耗花费。已完成时段的 reward 是冻结评价函数对能耗花费、"
+        "舒适度和动作平滑性的量化参考；累计 reward 越高，表示上述同一目标的综合结果越好。",
+        kind="information",
+    )
+
+
 PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
     "orchestrator": [
         _unit(
@@ -62,6 +77,7 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
             "角色",
             "在 control_interval 的 action_times 上分配跨区域共享额度。",
         ),
+        _objective_unit(),
         _unit(
             "decision",
             "DECISION",
@@ -92,6 +108,7 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
             "角色",
             "维护一个区域的可执行控制规格。",
         ),
+        _objective_unit(),
         _unit(
             "decision",
             "DECISION",
@@ -122,6 +139,7 @@ PAIRED_PROMPT_UNITS: dict[Role, list[dict[str, str]]] = {
             "角色",
             "从已完成控制时段提炼每区 Lesson。",
         ),
+        _objective_unit(),
         _unit(
             "evidence",
             "EVIDENCE",

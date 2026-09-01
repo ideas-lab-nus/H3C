@@ -16,7 +16,7 @@ from h3c.control.budget import BudgetLedger, validate_allocation
 from h3c.control.program import load_program, program_hash
 from h3c.control.program_execution import execute_zone_programs
 from h3c.control.validation import validate_candidate
-from h3c.experiments.profiles import repository_root
+from h3c.experiments.profiles import load_profile, repository_root
 from h3c.memory.caol import (
     REGIMES,
     active_experiences,
@@ -31,7 +31,7 @@ from h3c.memory.caol import (
 )
 from h3c.memory.ledger import ProgramLedger
 from h3c.runtime.clients import model_request_contract
-from h3c.runtime.comfort import COMFORT_BAND
+from h3c.runtime.comfort import COMFORT_BAND, step_reward_breakdown
 
 Language = Literal["en", "zh"]
 
@@ -531,7 +531,9 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
     last_pmvs = {zone: float(observations[zone]["last_pmv"]) for zone in zones}
     temperatures = {zone: float(observations[zone]["zone_temperature_c"]) for zone in zones}
     all_steps: list[dict[str, Any]] = []
+    objective = load_profile("MZ_Air")["objective"]
     for offset in range(4):
+        previous_setpoints = copy.deepcopy(last_setpoints)
         step_observations = {
             zone: _observation(
                 fixture,
@@ -566,6 +568,31 @@ def _render(language: Language, fixture: Mapping[str, Any], root: Path) -> str:
             last_setpoints[zone] = assured[zone]
             last_pmvs[zone] = float(outcome["pmv"])
             temperatures[zone] = float(outcome["zone_temperature_c"])
+        breakdown = step_reward_breakdown(
+            cost=float(step_document["zones"][zones[0]]["outcome"]["cost"]),
+            pmv=[float(step_document["zones"][zone]["outcome"]["pmv"]) for zone in zones],
+            occupancy=[
+                float(step_document["zones"][zone]["outcome"]["effective_occupancy"])
+                for zone in zones
+            ],
+            setpoints_c=[assured[zone] for zone in zones],
+            previous_setpoints_c=[previous_setpoints[zone] for zone in zones],
+            objective=objective,
+            zone_names=zones,
+        )
+        for zone in zones:
+            step_document["zones"][zone]["outcome"]["objective_feedback"] = {
+                "site_step_reward": breakdown["reward"],
+                "site_energy_penalty": breakdown["site_energy_penalty"],
+                "site_comfort_penalty": breakdown["site_comfort_penalty"],
+                "site_smoothness_penalty": breakdown["site_smoothness_penalty"],
+                "zone_comfort_penalty_contribution": breakdown[
+                    "zone_comfort_penalty_contributions"
+                ][zone],
+                "zone_smoothness_penalty_contribution": breakdown[
+                    "zone_smoothness_penalty_contributions"
+                ][zone],
+            }
         all_steps.append(step_document)
     current_cao = [
         build_hourly_cao(

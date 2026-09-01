@@ -126,6 +126,42 @@ def test_cao_is_deterministic_and_lesson_is_a_separate_attachment() -> None:
     assert "lesson" not in cao
 
 
+def test_cao_aggregates_only_completed_step_objective_feedback() -> None:
+    rows = _hour_rows()
+    for index, row in enumerate(rows, start=1):
+        row["outcome"]["objective_feedback"] = {
+            "site_step_reward": -float(index),
+            "site_energy_penalty": float(index) - 0.2,
+            "site_comfort_penalty": 0.1,
+            "site_smoothness_penalty": 0.1,
+            "zone_comfort_penalty_contribution": 0.05,
+            "zone_smoothness_penalty_contribution": 0.02,
+        }
+    decision = {
+        "status": "accepted",
+        "patch": {"op": "no_change", "rationale": "observed balance"},
+        "completed_validation_stages": ["program_check"],
+        "program_version_before": 2,
+        "current_program_version": 2,
+        "rejection": None,
+    }
+    cao = build_hourly_cao(
+        hour=0,
+        zone="EAS",
+        step_rows=rows,
+        program_decision=decision,
+    )
+    assert cao["outcome"]["objective_feedback"] == {
+        "interval_reward": -10.0,
+        "site_step_reward": [-1.0, -2.0, -3.0, -4.0],
+        "site_energy_penalty": [0.8, 1.8, 2.8, 3.8],
+        "site_comfort_penalty": [0.1, 0.1, 0.1, 0.1],
+        "site_smoothness_penalty": [0.1, 0.1, 0.1, 0.1],
+        "zone_comfort_penalty_contribution": [0.05, 0.05, 0.05, 0.05],
+        "zone_smoothness_penalty_contribution": [0.02, 0.02, 0.02, 0.02],
+    }
+
+
 def test_caol_is_the_exact_k_hour_working_memory() -> None:
     records = [
         {"hour": hour, "zone": zone, "context": {}, "action": {}, "outcome": {}}

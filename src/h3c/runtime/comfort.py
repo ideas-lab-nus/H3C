@@ -109,32 +109,97 @@ def step_reward(
     previous_setpoints_c: Sequence[float],
     objective: Mapping[str, Any],
 ) -> float:
+    """Return the frozen scalar reward without changing its historical arithmetic."""
+    return float(
+        step_reward_breakdown(
+            cost=cost,
+            pmv=pmv,
+            occupancy=occupancy,
+            setpoints_c=setpoints_c,
+            previous_setpoints_c=previous_setpoints_c,
+            objective=objective,
+        )["reward"]
+    )
+
+
+def step_reward_breakdown(
+    *,
+    cost: float,
+    pmv: Sequence[float],
+    occupancy: Sequence[float],
+    setpoints_c: Sequence[float],
+    previous_setpoints_c: Sequence[float],
+    objective: Mapping[str, Any],
+    zone_names: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Return the frozen reward and its exact, retrospective penalty decomposition."""
     if not (len(pmv) == len(occupancy) == len(setpoints_c) == len(previous_setpoints_c) > 0):
         raise ValueError("reward inputs must have one aligned value per zone")
     zone_count = len(pmv)
-    comfort_penalty = sum(
+    names = (
+        list(zone_names)
+        if zone_names is not None
+        else [f"zone_{index}" for index in range(zone_count)]
+    )
+    if len(names) != zone_count or len(set(names)) != zone_count or any(not name for name in names):
+        raise ValueError("reward zone names must be unique and aligned with the reward inputs")
+
+    comfort_excess_squared = [
         max(0.0, abs(float(value)) - COMFORT_BAND) ** 2
         for value, count in zip(pmv, occupancy, strict=True)
         if float(count) > 0
-    )
-    smoothness = sum(
+    ]
+    # Keep one entry per configured zone, including an explicit zero for unoccupied zones.
+    comfort_excess_by_zone = [
+        max(0.0, abs(float(value)) - COMFORT_BAND) ** 2 if float(count) > 0 else 0.0
+        for value, count in zip(pmv, occupancy, strict=True)
+    ]
+    smoothness_by_zone = [
         abs(float(current) - float(previous))
         for current, previous in zip(setpoints_c, previous_setpoints_c, strict=True)
-    )
-    return -(
+    ]
+    comfort_penalty = sum(comfort_excess_squared)
+    smoothness = sum(smoothness_by_zone)
+    site_energy_penalty = (
         float(objective["energy_weight"])
         * float(objective["energy_scale"])
         * float(cost)
         / zone_count
-        + float(objective["comfort_weight"])
+    )
+    # Preserve the frozen expression's operation order before deriving explanatory shares.
+    site_comfort_penalty = (
+        float(objective["comfort_weight"])
         * float(objective["comfort_scale"])
         * comfort_penalty
         / zone_count
-        + float(objective["smoothness_weight"])
+    )
+    site_smoothness_penalty = (
+        float(objective["smoothness_weight"])
         * float(objective["smoothness_scale"])
         * smoothness
         / zone_count
     )
+    reward = -(site_energy_penalty + site_comfort_penalty + site_smoothness_penalty)
+    comfort_factor = (
+        float(objective["comfort_weight"]) * float(objective["comfort_scale"]) / zone_count
+    )
+    smoothness_factor = (
+        float(objective["smoothness_weight"]) * float(objective["smoothness_scale"]) / zone_count
+    )
+    return {
+        "reward": reward,
+        "site_energy_penalty": site_energy_penalty,
+        "site_comfort_penalty": site_comfort_penalty,
+        "site_smoothness_penalty": site_smoothness_penalty,
+        "zone_comfort_penalty_contributions": {
+            name: comfort_factor * value
+            for name, value in zip(names, comfort_excess_by_zone, strict=True)
+        },
+        "zone_smoothness_penalty_contributions": {
+            name: smoothness_factor * value
+            for name, value in zip(names, smoothness_by_zone, strict=True)
+        },
+    }
 
 
 class MetricsAccumulator:

@@ -366,6 +366,26 @@ def test_model_visible_prompts_omit_internal_abbreviations_and_redundant_runtime
     assert all(fragment not in prompts for fragment in forbidden)
 
 
+def test_completed_reward_is_only_a_quantitative_reference_in_all_role_prompts() -> None:
+    english = [
+        system_prompt(role, language="en", causal_enabled=True, long_term_memory=False)
+        for role in ("orchestrator", "executor", "reflector")
+    ]
+    objective = "Maintain comfort while reducing energy cost as much as possible."
+    reference = (
+        "The reward from a completed interval is a quantitative reference for the same "
+        "frozen trade-off among energy cost, comfort, and action smoothness; a higher "
+        "cumulative reward indicates a better overall result."
+    )
+    for prompt in english:
+        assert objective in prompt
+        assert reference in prompt
+        lowered = prompt.lower()
+        assert "maximize reward" not in lowered
+        assert "erbc" not in lowered
+        assert "reward threshold" not in lowered
+
+
 def test_dynamic_prompt_fixture_provenance_is_self_consistent(repository_root: Path) -> None:
     fixture_root = repository_root / "tests" / "fixtures" / "prompts"
     provenance: dict[str, Any] = json.loads(
