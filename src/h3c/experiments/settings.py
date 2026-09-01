@@ -23,13 +23,12 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
         "physical_service",
     }:
         raise ValueError("runtime contract fields are invalid")
-    if value["runtime_schema"] != "h3c_runtime_contract" or value["schema_version"] != 3:
+    if value["runtime_schema"] != "h3c_runtime_contract" or value["schema_version"] != 4:
         raise ValueError("unsupported runtime contract schema")
     model = value["model"]
     if not isinstance(model, dict) or set(model) != {
         "default_provider",
         "providers",
-        "response_format",
         "thinking_reasoning_effort",
         "no_thinking_temperature",
         "no_thinking_top_p",
@@ -38,8 +37,7 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
     }:
         raise ValueError("model runtime contract fields are invalid")
     if (
-        model["default_provider"] != "deepseek-official"
-        or model["response_format"] != "json_object"
+        model["default_provider"] != "baseten-deepseek"
         or model["thinking_reasoning_effort"] != "low"
         or model["no_thinking_temperature"] != 0.0
         or model["no_thinking_top_p"] != 1.0
@@ -61,6 +59,7 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
             "api_key_environment_variable": "H3C_MODEL_API_KEY",
             "session_affinity_header": None,
             "retryable_status_codes": [429, 503],
+            "response_format": "json_object",
         },
         "baseten-deepseek": {
             "model": "deepseek-ai/DeepSeek-V4-Flash-0731",
@@ -69,6 +68,7 @@ def load_runtime_contract(path: Path | None = None) -> dict[str, Any]:
             "api_key_environment_variable": "BASETEN_API_KEY",
             "session_affinity_header": "x-session-affinity",
             "retryable_status_codes": [429, 503, 529],
+            "response_format": "json_schema",
         },
     }
     if providers != expected_providers:

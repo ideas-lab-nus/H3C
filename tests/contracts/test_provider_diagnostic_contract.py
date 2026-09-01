@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from h3c.agents.contracts import executor_response_schema
 from h3c.experiments.matrix import RunPlan
 from h3c.experiments.profiles import load_profile
 from h3c.experiments.settings import (
@@ -88,15 +89,42 @@ def test_provider_changes_run_identity_but_not_neutral_request_identity() -> Non
 
 def test_provider_contracts_freeze_request_and_retry_differences() -> None:
     model = load_runtime_contract()["model"]
+    assert model["default_provider"] == "baseten-deepseek"
     official = model["providers"]["deepseek-official"]
     baseten = model["providers"]["baseten-deepseek"]
     assert official["retryable_status_codes"] == [429, 503]
     assert baseten["retryable_status_codes"] == [429, 503, 529]
     assert official["session_affinity_header"] is None
     assert baseten["session_affinity_header"] == "x-session-affinity"
+    assert official["response_format"] == "json_object"
+    assert baseten["response_format"] == "json_schema"
     low = model_request_contract(
         model=baseten["model"], system="system", user="user", thinking_mode="low"
     )
     assert low["thinking"] == {"type": "enabled"}
     assert low["reasoning_effort"] == "low"
     assert "temperature" not in low and "top_p" not in low
+
+
+def test_baseten_structured_executor_request_uses_the_parser_owned_schema() -> None:
+    model = load_runtime_contract()["model"]["providers"]["baseten-deepseek"]
+    schema = executor_response_schema(causal_enabled=True, long_term_memory=False)
+    request = model_request_contract(
+        model=model["model"],
+        system="system",
+        user="user",
+        thinking_mode="low",
+        response_format=model["response_format"],
+        response_schema=schema,
+    )
+    assert request["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "h3c_agent_response",
+            "strict": True,
+            "schema": schema,
+        },
+    }
+    assert request["thinking"] == {"type": "enabled"}
+    assert request["reasoning_effort"] == "low"
+    assert "temperature" not in request and "top_p" not in request

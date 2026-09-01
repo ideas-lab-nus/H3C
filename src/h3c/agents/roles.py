@@ -12,7 +12,10 @@ from h3c.agents.context_compiler import CompiledContext, ContextBuilder
 from h3c.agents.contracts import (
     DEFAULT_PER_ZONE_RESERVED_CAP_C,
     allocation_contract,
+    executor_response_schema,
+    orchestrator_response_schema,
     rationale_length_telemetry,
+    reflector_response_schema,
 )
 from h3c.agents.dynamic_prompt import (
     COOLING_CONTROL_DOMAIN,
@@ -65,6 +68,7 @@ class ModelClient(Protocol):
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str: ...
 
 
@@ -623,6 +627,9 @@ class Orchestrator:
             system=system_prompt("orchestrator", causal_enabled=causal_enabled),
             user=user,
             thinking_mode=thinking_mode,
+            response_schema=orchestrator_response_schema(
+                zones=tuple(zones), causal_enabled=causal_enabled
+            ),
         )
         allocation, self.last_rationale_telemetry = resolve_orchestrator_model_output(
             raw,
@@ -776,6 +783,10 @@ class Executor:
             ),
             user=user,
             thinking_mode=thinking_mode,
+            response_schema=executor_response_schema(
+                causal_enabled=causal_enabled,
+                long_term_memory=long_term_memory,
+            ),
         )
         self.last_rationale_telemetry = None
         self.last_memory_refs = []
@@ -898,6 +909,9 @@ class Reflector:
             ),
             user=user,
             thinking_mode=thinking_mode,
+            response_schema=reflector_response_schema(
+                zones=tuple(zones), long_term_memory=long_term_memory
+            ),
         )
         try:
             payload = parse_bare_json(raw)

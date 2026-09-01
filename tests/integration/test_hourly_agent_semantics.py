@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -73,8 +74,9 @@ class PriorityModel:
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
-        del system, thinking_mode
+        del system, thinking_mode, response_schema
         self.calls.append((role, context.zone, user))
         if role == "orchestrator":
             return json.dumps(
@@ -167,6 +169,7 @@ class DelayedPriorityModel(PriorityModel):
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
         if role != "executor":
             return await super().complete(
@@ -175,6 +178,7 @@ class DelayedPriorityModel(PriorityModel):
                 system=system,
                 user=user,
                 thinking_mode=thinking_mode,
+                response_schema=response_schema,
             )
         assert context.zone is not None
         self.calls.append((role, context.zone, user))
@@ -244,6 +248,7 @@ class FailingExecutorBatchModel(PriorityModel):
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
         if role != "executor":
             return await super().complete(
@@ -252,6 +257,7 @@ class FailingExecutorBatchModel(PriorityModel):
                 system=system,
                 user=user,
                 thinking_mode=thinking_mode,
+                response_schema=response_schema,
             )
         assert context.zone is not None
         await asyncio.sleep(0.02 if context.zone == "zoneA" else 0.001)
@@ -331,8 +337,9 @@ class SequencedModel:
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
-        del system, thinking_mode
+        del system, thinking_mode, response_schema
         if role == "orchestrator":
             return json.dumps(
                 {

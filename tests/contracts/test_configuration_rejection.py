@@ -58,7 +58,8 @@ def test_missing_occupancy_policy_drift_fails_closed(
 
 def test_runtime_and_suite_contracts_are_strict(tmp_path: Path) -> None:
     runtime = load_runtime_contract()
-    assert runtime["schema_version"] == 3
+    assert runtime["schema_version"] == 4
+    assert runtime["model"]["default_provider"] == "baseten-deepseek"
     assert runtime["model"]["retry_count"] == 2
     assert runtime["model"]["retry_backoff_seconds"] == [1.0, 2.0]
     suite = load_suite_contract()
@@ -87,6 +88,13 @@ def test_runtime_and_suite_contracts_are_strict(tmp_path: Path) -> None:
         "literal-secret-value"
     )
     path = tmp_path / "runtime_environment_rejected.json"
+    path.write_text(json.dumps(drifted), encoding="utf-8")
+    with pytest.raises(ValueError, match="model provider contracts"):
+        load_runtime_contract(path)
+
+    drifted = json.loads(json.dumps(runtime))
+    drifted["model"]["providers"]["baseten-deepseek"]["response_format"] = "json_object"
+    path = tmp_path / "runtime_response_format_rejected.json"
     path.write_text(json.dumps(drifted), encoding="utf-8")
     with pytest.raises(ValueError, match="model provider contracts"):
         load_runtime_contract(path)

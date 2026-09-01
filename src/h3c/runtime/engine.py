@@ -1207,6 +1207,7 @@ async def _execute_one(
                 provider_id=provider_id,
                 extra_headers=extra_headers,
                 retryable_status_codes=tuple(provider_contract["retryable_status_codes"]),
+                response_format=str(provider_contract["response_format"]),
             )
         )
     started = time.perf_counter()

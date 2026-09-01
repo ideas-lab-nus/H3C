@@ -208,7 +208,9 @@ class FakeModelClient:
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
+        del response_schema
         context_fields = context.as_mapping()
         if role == "orchestrator":
             if self.zero_allocation:
@@ -451,6 +453,7 @@ def _agent(*, long_term_memory: bool = False) -> RunPlan:
         graph_mutation=None,
         evaluation_hours=6,
         long_term_memory=long_term_memory,
+        model_provider="deepseek-official",
     )
 
 
@@ -464,6 +467,7 @@ def _causal_off_agent() -> RunPlan:
         thinking_policy="occupancy_routed",
         graph_mutation=None,
         evaluation_hours=6,
+        model_provider="deepseek-official",
     )
 
 
@@ -477,6 +481,7 @@ def _independent_agent() -> RunPlan:
         thinking_policy="occupancy_routed",
         graph_mutation=None,
         evaluation_hours=6,
+        model_provider="deepseek-official",
     )
 
 
@@ -490,6 +495,7 @@ def _no_thinking_agent() -> RunPlan:
         thinking_policy="all_roles_disabled",
         graph_mutation=None,
         evaluation_hours=6,
+        model_provider="deepseek-official",
     )
 
 
@@ -730,6 +736,7 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
             system: str,
             user: str,
             thinking_mode: str,
+            response_schema: Mapping[str, Any] | None = None,
         ) -> str:
             phase_events.append((context.hour, role, physical.advance_count))
             return await super().complete(
@@ -738,6 +745,7 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
                 system=system,
                 user=user,
                 thinking_mode=thinking_mode,
+                response_schema=response_schema,
             )
 
     result = execute_serial(
@@ -1134,6 +1142,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
             system: str,
             user: str,
             thinking_mode: str,
+            response_schema: Mapping[str, Any] | None = None,
         ) -> str:
             active_role[0] = role
             before = physical.advance_count
@@ -1143,6 +1152,7 @@ def test_production_retry_does_not_advance_physical_state_between_attempts(
                 system=system,
                 user=user,
                 thinking_mode=thinking_mode,
+                response_schema=response_schema,
             )
             assert physical.advance_count == before
             return output

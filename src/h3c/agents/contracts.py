@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 PATCH_OPERATIONS = (
     "set_param",
@@ -202,3 +202,259 @@ def allocation_constraint_text(*, causal_enabled: bool, language: str) -> str:
         "每区额度：有限且在 [0,per_zone_reserved_cap_c]；总和 ≤ cap，允许未用满。"
         "priority：区域全排列，优先级从高到低。理由不能为空。" + causal
     )
+
+
+def _nonempty_string() -> dict[str, Any]:
+    return {"type": "string", "minLength": 1}
+
+
+def _causal_identifiers() -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": _nonempty_string(),
+        "minItems": 1,
+        "uniqueItems": True,
+    }
+
+
+def _resolved_value_schema() -> dict[str, Any]:
+    def reference(key: str) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {key: _nonempty_string()},
+            "required": [key],
+            "additionalProperties": False,
+        }
+
+    return {
+        "oneOf": [
+            {"type": "number"},
+            reference("param"),
+            reference("neg_param"),
+        ]
+    }
+
+
+def _rule_schema() -> dict[str, Any]:
+    condition = {
+        "type": "object",
+        "properties": {
+            "field": _nonempty_string(),
+            "op": _nonempty_string(),
+            "value": _resolved_value_schema(),
+        },
+        "required": ["field", "op", "value"],
+        "additionalProperties": False,
+    }
+    then = {
+        "oneOf": [
+            {
+                "type": "object",
+                "properties": {"op": {"const": "hold_setpoint"}},
+                "required": ["op"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "op": {"enum": ["set_residual", "step_setpoint"]},
+                    "value": _resolved_value_schema(),
+                },
+                "required": ["op", "value"],
+                "additionalProperties": False,
+            },
+        ]
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "id": _nonempty_string(),
+            "when": {"type": "array", "items": condition, "minItems": 1},
+            "then": then,
+        },
+        "required": ["id", "when", "then"],
+        "additionalProperties": False,
+    }
+
+
+def _operation_schema(operation: str, *, causal_enabled: bool) -> dict[str, Any]:
+    contract = patch_contract(causal_enabled=causal_enabled)["operations"][operation]
+    properties: dict[str, Any] = {
+        "op": {"const": operation},
+        "rationale": _nonempty_string(),
+    }
+    if operation == "set_param":
+        properties.update({"param": _nonempty_string(), "to": {"type": "number"}})
+    elif operation in {"add_rule", "replace_rule"}:
+        properties["rule"] = _rule_schema()
+        if operation == "add_rule":
+            properties["index"] = {"type": "integer", "minimum": 0}
+    elif operation == "remove_rule":
+        properties["id"] = _nonempty_string()
+    elif operation == "move_rule":
+        properties.update(
+            {
+                "id": _nonempty_string(),
+                "to_index": {"type": "integer", "minimum": 0},
+            }
+        )
+    if causal_enabled and operation != "no_change":
+        properties["causal_edge_ids"] = _causal_identifiers()
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(contract["required"]),
+        "additionalProperties": False,
+    }
+
+
+def executor_response_schema(*, causal_enabled: bool, long_term_memory: bool) -> dict[str, Any]:
+    """Return the exact provider-native Executor envelope schema."""
+    properties: dict[str, Any] = {
+        "patch": {
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    _operation_schema(operation, causal_enabled=causal_enabled)
+                    for operation in PATCH_OPERATIONS
+                ]
+            },
+            "minItems": 1,
+            "maxItems": 1,
+        }
+    }
+    required = ["patch"]
+    if long_term_memory:
+        properties["memory_refs"] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "regime": {
+                        "enum": [
+                            "unoccupied",
+                            "occupancy_transition",
+                            "steady_state_occupancy",
+                        ]
+                    },
+                    "revision": {"type": "integer", "minimum": 1},
+                },
+                "required": ["regime", "revision"],
+                "additionalProperties": False,
+            },
+            "uniqueItems": True,
+        }
+        required.append("memory_refs")
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
+def orchestrator_response_schema(*, zones: tuple[str, ...], causal_enabled: bool) -> dict[str, Any]:
+    """Return the exact provider-native Orchestrator envelope schema."""
+    if not zones or len(zones) != len(set(zones)):
+        raise ValueError("orchestrator response schema requires unique configured zones")
+    zone_values = {zone: {"type": "number"} for zone in zones}
+    zone_rationales = {zone: _nonempty_string() for zone in zones}
+    properties: dict[str, Any] = {
+        "site_cap_c": {"type": "number"},
+        "zone_budgets_c": {
+            "type": "object",
+            "properties": zone_values,
+            "required": list(zones),
+            "additionalProperties": False,
+        },
+        "priority": {
+            "type": "array",
+            "items": {"enum": list(zones)},
+            "minItems": len(zones),
+            "maxItems": len(zones),
+            "uniqueItems": True,
+        },
+        "rationale_per_zone": {
+            "type": "object",
+            "properties": zone_rationales,
+            "required": list(zones),
+            "additionalProperties": False,
+        },
+    }
+    required = list(ALLOCATION_CONTRACT_SPEC["fields"])
+    if causal_enabled:
+        properties["causal_edge_ids"] = _causal_identifiers()
+        required.append(str(ALLOCATION_CONTRACT_SPEC["causal_field"]))
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
+def reflector_response_schema(*, zones: tuple[str, ...], long_term_memory: bool) -> dict[str, Any]:
+    """Return the exact provider-native Reflector envelope schema."""
+    if not zones or len(zones) != len(set(zones)):
+        raise ValueError("reflector response schema requires unique configured zones")
+    lesson = {
+        "type": "object",
+        "properties": {
+            "zone": {"enum": list(zones)},
+            "lesson": _nonempty_string(),
+        },
+        "required": ["zone", "lesson"],
+        "additionalProperties": False,
+    }
+    properties: dict[str, Any] = {
+        "hourly_lessons": {
+            "type": "array",
+            "items": lesson,
+            "minItems": len(zones),
+            "maxItems": len(zones),
+        }
+    }
+    required = ["hourly_lessons"]
+    if long_term_memory:
+        regimes = ["unoccupied", "occupancy_transition", "steady_state_occupancy"]
+        operation_common = {
+            "zone": {"enum": list(zones)},
+            "regime": {"enum": regimes},
+            "expected_revision": {"type": "integer", "minimum": 1},
+            "experience": _nonempty_string(),
+        }
+
+        def operation(
+            op: Literal["no_change", "add", "replace", "delete"],
+        ) -> dict[str, Any]:
+            fields = {"zone": operation_common["zone"], "op": {"const": op}}
+            required_fields = ["zone", "op"]
+            if op != "no_change":
+                fields["regime"] = operation_common["regime"]
+                required_fields.append("regime")
+            if op in {"replace", "delete"}:
+                fields["expected_revision"] = operation_common["expected_revision"]
+                required_fields.append("expected_revision")
+            if op in {"add", "replace"}:
+                fields["experience"] = operation_common["experience"]
+                required_fields.append("experience")
+            return {
+                "type": "object",
+                "properties": fields,
+                "required": required_fields,
+                "additionalProperties": False,
+            }
+
+        properties["memory_operations"] = {
+            "type": "array",
+            "items": {"oneOf": [operation(op) for op in ("no_change", "add", "replace", "delete")]},
+            "minItems": len(zones),
+            "maxItems": len(zones),
+        }
+        required.append("memory_operations")
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }

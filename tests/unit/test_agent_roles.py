@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
+from typing import Any
 
 import pytest
 
@@ -21,8 +23,9 @@ class StaticModelClient:
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
-        del context, role, system, user, thinking_mode
+        del context, role, system, user, thinking_mode, response_schema
         return self.output
 
 

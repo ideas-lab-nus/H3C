@@ -71,17 +71,35 @@ def model_request_contract(
     system: str,
     user: str,
     thinking_mode: str,
+    response_format: str = "json_object",
+    response_schema: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the one exact OpenAI-compatible request body used on every attempt."""
     if thinking_mode not in {"low", "disabled"}:
         raise ValueError("thinking mode must be low or disabled")
+    if response_format not in {"json_object", "json_schema"}:
+        raise ValueError("response format must be json_object or json_schema")
+    if response_format == "json_schema" and response_schema is None:
+        raise ValueError("JSON-schema response format requires a schema")
+    if response_format == "json_object" and response_schema is not None:
+        raise ValueError("JSON-object response format cannot carry a schema")
+    response_contract: dict[str, Any] = {"type": "json_object"}
+    if response_schema is not None:
+        response_contract = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "h3c_agent_response",
+                "strict": True,
+                "schema": dict(response_schema),
+            },
+        }
     contract: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "response_format": {"type": "json_object"},
+        "response_format": response_contract,
         "thinking": {"type": "enabled" if thinking_mode == "low" else "disabled"},
     }
     if thinking_mode == "low":
@@ -475,6 +493,7 @@ class OpenAICompatibleModelClient:
     provider_id: str = "deepseek-official"
     extra_headers: Mapping[str, str] | None = None
     retryable_status_codes: tuple[int, ...] = (429, 503)
+    response_format: str = "json_object"
 
     async def complete(
         self,
@@ -484,6 +503,7 @@ class OpenAICompatibleModelClient:
         system: str,
         user: str,
         thinking_mode: str,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> str:
         if self.retry_count_limit < 0 or len(self.retry_backoff_seconds) != self.retry_count_limit:
             raise ValueError("model retry configuration is invalid")
@@ -492,6 +512,8 @@ class OpenAICompatibleModelClient:
             system=system,
             user=user,
             thinking_mode=thinking_mode,
+            response_format=self.response_format,
+            response_schema=(response_schema if self.response_format == "json_schema" else None),
         )
         context_fields = context.as_mapping()
         request_identity = model_request_identity(request_contract)

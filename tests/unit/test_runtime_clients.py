@@ -116,10 +116,12 @@ def test_http_529_is_retryable_only_for_the_baseten_provider_contract(
 def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> None:
     rows: list[tuple[str, dict[str, Any]]] = []
     captured_headers: list[dict[str, str]] = []
+    captured_payloads: list[dict[str, Any]] = []
 
     def request(*args: Any, **kwargs: Any) -> dict[str, Any]:
         del args
         captured_headers.append(dict(kwargs["headers"]))
+        captured_payloads.append(dict(kwargs["payload"]))
         return _model_response(model="deepseek-ai/DeepSeek-V4-Flash-0731")
 
     monkeypatch.setattr("h3c.runtime.clients._request_json", request)
@@ -133,7 +135,14 @@ def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> No
         provider_id="baseten-deepseek",
         extra_headers={"x-session-affinity": "run-specific-affinity"},
         retryable_status_codes=(429, 503, 529),
+        response_format="json_schema",
     )
+    schema = {
+        "type": "object",
+        "properties": {"patch": {"type": "array"}},
+        "required": ["patch"],
+        "additionalProperties": False,
+    }
     asyncio.run(
         client.complete(
             context=ModelCallContext(0, 0, 0),
@@ -141,6 +150,7 @@ def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> No
             system="system",
             user="user",
             thinking_mode="low",
+            response_schema=schema,
         )
     )
     assert captured_headers == [
@@ -149,6 +159,14 @@ def test_baseten_session_affinity_is_sent_but_not_logged(monkeypatch: Any) -> No
             "x-session-affinity": "run-specific-affinity",
         }
     ]
+    assert captured_payloads[0]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "h3c_agent_response",
+            "strict": True,
+            "schema": schema,
+        },
+    }
     evidence = json.dumps(rows)
     assert "baseten-secret-not-recorded" not in evidence
     assert "run-specific-affinity" not in evidence

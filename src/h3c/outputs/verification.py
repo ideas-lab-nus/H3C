@@ -10,7 +10,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from h3c.agents.contracts import rationale_length_telemetry
+from h3c.agents.contracts import (
+    executor_response_schema,
+    orchestrator_response_schema,
+    rationale_length_telemetry,
+    reflector_response_schema,
+)
 from h3c.agents.roles import (
     ModelContractError,
     resolve_executor_memory_model_output,
@@ -1244,7 +1249,8 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
             if isinstance(selected_provider, str)
             else None
         )
-        model_name = None if provider_contract is None else provider_contract["model"]
+        raw_model_name = None if provider_contract is None else provider_contract["model"]
+        model_name = raw_model_name if isinstance(raw_model_name, str) else ""
         provider_retryable_http_errors = (
             {f"http_{code}" for code in provider_contract["retryable_status_codes"]}
             if provider_contract is not None
@@ -1818,12 +1824,38 @@ def verify_run(run_dir: Path, *, require_completion: bool = True) -> dict[str, A
         request_contract_ok = True
         for row in raw_calls:
             try:
-                expected_request: dict[str, Any] = {
-                    "model": model_name,
-                    "response_format": {"type": runtime["model"]["response_format"]},
-                    "thinking": {
-                        "type": "enabled" if row["thinking_mode"] == "low" else "disabled"
-                    },
+                response_format = runtime["model"]["providers"][selected_provider][
+                    "response_format"
+                ]
+                response_schema: dict[str, Any] | None = None
+                if response_format == "json_schema":
+                    role = row["role"]
+                    if role == "orchestrator":
+                        response_schema = orchestrator_response_schema(
+                            zones=tuple(zones), causal_enabled=causal_enabled
+                        )
+                    elif role == "executor":
+                        response_schema = executor_response_schema(
+                            causal_enabled=causal_enabled,
+                            long_term_memory=bool(method.get("long_term_memory")),
+                        )
+                    elif role == "reflector":
+                        response_schema = reflector_response_schema(
+                            zones=tuple(zones),
+                            long_term_memory=bool(method.get("long_term_memory")),
+                        )
+                    else:
+                        raise ValueError("raw call role is invalid")
+                expected_contract = model_request_contract(
+                    model=model_name,
+                    system=row["system"],
+                    user=row["user"],
+                    thinking_mode=row["thinking_mode"],
+                    response_format=response_format,
+                    response_schema=response_schema,
+                )
+                expected_request = {
+                    key: value for key, value in expected_contract.items() if key != "messages"
                 }
                 if row["thinking_mode"] == "low":
                     expected_request["reasoning_effort"] = runtime["model"][
