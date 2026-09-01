@@ -77,7 +77,7 @@ def _program_before_hour(
     method: Mapping[str, Any],
     hour: int,
     zone: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     ledger = ProgramLedger(
         load_program(repository / str(profile["program"]), zone),
         causal_enabled=bool(method["causal_enabled"]),
@@ -115,7 +115,7 @@ def _program_before_hour(
     )
     if ledger.version != int(current["program_version_before"]):
         raise ValueError("program version before frozen call is inconsistent")
-    return ledger.prompt_view()
+    return ledger.prompt_view(), ledger.replay(weather_enabled=bool(method["weather_enabled"]))
 
 
 def _working_memory(
@@ -178,7 +178,7 @@ def _build_input(
     if len(zone_rows) != 4:
         raise ValueError("frozen Executor input lacks one complete physical hour")
     first_step = zone_rows[0]
-    program = _program_before_hour(
+    program, validation_program = _program_before_hour(
         repository=repository,
         run=run,
         profile=profile,
@@ -245,6 +245,7 @@ def _build_input(
         "system_sha256": _sha256_text(system),
         "user_sha256": _sha256_text(user),
         "program": program,
+        "validation_program": validation_program,
         "observation": observation,
         "graph_path": str(repository / str(profile["graph"])),
         "weather_enabled": bool(method["weather_enabled"]),
@@ -274,7 +275,7 @@ def _prepare(
     _write_jsonl(output / "prepared_inputs.jsonl", inputs)
     manifest = {
         "probe_schema": "h3c_hydro_interpreter_semantics_probe_inputs",
-        "schema_version": 1,
+        "schema_version": 2,
         "prepared_at": datetime.now(UTC).isoformat(),
         "source_runs": [str(path) for path in sources],
         "samples": [
@@ -299,6 +300,10 @@ def _prepare(
 async def _execute(output: Path) -> dict[str, Any]:
     inputs = _read_jsonl(output / "prepared_inputs.jsonl")
     manifest = json.loads((output / "input_manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("schema_version") != 2 or any(
+        "validation_program" not in row for row in inputs
+    ):
+        raise ValueError("probe inputs do not contain full executable validation programs")
     provider = "baseten-deepseek"
     contract = load_model_provider_contract(provider)
     key_name = str(contract["api_key_environment_variable"])
@@ -357,14 +362,15 @@ async def _execute(output: Path) -> dict[str, Any]:
         error_type: str | None = None
         patch: dict[str, Any] | None = None
         validation_status: str | None = None
-        before = current_interpreter_derivation(row["program"], row["observation"])
+        validation_program = row["validation_program"]
+        before = current_interpreter_derivation(validation_program, row["observation"])
         after: dict[str, Any] | None = None
         try:
             patch, _ = resolve_executor_model_output(output_text, causal_enabled=True)
             graph = load_graph(Path(str(row["graph_path"])))
             validation = validate_candidate(
                 patch,
-                row["program"],
+                validation_program,
                 graph=graph,
                 ledger=None,
                 zone=str(row["zone"]),
@@ -373,11 +379,13 @@ async def _execute(output: Path) -> dict[str, Any]:
                 coordination_enabled=False,
                 weather_enabled=bool(row["weather_enabled"]),
             )
-            validation_status = (
-                "accepted_without_budget_settlement"
-                if validation.accepted
-                else f"registered_rejection:{validation.rejection.code}"
-            )
+            if validation.accepted:
+                validation_status = "accepted_without_budget_settlement"
+            else:
+                rejection = validation.rejection
+                if rejection is None:
+                    raise ValueError("rejected validation is missing its rejection evidence")
+                validation_status = f"registered_rejection:{rejection.code}"
             if validation.candidate_program is not None:
                 after = current_interpreter_derivation(
                     validation.candidate_program,
@@ -386,7 +394,7 @@ async def _execute(output: Path) -> dict[str, Any]:
             else:
                 try:
                     candidate = apply_patch(
-                        row["program"],
+                        validation_program,
                         patch,
                         causal_enabled=True,
                         weather_enabled=bool(row["weather_enabled"]),

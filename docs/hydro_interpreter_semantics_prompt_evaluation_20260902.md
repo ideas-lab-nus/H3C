@@ -183,6 +183,79 @@ explicit pre-assurance interpreter result. This step made no Provider or BOPTEST
 
 Ignored frozen evidence is under
 `outputs/diagnostics/hydro-rule-effect-projection-probe-inputs-20260902-2bac002-v2/`.
-No second Provider batch or BOPTEST run has been executed. The first authorization
-was exhausted by exactly six requests, so external semantic revalidation requires a
-new explicit authorization.
+
+## Second Provider result
+
+After a second explicit user authorization, exactly the six frozen Executor requests
+above were sent to Baseten. No request was retried and no BOPTEST test was selected or
+initialized. All six calls returned the exact registered model, strict JSON, the exact
+singleton-patch envelope, `finish_reason=stop`, complete usage, and no secret exposure.
+
+| Check | Result |
+|---|---:|
+| Exact frozen requests | 6/6 |
+| Structural output contract | 6/6 |
+| First-attempt completion | 6/6 |
+| Exact provider/model/request contract | 6/6 |
+| Secret scan | 0 occurrences |
+
+Five responses correctly used the target rule's matching-state base, action formula,
+direction and exact setpoint arithmetic. The hour-67 SZ response did not. It proposed
+replacing unoccupied `set_residual(0)` with `step_setpoint(+1)` and claimed the
+setpoint would accumulate from 26.85 C to 29.85 C over the unoccupied interval. The
+displayed and executable semantics instead produce:
+
+| Action time | Current occupancy | Previous occupancy | Executed result |
+|---|---:|---:|---:|
+| 19:00 | occupied | occupied | existing `occupied_hold` = 26.85 C |
+| 19:15 | unoccupied | occupied | 26.85 + 1.00 = 27.85 C |
+| 19:30 | unoccupied | unoccupied | 30.00 + 1.00, clipped to 30.00 C |
+| 19:45 | unoccupied | unoccupied | 30.00 C |
+
+Thus the response did understand that the existing unoccupied `set_residual(0)`
+returns to 30 C, but it still treated `step_setpoint` as cumulative after
+`previous_occupancy` became zero. This violates the preregistered proposed-formula and
+exact-setpoint semantic gate. An independent read-only review reached the same
+conclusion. The batch is therefore not eligible to launch Hydro.
+
+## Diagnostic-validator correction
+
+The original `probe_summary.json` labels all six patches
+`registered_rejection:schema_invalid`. That label is a probe-harness false negative,
+not a model output or production-validator failure. The harness passed
+`ProgramLedger.prompt_view()` to `validate_candidate`; that Agent-facing view contains
+`program_version`, `params` and `rules`, while the unchanged validator correctly
+requires the complete executable program including `spec_version=2`,
+`precool_trigger=rolling`, `zone` and provenance.
+
+Zero-call replay with the complete executable programs gives the real registered
+validator disposition:
+
+| Sample | Operation | Registered disposition before Budget settlement |
+|---|---|---|
+| H55 NZ, adverse source | `set_param` | accepted |
+| H41 SZ | `add_rule` | accepted |
+| H55 NZ, recovery source | `set_param` | accepted |
+| H57 SZ | `replace_rule` | accepted |
+| H67 SZ | `replace_rule` | accepted; full-program direction is more cooling |
+| H92 SZ | `replace_rule` | rejected by the existing full-program direction proof: `program_direction_undetermined` |
+
+The probe now persists two separate owners: the compact Agent-visible program for the
+request and the full replayed executable program for deterministic validation. A
+zero-call dry-run rebuilt all six inputs with unchanged system/user hashes and complete
+validation programs. This correction changes neither the Agent request nor any runtime
+control, constraint, P0 program, Prompt or acceptance criterion.
+
+Final disposition:
+
+```text
+STRUCTURAL-PASS
+VALIDATOR-HARNESS-FALSE-NEGATIVE-RECERTIFIED
+SEMANTIC-FAIL
+HYDRO-NOT-ELIGIBLE
+```
+
+The second authorization was exhausted by exactly six requests. No Hydro run was
+started. Any further Prompt or method iteration, including deterministic projection of
+a proposed rule across all four action times, requires a new user decision and a new
+external-call authorization.
