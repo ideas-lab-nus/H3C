@@ -206,6 +206,7 @@ def system_prompt(
     language: Language = "en",
     coordination_enabled: bool = True,
     long_term_memory: bool = False,
+    working_memory_enabled: bool = True,
 ) -> str:
     rows: list[str] = []
     for unit in PAIRED_PROMPT_UNITS[role]:
@@ -216,6 +217,13 @@ def system_prompt(
         if role == "executor" and unit["id"] == "decision" and not causal_enabled:
             body = body.replace("causal evidence, ", "")
             body = body.replace("因果证据、", "")
+        if unit["id"] == "decision" and not working_memory_enabled:
+            body = body.replace(", working memory", "")
+            body = body.replace("、工作记忆", "")
+            body = body.replace(" and WORKING MEMORY", "")
+            body = body.replace(", WORKING MEMORY", "")
+            body = body.replace("与 WORKING MEMORY", "")
+            body = body.replace("、WORKING MEMORY", "")
         if role == "reflector" and unit["id"] == "hard_boundaries" and not causal_enabled:
             body = body.replace(" or unsupported causal claim", " or unsupported claim")
             body = body.replace("或无证据因果结论", "或无证据结论")

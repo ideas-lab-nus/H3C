@@ -53,10 +53,14 @@ def _plan_view(plans: list[RunPlan]) -> dict[str, Any]:
     }
 
 
-def _execute(plans: list[RunPlan], suite: str) -> None:
+def _execute(plans: list[RunPlan], suite: str, *, defer_full_verification: bool = False) -> None:
     from h3c.runtime.engine import execute_serial
 
-    result = execute_serial(plans, suite=suite)
+    result = execute_serial(
+        plans,
+        suite=suite,
+        defer_full_verification=defer_full_verification,
+    )
     _print(result)
 
 
@@ -202,7 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=tuple(load_diagnostic_window_catalog()),
         help="use one registered non-formal evaluation window",
     )
-    run.add_argument("--working-memory-hours", type=int, choices=(1, 2, 3), default=1)
+    run.add_argument("--working-memory-hours", type=int, choices=(0, 1, 2, 3), default=1)
     run.add_argument("--causal-off", action="store_true")
     run.add_argument("--independent-coordination", action="store_true")
     run.add_argument("--no-thinking", action="store_true")
@@ -222,6 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="none",
     )
     run.add_argument("--execute", action="store_true")
+    run.add_argument(
+        "--defer-full-verification",
+        action="store_true",
+        help="publish collection completion and run the full audit later",
+    )
 
     resume_run = commands.add_parser(
         "resume",
@@ -229,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resume_run.add_argument("source_run", type=Path)
     resume_run.add_argument("--execute", action="store_true")
+    resume_run.add_argument(
+        "--defer-full-verification",
+        action="store_true",
+        help="publish collection completion and run the full audit later",
+    )
     resume_run.add_argument(
         "--runtime-recovery-attestation",
         type=Path,
@@ -250,6 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     suite.add_argument("--execute", action="store_true")
     suite.add_argument(
+        "--defer-full-verification",
+        action="store_true",
+        help="publish collection completion and run the full audit later",
+    )
+    suite.add_argument(
         "--arm-index",
         type=int,
         help="select one registered suite arm for independently supervised execution",
@@ -257,6 +276,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = commands.add_parser("verify", help="verify one completed run")
     verify.add_argument("run_dir", type=Path)
+
+    finalize = commands.add_parser(
+        "finalize", help="run one deferred full audit without API or BOPTEST calls"
+    )
+    finalize.add_argument("run_dir", type=Path)
 
     recertify = commands.add_parser(
         "recertify",
@@ -322,15 +346,29 @@ def main(argv: list[str] | None = None) -> None:
     root = repository_root()
     if args.command == "run":
         plans = [_run_plan(args)]
-        _execute(plans, "single-run") if args.execute else _print(_plan_view(plans))
+        (
+            _execute(
+                plans,
+                "single-run",
+                defer_full_verification=args.defer_full_verification,
+            )
+            if args.execute
+            else _print(_plan_view(plans))
+        )
     elif args.command == "resume":
         from h3c.runtime.engine import execute_resume, resume_plan
 
-        resume_kwargs = {"runtime_recovery_attestation": args.runtime_recovery_attestation}
+        resume_kwargs = {
+            "runtime_recovery_attestation": args.runtime_recovery_attestation,
+            "defer_full_verification": args.defer_full_verification,
+        }
         _print(
             execute_resume(args.source_run, **resume_kwargs)
             if args.execute
-            else resume_plan(args.source_run, **resume_kwargs)
+            else resume_plan(
+                args.source_run,
+                runtime_recovery_attestation=args.runtime_recovery_attestation,
+            )
         )
     elif args.command == "suite":
         plans = plan_suite(args.name)
@@ -338,13 +376,28 @@ def main(argv: list[str] | None = None) -> None:
             if not 0 <= args.arm_index < len(plans):
                 raise SystemExit(f"suite arm index must be within 0..{len(plans) - 1}")
             plans = [plans[args.arm_index]]
-        _execute(plans, args.name) if args.execute else _print(_plan_view(plans))
+        (
+            _execute(
+                plans,
+                args.name,
+                defer_full_verification=args.defer_full_verification,
+            )
+            if args.execute
+            else _print(_plan_view(plans))
+        )
     elif args.command == "verify":
         from h3c.outputs.verification import verify_run
 
         result = verify_run(args.run_dir)
         _print(result)
         if not result["passed"]:
+            raise SystemExit(1)
+    elif args.command == "finalize":
+        from h3c.outputs.collection import finalize_run
+
+        result = finalize_run(args.run_dir)
+        _print(result)
+        if result["status"] != "complete":
             raise SystemExit(1)
     elif args.command == "recertify":
         from h3c.outputs.verification import recertify_run

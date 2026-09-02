@@ -75,6 +75,16 @@ class RunArtifacts:
         if not self.run_dir.is_relative_to(base):
             raise ArtifactError("run path escaped the configured output root")
 
+    @classmethod
+    def open_existing(cls, run_dir: Path) -> RunArtifacts:
+        """Open one explicit run directory without deriving or changing its path."""
+        resolved = run_dir.resolve()
+        if not resolved.is_dir():
+            raise ArtifactError("run directory does not exist")
+        artifacts = cls.__new__(cls)
+        artifacts.run_dir = resolved
+        return artifacts
+
     def create(self, resolved_config: Mapping[str, Any], manifest: Mapping[str, Any]) -> None:
         if self.run_dir.exists():
             raise ArtifactError("fresh run directory already exists")
@@ -86,32 +96,49 @@ class RunArtifacts:
         with (self.run_dir / "performance.csv").open("x", encoding="utf-8", newline="") as file:
             csv.writer(file).writerow(PERFORMANCE_COLUMNS)
 
+    def _runtime_is_frozen(self) -> bool:
+        return any(
+            (self.run_dir / name).exists()
+            for name in ("collection_complete.json", "completion.json", "failure.json")
+        )
+
     def _write_new_json(self, name: str, value: Any) -> None:
         path = self.run_dir / name
         with path.open("x", encoding="utf-8", newline="\n") as file:
             file.write(_json_text(value) + "\n")
 
+    def _write_new_json_atomic(self, name: str, value: Any) -> Path:
+        path = self.run_dir / name
+        pending = self.run_dir / f".{name}.pending"
+        if path.exists() or pending.exists():
+            raise ArtifactError(f"{name} publication has already been attempted")
+        with pending.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(_json_text(value) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        pending.replace(path)
+        return path
+
     def append_jsonl(self, name: str, value: Mapping[str, Any]) -> None:
         if name not in STREAM_FILES:
             raise ArtifactError("unknown JSON-lines artifact")
+        if self._runtime_is_frozen():
+            raise ArtifactError("runtime evidence cannot change after collection completion")
         with (self.run_dir / name).open("a", encoding="utf-8", newline="\n") as file:
             file.write(_json_text(value) + "\n")
 
     def append_performance(self, row: Sequence[Any]) -> None:
         if len(row) != len(PERFORMANCE_COLUMNS):
             raise ArtifactError("performance row does not match the registered columns")
+        if self._runtime_is_frozen():
+            raise ArtifactError("runtime evidence cannot change after collection completion")
         with (self.run_dir / "performance.csv").open("a", encoding="utf-8", newline="") as file:
             csv.writer(file).writerow(row)
 
     def replace_manifest(self, manifest: Mapping[str, Any]) -> None:
         path = self.run_dir / "manifest.json"
         pending = self.run_dir / ".manifest.pending"
-        if (
-            not path.is_file()
-            or pending.exists()
-            or (self.run_dir / "completion.json").exists()
-            or (self.run_dir / "failure.json").exists()
-        ):
+        if not path.is_file() or pending.exists() or self._runtime_is_frozen():
             raise ArtifactError("manifest cannot be replaced in the current run state")
         with pending.open("x", encoding="utf-8", newline="\n") as file:
             file.write(_json_text(manifest) + "\n")
@@ -122,7 +149,7 @@ class RunArtifacts:
     def _replace_runtime_state(self, name: str, value: Mapping[str, Any]) -> None:
         if name not in {"dispatch_state.json", "completed_hour_checkpoint.json"}:
             raise ArtifactError("unknown runtime-state artifact")
-        if (self.run_dir / "completion.json").exists() or (self.run_dir / "failure.json").exists():
+        if self._runtime_is_frozen():
             raise ArtifactError("runtime state cannot change after completion")
         path = self.run_dir / name
         pending = self.run_dir / f".{name}.pending"
@@ -147,7 +174,34 @@ class RunArtifacts:
         self._write_new_json("forecast_inputs.json", value)
 
     def write_verification(self, verification: Mapping[str, Any]) -> None:
-        self._write_new_json("verification.json", verification)
+        self._write_new_json_atomic("verification.json", verification)
+
+    def publish_collection_complete(self, collection: Mapping[str, Any]) -> Path:
+        if any(
+            (self.run_dir / name).exists()
+            for name in (
+                "collection_complete.json",
+                "verification.json",
+                "completion.json",
+                "failure.json",
+            )
+        ):
+            raise ArtifactError("collection completion has already been attempted")
+        if not (self.run_dir / "metrics.json").is_file():
+            raise ArtifactError("metrics must exist before collection completion")
+        manifest = json.loads((self.run_dir / "manifest.json").read_text(encoding="utf-8"))
+        if collection.get("collection_eligible") is not True:
+            raise ArtifactError("collection completion requires a passing collection gate")
+        if collection.get("run_identity") != manifest.get("run_identity"):
+            raise ArtifactError("collection identity does not match the run manifest")
+        marker = self.run_dir / "collection_complete.json"
+        pending = self.run_dir / ".collection_complete.pending"
+        with pending.open("x", encoding="utf-8", newline="\n") as file:
+            file.write(_json_text(collection) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        pending.replace(marker)
+        return marker
 
     def publish_completion(self, completion: Mapping[str, Any]) -> Path:
         if (self.run_dir / "failure.json").exists():

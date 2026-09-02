@@ -19,6 +19,13 @@ verification, and current-output secret scan. Model wire attempts are separate f
 calls so a recovered transient transport attempt does not look like another control decision.
 See [the run-artifact contract](../docs/run_artifacts.md).
 
+Batch runs may first publish `collection_complete.json` after the stopped physical
+lifecycle passes the fast collection gate. This means
+`COLLECTION-COMPLETE / FULL-AUDIT-PENDING`, releases the physical lock, and
+freezes runtime evidence; it is not a valid-result marker. The zero-network
+`h3c finalize` command later runs one full audit and publishes
+`verification.json` and `completion.json`.
+
 An evidence-consistent physical lifecycle may be classified
 `EXECUTION-HEALTHY-MODEL-CONTRACT-DEGRADED` when control execution is healthy but one or more model
 outputs violate their registered contract. `RUN-INVALID` means execution integrity is not

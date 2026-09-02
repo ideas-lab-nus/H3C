@@ -151,7 +151,9 @@ def test_all_registered_configuration_files_resolve_through_production_loaders(
     ("field", "value", "message"),
     [
         ("controller", "unknown", "controller"),
-        ("working_memory_hours", 0, "working memory"),
+        ("working_memory_hours", -1, "working memory"),
+        ("working_memory_hours", 4, "working memory"),
+        ("working_memory_hours", False, "working memory"),
         ("evaluation_hours", 7, "evaluation hours"),
         ("thinking_policy", "unknown", "thinking policy"),
     ],

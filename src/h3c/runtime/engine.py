@@ -54,6 +54,7 @@ from h3c.memory.working import (
     completed_summary_frame,
 )
 from h3c.outputs.artifacts import RunArtifacts
+from h3c.outputs.collection import collection_gate
 from h3c.outputs.metrics import compute_run_metrics
 from h3c.outputs.verification import verify_run
 from h3c.runtime.clients import (
@@ -89,6 +90,13 @@ class RunAcceptanceFailure(RuntimeError):
         super().__init__(f"run failed pre-completion verification: {verification['errors']}")
         self.run_dir = run_dir
         self.verification = dict(verification)
+
+
+class CollectionAcceptanceFailure(RuntimeError):
+    def __init__(self, run_dir: Path, collection: Mapping[str, Any]) -> None:
+        super().__init__(f"run failed collection-complete gate: {collection['errors']}")
+        self.run_dir = run_dir
+        self.collection = dict(collection)
 
 
 class ExecutorBatchTransportError(TransportError):
@@ -472,6 +480,7 @@ async def _agent_hour(
                 site_causal_edge_ids=shared_power_edge_ids,
                 expected_site_cap_c=resolved_site_cap,
                 expected_per_zone_reserved_cap_c=resolved_per_zone_reserved_cap,
+                working_memory_enabled=plan.working_memory_hours > 0,
             )
             orchestrator_rationale_telemetry = orchestrator.last_rationale_telemetry
         except ModelContractError as error:
@@ -546,6 +555,7 @@ async def _agent_hour(
                 coordination_enabled=plan.coordination_enabled,
                 thinking_mode=thinking_mode,
                 long_term_memory=plan.long_term_memory,
+                working_memory_enabled=plan.working_memory_hours > 0,
             )
             if plan.long_term_memory:
                 valid_refs, invalid_refs = validate_memory_refs(
@@ -1334,6 +1344,7 @@ async def _execute_one(
     physical_factory: PhysicalFactory,
     model_factory: ModelFactory | None,
     resume_prefix: ResumePrefix | None = None,
+    defer_full_verification: bool = False,
 ) -> dict[str, Any]:
     resolved, graph = _resolved_plan(plan)
     profile = resolved["case_profile"]
@@ -1594,12 +1605,30 @@ async def _execute_one(
         artifacts.replace_manifest(manifest)
         metrics = compute_run_metrics(artifacts.run_dir)
         artifacts.write_metrics(metrics)
+        if defer_full_verification:
+            collection = collection_gate(artifacts.run_dir)
+            if not collection["collection_eligible"]:
+                raise CollectionAcceptanceFailure(artifacts.run_dir, collection)
+            collection.update(
+                {
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "elapsed_seconds": time.perf_counter() - started,
+                }
+            )
+            collection_path = artifacts.publish_collection_complete(collection)
+            return {
+                "profile": plan.profile,
+                "status": "COLLECTION-COMPLETE",
+                "audit_status": "FULL-AUDIT-PENDING",
+                "run_identity": run_identity,
+                "collection_complete": str(collection_path),
+                "metrics": metrics,
+                **({"resume_replay": resume_prefix.lineage()} if resume_prefix is not None else {}),
+            }
         verification = verify_run(artifacts.run_dir, require_completion=False)
         artifacts.write_verification(verification)
         if not verification["completion_eligible"]:
             raise RunAcceptanceFailure(artifacts.run_dir, verification)
-        if verify_run(artifacts.run_dir, require_completion=False) != verification:
-            raise ValueError("pre-completion verification changed after result publication")
         completion = {
             "status": "complete",
             "classification": verification["classification"],
@@ -1647,13 +1676,18 @@ async def _execute_one(
                 plan.controller == "h3c_agent"
                 and artifacts.run_dir.is_dir()
                 and not (artifacts.run_dir / "completion.json").exists()
+                and not (artifacts.run_dir / "collection_complete.json").exists()
             ):
                 secret_name = key_environment
                 manifest["secret_exposure_count"] = _secret_occurrences(
                     artifacts.run_dir, os.environ[secret_name]
                 )
                 manifest["secret_scan_status"] = "completed"
-            if artifacts.run_dir.is_dir() and not (artifacts.run_dir / "completion.json").exists():
+            if (
+                artifacts.run_dir.is_dir()
+                and not (artifacts.run_dir / "completion.json").exists()
+                and not (artifacts.run_dir / "collection_complete.json").exists()
+            ):
                 artifacts.replace_manifest(manifest)
     if terminal_error is not None:
         metrics_path = artifacts.run_dir / "metrics.json"
@@ -1665,7 +1699,7 @@ async def _execute_one(
                 artifacts.write_metrics(compute_run_metrics(artifacts.run_dir))
             if verification_path.is_file():
                 failure_verification = json.loads(verification_path.read_text(encoding="utf-8"))
-            else:
+            elif not defer_full_verification:
                 failure_verification = verify_run(artifacts.run_dir, require_completion=False)
                 artifacts.write_verification(failure_verification)
         except Exception as finalization_error:
@@ -1706,6 +1740,7 @@ def execute_serial(
     output_root: Path | None = None,
     physical_factory: PhysicalFactory | None = None,
     model_factory: ModelFactory | None = None,
+    defer_full_verification: bool = False,
 ) -> dict[str, Any]:
     if not plans:
         raise ValueError("serial execution requires at least one run")
@@ -1722,6 +1757,7 @@ def execute_serial(
                         output_root=root,
                         physical_factory=physical_factory or _real_physical_factory,
                         model_factory=model_factory,
+                        defer_full_verification=defer_full_verification,
                     )
                 )
             except RunAcceptanceFailure as error:
@@ -1730,6 +1766,13 @@ def execute_serial(
                     "status": "verification_failed",
                     "run_dir": str(error.run_dir),
                     "verification": error.verification,
+                }
+            except CollectionAcceptanceFailure as error:
+                result = {
+                    "profile": plan.profile,
+                    "status": "collection_failed",
+                    "run_dir": str(error.run_dir),
+                    "collection": error.collection,
                 }
             results.append(result)
     return {"execution": "serial", "completed_runs": results}
@@ -1769,6 +1812,7 @@ def execute_resume(
     physical_factory: PhysicalFactory | None = None,
     model_factory: ModelFactory | None = None,
     runtime_recovery_attestation: Path | None = None,
+    defer_full_verification: bool = False,
 ) -> dict[str, Any]:
     prefix = load_resume_prefix(
         source_run,
@@ -1789,6 +1833,7 @@ def execute_resume(
                     physical_factory=physical_factory or _real_physical_factory,
                     model_factory=model_factory,
                     resume_prefix=prefix,
+                    defer_full_verification=defer_full_verification,
                 )
             )
         except RunAcceptanceFailure as error:
@@ -1797,6 +1842,14 @@ def execute_resume(
                 "status": "verification_failed",
                 "run_dir": str(error.run_dir),
                 "verification": error.verification,
+                "resume_replay": prefix.lineage(),
+            }
+        except CollectionAcceptanceFailure as error:
+            result = {
+                "profile": prefix.plan.profile,
+                "status": "collection_failed",
+                "run_dir": str(error.run_dir),
+                "collection": error.collection,
                 "resume_replay": prefix.lineage(),
             }
     return {"execution": "resume_replay", "completed_runs": [result]}

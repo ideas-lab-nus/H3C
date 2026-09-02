@@ -18,7 +18,7 @@ from h3c.runtime.protocol import (
 from h3c.runtime.weather import weather_condition_inputs, weather_view
 
 
-@pytest.mark.parametrize("hours", [1, 2, 3])
+@pytest.mark.parametrize("hours", [0, 1, 2, 3])
 def test_working_memory_uses_exact_completed_hour_window(hours: int) -> None:
     frames = [
         {"hour": hour, "zone": "zone1", "complete": True, "cost": hour + 0.123456}

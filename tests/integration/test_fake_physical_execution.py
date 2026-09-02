@@ -19,6 +19,7 @@ from h3c.experiments.matrix import RunPlan, plan_suite
 from h3c.experiments.profiles import repository_root
 from h3c.experiments.settings import load_runtime_contract
 from h3c.outputs.artifacts import RunArtifacts
+from h3c.outputs.collection import collection_gate, finalize_run
 from h3c.outputs.reporting import generate_report
 from h3c.outputs.verification import verify_run
 from h3c.runtime import engine as runtime_engine
@@ -445,11 +446,11 @@ def _hydronic_baseline() -> RunPlan:
     )
 
 
-def _agent(*, long_term_memory: bool = False) -> RunPlan:
+def _agent(*, long_term_memory: bool = False, working_memory_hours: int = 1) -> RunPlan:
     return RunPlan(
         profile="SZ_Air",
         controller="h3c_agent",
-        working_memory_hours=1,
+        working_memory_hours=working_memory_hours,
         causal_enabled=True,
         coordination_enabled=True,
         thinking_policy="occupancy_routed",
@@ -831,6 +832,7 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
         "comfort_recovery": 0,
         "setpoint_rate_limit": 0,
     }
+
     assert metrics["orchestration"]["hours"] == 6
     assert metrics["rationale_telemetry"] == {
         "decision_use": "none",
@@ -885,6 +887,101 @@ def test_fake_agent_runs_hourly_roles_and_full_verifier(tmp_path: Path, monkeypa
     updates_path.write_text("\n".join(updates[:-1]) + "\n", encoding="utf-8")
     corrupted = verify_run(run_dir)
     assert corrupted["checks"]["deterministic_settlement"] is False
+
+
+def test_zero_hour_memory_deferred_collection_and_offline_finalize(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    monkeypatch.setenv("H3C_MODEL_ENDPOINT", "https://fake-model.invalid/v1")
+    monkeypatch.setenv("H3C_MODEL_API_KEY", "test-only-secret")
+    physical = FakePhysicalClient()
+    monkeypatch.setattr(
+        runtime_engine,
+        "verify_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("deferred execution called the full verifier")
+        ),
+    )
+    result = execute_serial(
+        [_agent(working_memory_hours=0)],
+        suite="fake-zero-memory-deferred",
+        output_root=tmp_path,
+        physical_factory=lambda endpoint: physical,
+        model_factory=lambda artifacts, model: FakeModelClient(
+            artifacts, model, _shared_power_edge_id()
+        ),
+        defer_full_verification=True,
+    )
+    run = result["completed_runs"][0]
+    assert run["status"] == "COLLECTION-COMPLETE"
+    run_dir = Path(run["collection_complete"]).parent
+    assert physical.initialize_count == physical.stop_count == 1
+    assert not (run_dir / "verification.json").exists()
+    assert not (run_dir / "completion.json").exists()
+    marker = _read_json(run_dir / "collection_complete.json")
+    assert marker["audit_status"] == "FULL-AUDIT-PENDING"
+    assert collection_gate(run_dir)["collection_eligible"] is True
+
+    raw = _read_jsonl(run_dir / "raw_model_io.jsonl")
+    for row in raw:
+        if row["role"] in {"orchestrator", "executor"}:
+            surface = row["system"] + row["user"]
+            assert "WORKING MEMORY" not in surface
+            assert "working memory" not in surface
+            assert "工作记忆" not in surface
+    assert len(_read_jsonl(run_dir / "caol_records.jsonl")) == 6
+
+    corrupted = tmp_path / "corrupted-collected-run"
+    shutil.copytree(run_dir, corrupted)
+    dispatch = _read_json(corrupted / "dispatch_state.json")
+    dispatch["status"] = "Running"
+    _write_json(corrupted / "dispatch_state.json", dispatch)
+    assert collection_gate(corrupted)["collection_eligible"] is False
+
+    from h3c.outputs import verification as output_verification
+
+    audit_calls = 0
+    original_full_audit = output_verification.verify_run
+
+    def counted_full_audit(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal audit_calls
+        audit_calls += 1
+        return original_full_audit(*args, **kwargs)
+
+    with monkeypatch.context() as audit_patch:
+        audit_patch.setattr(output_verification, "verify_run", counted_full_audit)
+        finalized = finalize_run(run_dir)
+    assert audit_calls == 1
+    assert finalized["status"] == "complete"
+    verified = verify_run(run_dir)
+    assert verified["passed"] is True
+    assert verified["checks"]["caol_working_memory_surface"] is True
+    with pytest.raises(ValueError, match="already has terminal"):
+        finalize_run(run_dir)
+
+
+def test_synchronous_execution_runs_precompletion_full_verifier_once(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    calls = 0
+    original = runtime_engine.verify_run
+
+    def counted(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_engine, "verify_run", counted)
+    result = execute_serial(
+        [_baseline()],
+        suite="fake-single-full-audit",
+        output_root=tmp_path,
+        physical_factory=lambda endpoint: FakePhysicalClient(),
+    )
+    assert result["completed_runs"][0]["status"] == "complete"
+    assert calls == 1
 
 
 def test_optional_three_regime_memory_replays_without_changing_control(
@@ -1520,9 +1617,11 @@ def test_transport_interruption_recovers_by_fresh_full_prefix_replay(
         output_root=tmp_path / "recovered",
         physical_factory=lambda endpoint: recovery_physical,
         model_factory=lambda artifacts, model: TrackContinuation(artifacts, model, causal_id),
+        defer_full_verification=True,
     )
     completed = recovered["completed_runs"][0]
-    recovered_run = Path(completed["completion"]).parent
+    assert completed["status"] == "COLLECTION-COMPLETE"
+    recovered_run = Path(completed["collection_complete"]).parent
     recovered_zone_steps = _read_jsonl(recovered_run / "zone_steps.jsonl")
     recovered_calls = _read_jsonl(recovered_run / "agent_calls.jsonl")
     lineage = _read_json(recovered_run / "resolved_config.yaml")["resume_replay"]
@@ -1538,6 +1637,7 @@ def test_transport_interruption_recovers_by_fresh_full_prefix_replay(
     ]
     assert lineage["source_test_id"] == "source-test-id"
     assert lineage["source_next_step"] == 8
+    assert finalize_run(recovered_run)["status"] == "complete"
     assert verify_run(recovered_run)["passed"] is True
     assert (source_run / "failure.json").read_text(encoding="utf-8") == source_failure_text
     assert not (source_run / "completion.json").exists()

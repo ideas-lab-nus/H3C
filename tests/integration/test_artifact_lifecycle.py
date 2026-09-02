@@ -68,6 +68,30 @@ def test_execution_invalid_verification_cannot_publish_completion(tmp_path: Path
     assert not (artifacts.run_dir / "completion.json").exists()
 
 
+def test_collection_completion_is_atomic_and_freezes_runtime_evidence(tmp_path: Path) -> None:
+    artifacts = RunArtifacts(tmp_path, "main", "Demo", "collected-run")
+    artifacts.create({}, {"run_identity": "identity"})
+    artifacts.write_metrics({})
+    marker = artifacts.publish_collection_complete(
+        {
+            "artifact_schema": "h3c_collection_complete",
+            "schema_version": 1,
+            "status": "COLLECTION-COMPLETE",
+            "audit_status": "FULL-AUDIT-PENDING",
+            "collection_eligible": True,
+            "run_identity": "identity",
+        }
+    )
+    assert marker.is_file()
+    assert not (artifacts.run_dir / ".collection_complete.pending").exists()
+    with pytest.raises(ArtifactError, match="cannot change"):
+        artifacts.append_jsonl("timing.jsonl", {"event": "late"})
+    with pytest.raises(ArtifactError, match="cannot change"):
+        artifacts.append_performance([0] * 10)
+    with pytest.raises(ArtifactError, match="current run state"):
+        artifacts.replace_manifest({"run_identity": "changed"})
+
+
 def test_failure_is_atomic_terminal_and_mutually_exclusive_with_completion(
     tmp_path: Path,
 ) -> None:

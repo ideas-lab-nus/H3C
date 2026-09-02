@@ -762,10 +762,16 @@ def _caol_memory_checks(
             user = str(raw.get("user", ""))
             hour = int(raw.get("hour", -1))
             if role in {"orchestrator", "executor"}:
-                expected_block = hour >= memory_hours
+                expected_block = memory_hours > 0 and hour >= memory_hours
                 caol_prompt_surface = caol_prompt_surface and (
                     ("### WORKING MEMORY" in user) == expected_block
                 )
+                if memory_hours == 0:
+                    surface = str(raw.get("system", "")) + user
+                    caol_prompt_surface = caol_prompt_surface and all(
+                        token not in surface
+                        for token in ("WORKING MEMORY", "working memory", "工作记忆")
+                    )
                 caol_prompt_surface = caol_prompt_surface and _decision_clock_surface_is_valid(
                     user,
                     expect_working_memory=expected_block,

@@ -122,6 +122,23 @@ def test_causal_disabled_system_prompt_has_zero_leakage(role: Role) -> None:
     assert_causal_disabled_text_clean(prompt)
 
 
+@pytest.mark.parametrize("role", ["orchestrator", "executor"])
+@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize("causal_enabled", [False, True])
+def test_zero_hour_system_prompt_has_no_working_memory_surface(
+    role: Role, language: Language, causal_enabled: bool
+) -> None:
+    prompt = system_prompt(
+        role,
+        language=language,
+        causal_enabled=causal_enabled,
+        working_memory_enabled=False,
+    )
+    assert "WORKING MEMORY" not in prompt
+    assert "working memory" not in prompt
+    assert "工作记忆" not in prompt
+
+
 def test_orchestrator_dynamic_limits_match_final_w_cooling_projection() -> None:
     user = Orchestrator.build_user(
         hour=0,

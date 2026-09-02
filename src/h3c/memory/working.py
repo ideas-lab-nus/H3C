@@ -7,7 +7,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-WORKING_MEMORY_HOURS = (1, 2, 3)
+WORKING_MEMORY_HOURS = (0, 1, 2, 3)
 FUTURE_WEATHER_FIELDS = {
     "weather_next_steps",
     "outdoor_temp_change_next_1h_c",
@@ -236,7 +236,9 @@ def select_executor_records(
 ) -> list[dict[str, Any]]:
     """Select exactly 4*k prior completed records for one zone or omit the block."""
     if working_memory_hours not in WORKING_MEMORY_HOURS:
-        raise ValueError("working_memory_hours must be one, two, or three")
+        raise ValueError("working_memory_hours must be zero, one, two, or three")
+    if working_memory_hours == 0:
+        return []
     selected = [
         copy.deepcopy(dict(record))
         for record in records
@@ -296,7 +298,7 @@ def select_completed_frames(
 ) -> list[dict[str, Any]]:
     """Select complete prior hourly frames, ordered oldest to newest."""
     if working_memory_hours not in WORKING_MEMORY_HOURS:
-        raise ValueError("working_memory_hours must be one, two, or three")
+        raise ValueError("working_memory_hours must be zero, one, two, or three")
     first_hour = current_hour - working_memory_hours
     selected: list[dict[str, Any]] = []
     for frame in frames:

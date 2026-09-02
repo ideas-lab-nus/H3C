@@ -28,12 +28,14 @@ gate checks the registered identity, final checkpoint, expected row/call counts,
 artifacts, deterministic KPI recomputation, stopped lifecycle, and zero secret exposure. Passing
 runs atomically publish `collection_complete.json` with
 `COLLECTION-COMPLETE / FULL-AUDIT-PENDING`, release the execution lock, and may no longer mutate
-runtime evidence.
+core runtime evidence. Deferred finalization may only add the registered verification and terminal
+artifacts.
 
 `python -m h3c.cli finalize <run-directory>` later performs exactly one full zero-call audit and
 atomically publishes the existing `verification.json` and `completion.json`. Full audit is not a
 barrier for launching the next independent batch. Execution-integrity failure may pause the
-campaign at the next batch boundary; ordinary model-contract degradation and poor KPI do not.
+campaign at the next batch boundary when it reveals source, identity, lifecycle, timeline, secret,
+or evidence corruption; ordinary model-contract degradation and poor KPI do not.
 
 The legacy synchronous mode remains supported. Its duplicate pre-completion verifier call is
 removed; one full verification is sufficient before atomic completion publication.

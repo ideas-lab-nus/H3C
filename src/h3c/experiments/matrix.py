@@ -50,9 +50,9 @@ class RunPlan:
         if (
             isinstance(self.working_memory_hours, bool)
             or not isinstance(self.working_memory_hours, int)
-            or self.working_memory_hours not in {1, 2, 3}
+            or self.working_memory_hours not in {0, 1, 2, 3}
         ):
-            raise ValueError("working memory must be one, two, or three hours")
+            raise ValueError("working memory must be zero, one, two, or three hours")
         if not isinstance(self.causal_enabled, bool) or not isinstance(
             self.coordination_enabled, bool
         ):

@@ -16,15 +16,24 @@
 ```console
 h3c run --profile MZ_Air
 h3c run --profile MZ_Air --execute
+h3c run --profile MZ_Air --defer-full-verification --execute
+h3c finalize outputs/runs/<suite>/<case>/<run_id>
 h3c verify outputs/runs/<suite>/<case>/<run_id>
 h3c report outputs/runs/<suite>
 h3c resume outputs/runs/<suite>/<case>/<failed_run_id>
 h3c resume outputs/runs/<suite>/<case>/<failed_run_id> --execute
+h3c resume outputs/runs/<suite>/<case>/<failed_run_id> --defer-full-verification --execute
 ```
 
 The registered physical profile initializes once at the evaluation start with a seven-day
 BOPTEST internal warm-up and no explicit prefix. Air evaluations last seven days; MZ_Hydro lasts
 five days. Only one physical process may hold `outputs/runs/.execution.lock`.
+
+The deferred form releases that lock after a fast collection gate and publishes
+`collection_complete.json`. The run is then `FULL-AUDIT-PENDING`, not yet a
+valid result. Run `h3c finalize` from a single background audit worker; it makes
+no API or BOPTEST calls and publishes verification/completion only after the
+full audit succeeds.
 
 The first `h3c resume` command is a network-free eligibility and prefix audit.
 Execution is allowed only after the failed PID/test/lock are released. It always
@@ -65,8 +74,9 @@ next arm starts.
 - Never overwrite, append to, splice, or silently delete a run directory. A
   registered `h3c resume` is a fresh lineage-bearing physical replay, not an
   in-place continuation.
-- Treat `completion.json` as the terminal success marker; a directory or manifest alone is not a
-  completed run.
+- Treat `collection_complete.json` as collected-but-pending evidence and
+  `completion.json` as the terminal fully audited success marker; a directory
+  or manifest alone is neither.
 - Compare only matching source, protocol, case, evaluation boundary, and model identities.
 - Keep generated outputs ignored and store only reviewed summaries in tracked documentation.
 - Do not expose endpoint secrets in commands, logs, reports, or commits.

@@ -70,13 +70,29 @@ completion ordering.
 It also recomputes raw-to-parsed rationale equality and every length telemetry
 field; raw, parsed, telemetry, or metric tampering is execution-invalid.
 
-After metrics and verification are written, every non-completion check is rerun.
+The default synchronous path runs the full pre-completion verification once.
 Only a complete, evidence-consistent physical lifecycle may then publish
 `completion.json` through a flushed atomic rename. A completion records either
 `RELEASE-PASS` or `EXECUTION-HEALTHY-MODEL-CONTRACT-DEGRADED`; only the first is
 a clean release result. `RUN-INVALID` is a verifier classification and must not
 publish `completion.json`. Directory existence, a manifest, or partial logs
 never mean that a run completed.
+
+Batch execution may instead use `--defer-full-verification`. After BOPTEST has
+stopped, the bounded collection gate parses every declared stream, checks the
+final atomic checkpoint, lifecycle and identities, verifies exact row and call
+counts and the continuous timeline, recomputes KPI through the production
+metrics owner, and requires a completed zero-exposure secret scan. It then
+atomically publishes `collection_complete.json` with
+`COLLECTION-COMPLETE / FULL-AUDIT-PENDING`. That marker freezes the core runtime
+evidence and permits the physical execution lock to be released; it is not a
+fully audited result and is not eligible for the valid-results dataset.
+
+`h3c finalize <run-directory>` accepts only a stopped, collection-complete run,
+rechecks the collection evidence, and performs exactly one full zero-network
+audit. It may then add `verification.json` and the final atomic
+`completion.json`. An execution-invalid audit publishes terminal failure
+evidence instead. Repeated finalization is rejected.
 
 A terminal model-transport failure takes a separate fail-closed finalization
 path: it first completes the secret scan and manifest, then writes partial

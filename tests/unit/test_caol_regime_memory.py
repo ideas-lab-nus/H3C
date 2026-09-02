@@ -217,6 +217,16 @@ def test_caol_is_the_exact_k_hour_working_memory() -> None:
         for hour in range(3)
         for zone in ("EAS", "NOR")
     ]
+    assert (
+        select_caol_working_memory(
+            records,
+            current_hour=3,
+            zone=None,
+            working_memory_hours=0,
+            zones=("EAS", "NOR"),
+        )
+        == []
+    )
     assert [
         row["hour"]
         for row in select_caol_working_memory(

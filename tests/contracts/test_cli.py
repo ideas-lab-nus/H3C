@@ -74,6 +74,35 @@ def test_physical_commands_default_to_dry_plan(capsys: pytest.CaptureFixture[str
     assert output["run_count"] == 1
 
 
+def test_zero_hour_working_memory_is_a_registered_agent_factor(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["run", "--profile", "SZ_Air", "--working-memory-hours", "0"])
+    output = json.loads(capsys.readouterr().out)
+    assert output["runs"][0]["method"]["working_memory_hours"] == 0
+    with pytest.raises(SystemExit, match="Agent-only"):
+        main(
+            [
+                "run",
+                "--profile",
+                "SZ_Air",
+                "--baseline",
+                "--working-memory-hours",
+                "0",
+            ]
+        )
+
+
+def test_deferred_verification_is_an_execution_flag_not_a_method_factor(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main(["run", "--profile", "SZ_Air", "--defer-full-verification"])
+    deferred = json.loads(capsys.readouterr().out)
+    main(["run", "--profile", "SZ_Air"])
+    synchronous = json.loads(capsys.readouterr().out)
+    assert deferred == synchronous
+
+
 def test_retired_smoke_command_is_not_public() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["smoke", "release-6h"])
@@ -170,6 +199,7 @@ def test_hydronic_single_run_defaults_to_profile_formal_duration(
 @pytest.mark.parametrize(
     "flag",
     [
+        ["--working-memory-hours", "0"],
         ["--working-memory-hours", "2"],
         ["--causal-off"],
         ["--independent-coordination"],

@@ -679,12 +679,17 @@ class Orchestrator:
         site_causal_edge_ids: set[str] | None = None,
         expected_site_cap_c: float | None = None,
         expected_per_zone_reserved_cap_c: float = DEFAULT_PER_ZONE_RESERVED_CAP_C,
+        working_memory_enabled: bool = True,
     ) -> dict[str, Any]:
         self.last_rationale_telemetry = None
         raw = await self.client.complete(
             context=context,
             role="orchestrator",
-            system=system_prompt("orchestrator", causal_enabled=causal_enabled),
+            system=system_prompt(
+                "orchestrator",
+                causal_enabled=causal_enabled,
+                working_memory_enabled=working_memory_enabled,
+            ),
             user=user,
             thinking_mode=thinking_mode,
             response_schema=orchestrator_response_schema(
@@ -847,6 +852,7 @@ class Executor:
         coordination_enabled: bool,
         thinking_mode: str,
         long_term_memory: bool = False,
+        working_memory_enabled: bool = True,
     ) -> dict[str, Any]:
         raw = await self.client.complete(
             context=context,
@@ -856,6 +862,7 @@ class Executor:
                 causal_enabled=causal_enabled,
                 coordination_enabled=coordination_enabled,
                 long_term_memory=long_term_memory,
+                working_memory_enabled=working_memory_enabled,
             ),
             user=user,
             thinking_mode=thinking_mode,

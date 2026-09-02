@@ -108,6 +108,8 @@ def _records(hours: int) -> list[dict[str, Any]]:
 @pytest.mark.parametrize(
     ("current_step", "memory_hours", "expected_steps"),
     [
+        (0, 0, []),
+        (4, 0, []),
         (0, 1, []),
         (4, 1, [0, 1, 2, 3]),
         (4, 2, []),

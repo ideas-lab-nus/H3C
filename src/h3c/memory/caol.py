@@ -308,8 +308,10 @@ def select_caol_working_memory(
     zones: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Select the exact completed CAOL window for one zone or the full building."""
-    if working_memory_hours not in {1, 2, 3}:
-        raise ValueError("working memory must be one, two, or three hours")
+    if working_memory_hours not in {0, 1, 2, 3}:
+        raise ValueError("working memory must be zero, one, two, or three hours")
+    if working_memory_hours == 0:
+        return []
     first_hour = current_hour - working_memory_hours
     selected = [
         copy.deepcopy(dict(record))
