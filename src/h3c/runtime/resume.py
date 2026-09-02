@@ -27,6 +27,8 @@ RESUME_STREAMS = (
     "zone_steps.jsonl",
 )
 ALLOWED_FAILURE_TYPES = {"terminal_transport_error"}
+RUNTIME_RECOVERY_ATTESTATION_SCHEMA = "h3c_control_neutral_runtime_recovery_attestation"
+NULLABLE_MATCHED_RULE_RECOVERY_CODE = "working_memory_nullable_matched_rule_v1"
 
 
 def _canonical(value: Any) -> str:
@@ -41,6 +43,14 @@ def _canonical(value: Any) -> str:
 
 def _identity(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _object(path: Path) -> dict[str, Any]:
@@ -255,7 +265,182 @@ def _validate_program_prefix(
             raise ValueError("resume final program replay identity diverges")
 
 
-def load_resume_prefix(source_run: Path) -> ResumePrefix:
+def _runtime_error_suffix(
+    *,
+    completed_hours: int,
+    next_step: int,
+    performance: Sequence[Mapping[str, Any]],
+    streams: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> dict[str, Any]:
+    return {
+        "performance": list(performance[next_step:]),
+        "zone_steps": [row for row in streams["zone_steps.jsonl"] if int(row["step"]) >= next_step],
+        "program_updates": [
+            row for row in streams["program_updates.jsonl"] if int(row["hour"]) >= completed_hours
+        ],
+        "hourly_decisions": [
+            row for row in streams["hourly_decisions.jsonl"] if int(row["hour"]) >= completed_hours
+        ],
+        "caol_records": [
+            row for row in streams["caol_records.jsonl"] if int(row["hour"]) >= completed_hours
+        ],
+        "agent_calls": [
+            row for row in streams["agent_calls.jsonl"] if int(row["hour"]) >= completed_hours
+        ],
+        "raw_model_io": [
+            row for row in streams["raw_model_io.jsonl"] if int(row["hour"]) >= completed_hours
+        ],
+        "model_request_attempts": [
+            row
+            for row in streams["model_request_attempts.jsonl"]
+            if int(row["hour"]) >= completed_hours
+        ],
+    }
+
+
+def _validate_nullable_matched_rule_recovery(
+    *,
+    directory: Path,
+    attestation_path: Path | None,
+    recovery_source_commit: str | None,
+    failure: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    checkpoint: Mapping[str, Any],
+    source_commit: str,
+    source_plan_identity: str,
+    source_run_identity: str,
+    source_test_id: str,
+    completed_hour: int,
+    completed_step: int,
+    next_step: int,
+    program_versions: Mapping[str, Any],
+    prefix_identity: str,
+    zones: Sequence[str],
+    all_performance: Sequence[Mapping[str, Any]],
+    all_rows: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> None:
+    if attestation_path is None:
+        raise ValueError("terminal runtime recovery requires an evidence-bound attestation")
+    if (
+        recovery_source_commit is None
+        or re.fullmatch(r"[0-9a-f]{40}", recovery_source_commit) is None
+    ):
+        raise ValueError("terminal runtime recovery requires a clean repair source commit")
+    attestation_file = attestation_path.resolve()
+    if not attestation_file.is_file():
+        raise ValueError("runtime recovery attestation does not exist")
+    if attestation_file == directory or directory in attestation_file.parents:
+        raise ValueError("runtime recovery attestation must not modify the failed run directory")
+    attestation = _object(attestation_file)
+    stderr_value = attestation.get("supervision_stderr_path")
+    if not isinstance(stderr_value, str) or not stderr_value:
+        raise ValueError("runtime recovery attestation lacks supervision stderr evidence")
+    stderr_path = Path(stderr_value).resolve()
+    if not stderr_path.is_file():
+        raise ValueError("runtime recovery supervision stderr does not exist")
+    stderr_text = stderr_path.read_text(encoding="utf-8")
+    if (
+        "ValueError: working-memory history row is incomplete" not in stderr_text
+        or "context_compiler.py" not in stderr_text
+        or "compile_working_memory" not in stderr_text
+    ):
+        raise ValueError("runtime recovery stderr does not identify the registered defect")
+
+    completed_hours = completed_hour + 1
+    suffix = _runtime_error_suffix(
+        completed_hours=completed_hours,
+        next_step=next_step,
+        performance=all_performance,
+        streams=all_rows,
+    )
+    expected_attestation = {
+        "artifact_schema": RUNTIME_RECOVERY_ATTESTATION_SCHEMA,
+        "schema_version": 1,
+        "recovery_code": NULLABLE_MATCHED_RULE_RECOVERY_CODE,
+        "recovery_source_commit": recovery_source_commit,
+        "source_run_identity": source_run_identity,
+        "source_commit": source_commit,
+        "source_plan_identity": source_plan_identity,
+        "source_test_id": source_test_id,
+        "source_completed_hour": completed_hour,
+        "source_completed_step": completed_step,
+        "source_next_step": next_step,
+        "source_program_versions": {
+            str(zone): int(value) for zone, value in program_versions.items()
+        },
+        "source_prefix_identity": prefix_identity,
+        "manifest_artifact_sha256": _file_sha256(directory / "manifest.json"),
+        "failure_artifact_sha256": _file_sha256(directory / "failure.json"),
+        "checkpoint_artifact_sha256": _file_sha256(directory / "completed_hour_checkpoint.json"),
+        "post_checkpoint_evidence_identity": _identity(suffix),
+        "supervision_stderr_path": str(stderr_path),
+        "supervision_stderr_sha256": _file_sha256(stderr_path),
+    }
+    if attestation != expected_attestation:
+        raise ValueError("runtime recovery attestation does not match the source evidence")
+
+    if (
+        failure.get("classification") != "RUN-INVALID"
+        or failure.get("failure_type") != "terminal_runtime_error"
+        or failure.get("error_type") != "ValueError"
+        or failure.get("provider_response_received") is not False
+        or failure.get("retryable") is not False
+    ):
+        raise ValueError("runtime failure is not the registered control-neutral defect class")
+    if len(suffix["performance"]) != 4:
+        raise ValueError("registered runtime recovery requires one complete physical suffix hour")
+    expected_zone_pairs = [
+        (step, zone) for step in range(next_step, next_step + 4) for zone in zones
+    ]
+    suffix_zone_rows = suffix["zone_steps"]
+    if [(int(row["step"]), str(row["zone"])) for row in suffix_zone_rows] != expected_zone_pairs:
+        raise ValueError("runtime recovery suffix zone-step evidence is not one canonical hour")
+    suffix_calls = suffix["agent_calls"]
+    suffix_raw = suffix["raw_model_io"]
+    suffix_attempts = suffix["model_request_attempts"]
+    roles = [str(row.get("role")) for row in suffix_calls]
+    if (
+        len(suffix_calls) != len(zones) + 1
+        or roles.count("orchestrator") != 1
+        or roles.count("executor") != len(zones)
+        or "reflector" in roles
+        or len(suffix_raw) != len(suffix_calls)
+        or len(suffix_attempts) != len(suffix_calls)
+    ):
+        raise ValueError("runtime recovery suffix Agent evidence does not stop before Reflector")
+    suffix_call_ids = {str(row.get("logical_call_identity")) for row in suffix_calls}
+    if (
+        len(suffix_call_ids) != len(suffix_calls)
+        or {str(row.get("logical_call_identity")) for row in suffix_raw} != suffix_call_ids
+        or {str(row.get("logical_call_identity")) for row in suffix_attempts} != suffix_call_ids
+    ):
+        raise ValueError("runtime recovery suffix model evidence is not identity-complete")
+    suffix_updates = suffix["program_updates"]
+    if (
+        len(suffix_updates) != len(zones)
+        or {str(row.get("zone")) for row in suffix_updates} != set(zones)
+        or suffix["hourly_decisions"]
+        or suffix["caol_records"]
+    ):
+        raise ValueError("runtime recovery suffix crossed an atomic completed-hour boundary")
+    no_match_rows: list[Mapping[str, Any]] = []
+    for row in suffix_zone_rows:
+        interpreter = row.get("interpreter")
+        if isinstance(interpreter, Mapping) and interpreter.get("matched_rule") is None:
+            no_match_rows.append(interpreter)
+    if len(no_match_rows) != 1:
+        raise ValueError("runtime recovery suffix does not contain the unique registered no-match")
+    no_match = no_match_rows[0]
+    if no_match.get("rules_fired") != [] or float(no_match.get("residual", float("nan"))) != 0.0:
+        raise ValueError("runtime recovery no-match interpreter evidence is inconsistent")
+
+
+def load_resume_prefix(
+    source_run: Path,
+    *,
+    runtime_recovery_attestation: Path | None = None,
+    recovery_source_commit: str | None = None,
+) -> ResumePrefix:
     directory = source_run.resolve()
     if not directory.is_dir():
         raise ValueError("resume source run does not exist")
@@ -283,8 +468,13 @@ def load_resume_prefix(source_run: Path) -> ResumePrefix:
         raise ValueError("only Agent runs are resume-eligible")
     if plan.long_term_memory:
         raise ValueError("long-term-memory CRUD resume is not implemented")
-    if failure.get("failure_type") not in ALLOWED_FAILURE_TYPES:
-        raise ValueError("resume source failure is not a registered transport interruption")
+    failure_type = failure.get("failure_type")
+    if failure_type in ALLOWED_FAILURE_TYPES and runtime_recovery_attestation is not None:
+        raise ValueError("transport recovery does not accept a runtime-error attestation")
+    if failure_type not in (*ALLOWED_FAILURE_TYPES, "terminal_runtime_error"):
+        raise ValueError("resume source failure is not an authorized interruption")
+    if failure_type == "terminal_runtime_error" and runtime_recovery_attestation is None:
+        raise ValueError("terminal runtime recovery requires an evidence-bound attestation")
     if (
         manifest.get("secret_scan_status") != "completed"
         or manifest.get("secret_exposure_count") != 0
@@ -418,6 +608,27 @@ def load_resume_prefix(source_run: Path) -> ResumePrefix:
         raw_calls=raw_calls,
         attempts=attempts,
     )
+    if failure_type == "terminal_runtime_error":
+        _validate_nullable_matched_rule_recovery(
+            directory=directory,
+            attestation_path=runtime_recovery_attestation,
+            recovery_source_commit=recovery_source_commit,
+            failure=failure,
+            manifest=manifest,
+            checkpoint=checkpoint,
+            source_commit=source_commit,
+            source_plan_identity=source_plan_identity,
+            source_run_identity=source_run_identity,
+            source_test_id=source_test_id,
+            completed_hour=completed_hour,
+            completed_step=completed_step,
+            next_step=next_step,
+            program_versions=program_versions,
+            prefix_identity=prefix_identity,
+            zones=zones,
+            all_performance=all_performance,
+            all_rows=all_rows,
+        )
     return ResumePrefix(
         source_run=directory,
         plan=plan,

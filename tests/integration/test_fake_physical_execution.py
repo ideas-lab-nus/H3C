@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import json
 import shutil
 import urllib.request
@@ -21,6 +22,7 @@ from h3c.outputs.artifacts import RunArtifacts
 from h3c.outputs.reporting import generate_report
 from h3c.outputs.verification import verify_run
 from h3c.runtime import engine as runtime_engine
+from h3c.runtime import resume as runtime_resume
 from h3c.runtime.clients import (
     OpenAICompatibleModelClient,
     TransportError,
@@ -1301,6 +1303,121 @@ def test_production_client_retry_exhaustion_records_verifiable_terminal_evidence
         assert tampered["classification"] == "RUN-INVALID"
 
 
+def test_nullable_matched_rule_runtime_recovery_requires_exact_attestation(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "failed-run"
+    source.mkdir()
+    failure = {
+        "classification": "RUN-INVALID",
+        "failure_type": "terminal_runtime_error",
+        "error_type": "ValueError",
+        "provider_response_received": False,
+        "retryable": False,
+    }
+    manifest = {"run_identity": "a" * 64}
+    checkpoint = {"completed_hour": 0, "completed_step": 3, "next_step": 4}
+    _write_json(source / "failure.json", failure)
+    _write_json(source / "manifest.json", manifest)
+    _write_json(source / "completed_hour_checkpoint.json", checkpoint)
+    stderr = tmp_path / "supervision.stderr.log"
+    stderr.write_text(
+        "context_compiler.py in compile_working_memory\n"
+        "ValueError: working-memory history row is incomplete\n",
+        encoding="utf-8",
+    )
+
+    zone_rows = [
+        {
+            "step": step,
+            "zone": "zon",
+            "interpreter": {
+                "matched_rule": None if step == 4 else "rule_a",
+                "rules_fired": [] if step == 4 else ["rule_a"],
+                "residual": 0.0,
+            },
+        }
+        for step in range(4, 8)
+    ]
+    calls = [
+        {"hour": 1, "role": "orchestrator", "logical_call_identity": "call-o"},
+        {"hour": 1, "role": "executor", "logical_call_identity": "call-e"},
+    ]
+    streams: dict[str, list[dict[str, Any]]] = {
+        "zone_steps.jsonl": zone_rows,
+        "program_updates.jsonl": [{"hour": 1, "zone": "zon"}],
+        "hourly_decisions.jsonl": [],
+        "caol_records.jsonl": [],
+        "agent_calls.jsonl": calls,
+        "raw_model_io.jsonl": [dict(row) for row in calls],
+        "model_request_attempts.jsonl": [dict(row) for row in calls],
+    }
+    performance = [{"step": str(step)} for step in range(8)]
+    suffix = runtime_resume._runtime_error_suffix(
+        completed_hours=1,
+        next_step=4,
+        performance=performance,
+        streams=streams,
+    )
+    repair_commit = "b" * 40
+    prefix_identity = "c" * 64
+
+    def file_hash(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    attestation = {
+        "artifact_schema": runtime_resume.RUNTIME_RECOVERY_ATTESTATION_SCHEMA,
+        "schema_version": 1,
+        "recovery_code": runtime_resume.NULLABLE_MATCHED_RULE_RECOVERY_CODE,
+        "recovery_source_commit": repair_commit,
+        "source_run_identity": "a" * 64,
+        "source_commit": "d" * 40,
+        "source_plan_identity": "e" * 64,
+        "source_test_id": "test-id",
+        "source_completed_hour": 0,
+        "source_completed_step": 3,
+        "source_next_step": 4,
+        "source_program_versions": {"zon": 0},
+        "source_prefix_identity": prefix_identity,
+        "manifest_artifact_sha256": file_hash(source / "manifest.json"),
+        "failure_artifact_sha256": file_hash(source / "failure.json"),
+        "checkpoint_artifact_sha256": file_hash(source / "completed_hour_checkpoint.json"),
+        "post_checkpoint_evidence_identity": runtime_resume._identity(suffix),
+        "supervision_stderr_path": str(stderr.resolve()),
+        "supervision_stderr_sha256": file_hash(stderr),
+    }
+    attestation_path = tmp_path / "attestation.json"
+    _write_json(attestation_path, attestation)
+
+    def validate() -> None:
+        runtime_resume._validate_nullable_matched_rule_recovery(
+            directory=source,
+            attestation_path=attestation_path,
+            recovery_source_commit=repair_commit,
+            failure=failure,
+            manifest=manifest,
+            checkpoint=checkpoint,
+            source_commit="d" * 40,
+            source_plan_identity="e" * 64,
+            source_run_identity="a" * 64,
+            source_test_id="test-id",
+            completed_hour=0,
+            completed_step=3,
+            next_step=4,
+            program_versions={"zon": 0},
+            prefix_identity=prefix_identity,
+            zones=("zon",),
+            all_performance=performance,
+            all_rows=streams,
+        )
+
+    validate()
+    attestation["recovery_code"] = "unknown"
+    _write_json(attestation_path, attestation)
+    with pytest.raises(ValueError, match="does not match the source evidence"):
+        validate()
+
+
 def test_transport_interruption_recovers_by_fresh_full_prefix_replay(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -1363,6 +1480,16 @@ def test_transport_interruption_recovers_by_fresh_full_prefix_replay(
     assert dry_plan["remaining_steps"] == 16
     assert dry_plan["replay_step_count"] == 8
     assert dry_plan["fresh_run_and_test_required"] is True
+
+    runtime_error_source = tmp_path / "audited-runtime-error-source"
+    shutil.copytree(source_run, runtime_error_source)
+    runtime_failure = _read_json(runtime_error_source / "failure.json")
+    runtime_failure["failure_type"] = "terminal_runtime_error"
+    (runtime_error_source / "failure.json").write_text(
+        json.dumps(runtime_failure, sort_keys=True), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="requires an evidence-bound attestation"):
+        resume_plan(runtime_error_source)
 
     recovery_physical = FakePhysicalClient("recovery-test-id")
     continuation_calls: list[tuple[int, Role]] = []

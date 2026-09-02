@@ -190,6 +190,20 @@ def test_derived_setpoint_effect_history_is_lossless_and_clocked() -> None:
     assert "10:00" in rendered and "11:00" in rendered
 
 
+def test_working_memory_explains_a_legitimate_no_rule_match_without_null_text() -> None:
+    record = _completed_record("EAS")
+    record["action"]["matched_rules"][1] = None
+
+    view = compile_working_memory([record])
+    assert decode_working_memory(view) == [record]
+
+    builder = ContextBuilder()
+    builder.add_working_memory("WORKING MEMORY", [record])
+    rendered = builder.build().agent_view
+    assert "no_rule_matched; interpreter_residual=0" in rendered
+    assert "| null |" not in rendered
+
+
 def test_objective_feedback_is_lossless_clocked_and_role_scoped() -> None:
     east = _completed_record("EAS")
     west = _completed_record("WES", 24.5)

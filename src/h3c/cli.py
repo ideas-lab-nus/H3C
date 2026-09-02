@@ -229,6 +229,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resume_run.add_argument("source_run", type=Path)
     resume_run.add_argument("--execute", action="store_true")
+    resume_run.add_argument(
+        "--runtime-recovery-attestation",
+        type=Path,
+        help=("exact evidence-bound attestation for a registered control-neutral runtime repair"),
+    )
 
     suite = commands.add_parser("suite", help="plan or execute a registered suite serially")
     suite.add_argument(
@@ -321,7 +326,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "resume":
         from h3c.runtime.engine import execute_resume, resume_plan
 
-        _print(execute_resume(args.source_run) if args.execute else resume_plan(args.source_run))
+        resume_kwargs = {"runtime_recovery_attestation": args.runtime_recovery_attestation}
+        _print(
+            execute_resume(args.source_run, **resume_kwargs)
+            if args.execute
+            else resume_plan(args.source_run, **resume_kwargs)
+        )
     elif args.command == "suite":
         plans = plan_suite(args.name)
         if args.arm_index is not None:

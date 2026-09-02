@@ -15,6 +15,7 @@ from h3c.agents.time_context import COORDINATION_PERIOD_SECONDS, completed_inter
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 SectionKind = Literal["json", "common_rows", "working_memory", "control_specification"]
+_NO_RULE_MATCH_TOKEN = "no_rule_matched; interpreter_residual=0"
 
 _REQUIRED_STEP_ARRAY_PATHS = {
     "/action/actual_setpoints_c": "actual_setpoint_c",
@@ -515,7 +516,11 @@ def compile_working_memory(
                     "physical_step": step,
                     "regime": regimes_by_step[step],
                     "actual_setpoint_c": arrays["actual_setpoint_c"][index],
-                    "matched_rule": arrays["matched_rule"][index],
+                    "matched_rule": (
+                        arrays["matched_rule"][index]
+                        if arrays["matched_rule"][index] is not None
+                        else _NO_RULE_MATCH_TOKEN
+                    ),
                     "actuator_bounds": raw_shield.get("actuator_bounds"),
                     "setpoint_rate_limit": raw_shield.get("setpoint_rate_limit"),
                     "comfort_recovery": raw_shield.get("comfort_recovery"),
@@ -532,6 +537,9 @@ def compile_working_memory(
                             **{field: values[index] for field, values in observed_arrays.items()},
                         }
                     )
+                matched_rule = arrays["matched_rule"][index]
+                if matched_rule is not None and not isinstance(matched_rule, str):
+                    raise ValueError("working-memory matched rule must be a string or absent")
                 if any(value is None for value in (*state_row.values(), *action_row.values())):
                     raise ValueError("working-memory history row is incomplete")
                 state_history_rows.append(state_row)
@@ -814,7 +822,14 @@ def decode_working_memory(view: Mapping[str, Any]) -> list[dict[str, JsonValue]]
             _put(
                 record,
                 "/action/matched_rules",
-                [cast(JsonValue, row["matched_rule"]) for row in actions],
+                [
+                    (
+                        None
+                        if row["matched_rule"] == _NO_RULE_MATCH_TOKEN
+                        else cast(JsonValue, row["matched_rule"])
+                    )
+                    for row in actions
+                ],
             )
             _put(
                 record,

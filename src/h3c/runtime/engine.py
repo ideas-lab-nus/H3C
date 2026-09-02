@@ -1735,8 +1735,16 @@ def execute_serial(
     return {"execution": "serial", "completed_runs": results}
 
 
-def resume_plan(source_run: Path) -> dict[str, Any]:
-    prefix = load_resume_prefix(source_run)
+def resume_plan(
+    source_run: Path, *, runtime_recovery_attestation: Path | None = None
+) -> dict[str, Any]:
+    prefix = load_resume_prefix(
+        source_run,
+        runtime_recovery_attestation=runtime_recovery_attestation,
+        recovery_source_commit=(
+            _source_commit() if runtime_recovery_attestation is not None else None
+        ),
+    )
     return {
         "mode": "resume_dry_plan",
         "source_run": str(prefix.source_run),
@@ -1760,8 +1768,15 @@ def execute_resume(
     output_root: Path | None = None,
     physical_factory: PhysicalFactory | None = None,
     model_factory: ModelFactory | None = None,
+    runtime_recovery_attestation: Path | None = None,
 ) -> dict[str, Any]:
-    prefix = load_resume_prefix(source_run)
+    prefix = load_resume_prefix(
+        source_run,
+        runtime_recovery_attestation=runtime_recovery_attestation,
+        recovery_source_commit=(
+            _source_commit() if runtime_recovery_attestation is not None else None
+        ),
+    )
     root = (output_root or repository_root() / "outputs" / "runs").resolve()
     root.mkdir(parents=True, exist_ok=True)
     with physical_execution_lock(root):
