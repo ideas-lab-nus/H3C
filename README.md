@@ -111,6 +111,10 @@ no long-term-memory, CRUD, revision, or reference field is rendered or accepted.
 bilingual one-hour contracts are in
 [English](docs/h3c_complete_hour_io_en.md) and [Chinese](docs/h3c_complete_hour_io_zh.md).
 
+The final framework release boundary and its first execution-healthy formal result are recorded in
+[the 2026-09-02 release note](docs/final_framework_release_20260902.md). Generated release evidence
+remains under `outputs/` and is intentionally not committed to Git.
+
 Offline onboarding has explicit human review pauses and checkpointed recovery:
 
 ```console
