@@ -39,6 +39,23 @@ class TransportError(RuntimeError):
         self.retry_after_seconds = retry_after_seconds
 
 
+RETRYABLE_CONNECTION_EXCEPTION_TYPES: tuple[type[BaseException], ...] = (
+    http.client.RemoteDisconnected,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    BrokenPipeError,
+    TimeoutError,
+    socket.gaierror,
+    http.client.IncompleteRead,
+    ssl.SSLEOFError,
+    ssl.SSLZeroReturnError,
+)
+
+RETRYABLE_CONNECTION_ERROR_TYPE_NAMES = frozenset(
+    exception_type.__name__ for exception_type in RETRYABLE_CONNECTION_EXCEPTION_TYPES
+)
+
+
 def _canonical(value: Any) -> str:
     return json.dumps(
         value,
@@ -136,20 +153,10 @@ def _connection_failure(error: BaseException) -> tuple[bool, str]:
     cause: BaseException | object = error
     if isinstance(error, urllib.error.URLError):
         cause = error.reason
-    retryable = isinstance(
-        cause,
-        (
-            ConnectionResetError,
-            ConnectionAbortedError,
-            BrokenPipeError,
-            TimeoutError,
-            socket.gaierror,
-            http.client.IncompleteRead,
-            ssl.SSLEOFError,
-            ssl.SSLZeroReturnError,
-        ),
-    )
-    return retryable, type(cause).__name__
+    for exception_type in RETRYABLE_CONNECTION_EXCEPTION_TYPES:
+        if isinstance(cause, exception_type):
+            return True, exception_type.__name__
+    return False, type(cause).__name__
 
 
 def _retry_after_seconds(value: str | None) -> float | None:

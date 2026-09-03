@@ -51,6 +51,7 @@ from h3c.memory.ledger import ProgramLedger
 from h3c.outputs.artifacts import PERFORMANCE_COLUMNS, STREAM_FILES
 from h3c.outputs.metrics import compute_run_metrics
 from h3c.runtime.clients import (
+    RETRYABLE_CONNECTION_ERROR_TYPE_NAMES,
     model_logical_call_identity,
     model_request_body,
     model_request_contract,
@@ -1816,16 +1817,6 @@ def verify_run(
             "provider_retry_after_seconds",
             "retry_delay_seconds",
         }
-        retryable_connection_error_types = {
-            "ConnectionResetError",
-            "ConnectionAbortedError",
-            "BrokenPipeError",
-            "TimeoutError",
-            "gaierror",
-            "IncompleteRead",
-            "SSLEOFError",
-            "SSLZeroReturnError",
-        }
         attempts_by_identity: dict[str, list[dict[str, Any]]] = {}
         for attempt in model_attempts:
             identity = attempt.get("logical_call_identity")
@@ -1955,7 +1946,7 @@ def verify_run(
                                 or (
                                     retryable
                                     and attempt.get("error_type")
-                                    in retryable_connection_error_types
+                                    in RETRYABLE_CONNECTION_ERROR_TYPE_NAMES
                                     and provider_status == "unknown_after_request_failure"
                                 )
                                 or (

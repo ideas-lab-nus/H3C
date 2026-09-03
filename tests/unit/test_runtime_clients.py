@@ -318,6 +318,7 @@ def test_non_json_response_is_allowed_only_for_explicit_no_json_contract(
 @pytest.mark.parametrize(
     ("failure", "error_type"),
     [
+        (http.client.RemoteDisconnected("remote closed"), "RemoteDisconnected"),
         (ConnectionResetError("reset"), "ConnectionResetError"),
         (ConnectionAbortedError("aborted"), "ConnectionAbortedError"),
         (BrokenPipeError("broken"), "BrokenPipeError"),
@@ -342,6 +343,25 @@ def test_registered_network_failures_are_the_precise_retryable_transport_classes
 
     assert raised.value.retryable is True
     assert raised.value.error_type == error_type
+
+
+def test_retryable_connection_subclass_uses_registered_canonical_family(
+    monkeypatch: Any,
+) -> None:
+    class PlatformReset(ConnectionResetError):
+        pass
+
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(PlatformReset("reset")),
+    )
+
+    with pytest.raises(TransportError) as raised:
+        _request_json("POST", "https://model.invalid/chat/completions", payload={"x": 1})
+
+    assert raised.value.retryable is True
+    assert raised.value.error_type == "ConnectionResetError"
 
 
 def test_connection_refusal_is_not_silently_treated_as_a_transient_retry(

@@ -1158,6 +1158,15 @@ def test_recovered_transient_model_request_is_audited_and_release_passes(
     assert verification["checks"]["model_transport_retry_accounting"] is True
     assert verification["passed"] is True
 
+    remote_disconnected = tmp_path / "recovered-remote-disconnected"
+    shutil.copytree(run_dir, remote_disconnected)
+    remote_attempts = _read_jsonl(remote_disconnected / "model_request_attempts.jsonl")
+    remote_attempts[0]["error_type"] = "RemoteDisconnected"
+    remote_attempts[0]["provider_charge_status"] = "unknown_after_request_failure"
+    _write_jsonl(remote_disconnected / "model_request_attempts.jsonl", remote_attempts)
+    remote_verification = verify_run(remote_disconnected, require_completion=False)
+    assert remote_verification["checks"]["model_transport_retry_accounting"] is True
+
     for field, value in (
         ("error_type", "http_503"),
         ("will_retry", False),
