@@ -7,6 +7,7 @@ import json
 import os
 import re
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,7 @@ PERFORMANCE_COLUMNS = (
     "zone_occupancy",
 )
 COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$")
+RUNTIME_STATE_REPLACE_RETRY_DELAYS_SECONDS = (0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0)
 
 
 class ArtifactError(RuntimeError):
@@ -163,7 +165,15 @@ class RunArtifacts:
                 file.write(_json_text(value) + "\n")
                 file.flush()
                 os.fsync(file.fileno())
-            pending.replace(path)
+            for delay in (0.0, *RUNTIME_STATE_REPLACE_RETRY_DELAYS_SECONDS):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    pending.replace(path)
+                    break
+                except PermissionError:
+                    if delay == RUNTIME_STATE_REPLACE_RETRY_DELAYS_SECONDS[-1]:
+                        raise
 
     def replace_dispatch_state(self, value: Mapping[str, Any]) -> None:
         self._replace_runtime_state("dispatch_state.json", value)

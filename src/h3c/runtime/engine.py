@@ -1658,19 +1658,23 @@ async def _execute_one(
             if (initialized or physical.test_id is not None) and not stop_attempted:
                 stop_attempted = True
                 stopping_test_id = physical.test_id
-                physical.stop()
-                manifest["lifecycle"]["stop_count"] += 1
-                artifacts.replace_dispatch_state(
-                    {
-                        "artifact_schema": "h3c_dispatch_state",
-                        "schema_version": 1,
-                        "run_identity": run_identity,
-                        "dispatch_mode": "auto",
-                        "status": "STOPPED",
-                        "test_id": stopping_test_id,
-                        "testcase": profile["testcase"],
-                    }
-                )
+                try:
+                    physical.stop()
+                    manifest["lifecycle"]["stop_count"] += 1
+                    artifacts.replace_dispatch_state(
+                        {
+                            "artifact_schema": "h3c_dispatch_state",
+                            "schema_version": 1,
+                            "run_identity": run_identity,
+                            "dispatch_mode": "auto",
+                            "status": "STOPPED",
+                            "test_id": stopping_test_id,
+                            "testcase": profile["testcase"],
+                        }
+                    )
+                except Exception as cleanup_error:
+                    if terminal_error is None:
+                        terminal_error = cleanup_error
         finally:
             if (
                 plan.controller == "h3c_agent"

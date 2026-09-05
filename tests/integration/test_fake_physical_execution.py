@@ -2343,6 +2343,42 @@ def test_initialization_identity_failure_hard_stops_without_completion(
     assert not (tmp_path / ".execution.lock").exists()
 
 
+def test_runtime_state_replace_failure_is_not_masked_by_terminal_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("H3C_BOPTEST_ENDPOINT", "http://fake.invalid")
+    physical = FakePhysicalClient()
+    original_replace_dispatch_state = RunArtifacts.replace_dispatch_state
+    publication_count = 0
+
+    def fail_initialization_publication(artifacts: RunArtifacts, value: Mapping[str, Any]) -> None:
+        nonlocal publication_count
+        publication_count += 1
+        if publication_count == 2:
+            (artifacts.run_dir / ".dispatch_state.json.pending").write_text(
+                json.dumps(value, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            raise PermissionError("synthetic persistent Windows replace denial")
+        original_replace_dispatch_state(artifacts, value)
+
+    monkeypatch.setattr(RunArtifacts, "replace_dispatch_state", fail_initialization_publication)
+    with pytest.raises(PermissionError, match="synthetic persistent Windows replace denial"):
+        execute_serial(
+            [_baseline()],
+            suite="runtime-state-replace-failure",
+            output_root=tmp_path,
+            physical_factory=lambda endpoint: physical,
+        )
+
+    run_dir = next(path.parent for path in tmp_path.rglob("resolved_config.yaml"))
+    failure = _read_json(run_dir / "failure.json")
+    assert failure["failure_type"] == "terminal_runtime_error"
+    assert failure["error_type"] == "PermissionError"
+    assert (run_dir / ".dispatch_state.json.pending").is_file()
+    assert physical.initialize_count == physical.stop_count == 1
+    assert not (tmp_path / ".execution.lock").exists()
+
+
 def test_transport_failure_hard_stops_serial_matrix_without_retry(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

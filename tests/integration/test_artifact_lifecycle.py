@@ -129,6 +129,31 @@ def test_concurrent_runtime_state_publications_are_serialized(
     assert not (artifacts.run_dir / ".dispatch_state.json.pending").exists()
 
 
+def test_runtime_state_publication_retries_transient_windows_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts = RunArtifacts(tmp_path, "main", "Demo", "runtime-state-permission-retry")
+    artifacts.create({}, {"run_identity": "identity"})
+    original_replace = Path.replace
+    attempts = 0
+
+    def transient_replace(path: Path, target: Path) -> Path:
+        nonlocal attempts
+        if path.name == ".dispatch_state.json.pending":
+            attempts += 1
+            if attempts == 1:
+                raise PermissionError("synthetic Windows replace denial")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", transient_replace)
+    artifacts.replace_dispatch_state({"status": "running"})
+
+    assert attempts == 2
+    dispatch = json.loads((artifacts.run_dir / "dispatch_state.json").read_text(encoding="utf-8"))
+    assert dispatch == {"status": "running"}
+    assert not (artifacts.run_dir / ".dispatch_state.json.pending").exists()
+
+
 def test_failure_is_atomic_terminal_and_mutually_exclusive_with_completion(
     tmp_path: Path,
 ) -> None:
