@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import re
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,7 @@ class RunArtifacts:
         ).resolve()
         if not self.run_dir.is_relative_to(base):
             raise ArtifactError("run path escaped the configured output root")
+        self._runtime_state_lock = threading.Lock()
 
     @classmethod
     def open_existing(cls, run_dir: Path) -> RunArtifacts:
@@ -83,6 +85,7 @@ class RunArtifacts:
             raise ArtifactError("run directory does not exist")
         artifacts = cls.__new__(cls)
         artifacts.run_dir = resolved
+        artifacts._runtime_state_lock = threading.Lock()
         return artifacts
 
     def create(self, resolved_config: Mapping[str, Any], manifest: Mapping[str, Any]) -> None:
@@ -147,19 +150,20 @@ class RunArtifacts:
         pending.replace(path)
 
     def _replace_runtime_state(self, name: str, value: Mapping[str, Any]) -> None:
-        if name not in {"dispatch_state.json", "completed_hour_checkpoint.json"}:
-            raise ArtifactError("unknown runtime-state artifact")
-        if self._runtime_is_frozen():
-            raise ArtifactError("runtime state cannot change after completion")
-        path = self.run_dir / name
-        pending = self.run_dir / f".{name}.pending"
-        if pending.exists():
-            raise ArtifactError("runtime-state publication is already pending")
-        with pending.open("x", encoding="utf-8", newline="\n") as file:
-            file.write(_json_text(value) + "\n")
-            file.flush()
-            os.fsync(file.fileno())
-        pending.replace(path)
+        with self._runtime_state_lock:
+            if name not in {"dispatch_state.json", "completed_hour_checkpoint.json"}:
+                raise ArtifactError("unknown runtime-state artifact")
+            if self._runtime_is_frozen():
+                raise ArtifactError("runtime state cannot change after completion")
+            path = self.run_dir / name
+            pending = self.run_dir / f".{name}.pending"
+            if pending.exists():
+                raise ArtifactError("runtime-state publication is already pending")
+            with pending.open("x", encoding="utf-8", newline="\n") as file:
+                file.write(_json_text(value) + "\n")
+                file.flush()
+                os.fsync(file.fileno())
+            pending.replace(path)
 
     def replace_dispatch_state(self, value: Mapping[str, Any]) -> None:
         self._replace_runtime_state("dispatch_state.json", value)

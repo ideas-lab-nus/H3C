@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
+from threading import Event
 
 import pytest
 
+import h3c.outputs.artifacts as artifacts_module
 from h3c.experiments.matrix import RunPlan
 from h3c.outputs.artifacts import ArtifactError, RunArtifacts
 from h3c.runtime.engine import execute_serial
@@ -90,6 +94,39 @@ def test_collection_completion_is_atomic_and_freezes_runtime_evidence(tmp_path: 
         artifacts.append_performance([0] * 10)
     with pytest.raises(ArtifactError, match="current run state"):
         artifacts.replace_manifest({"run_identity": "changed"})
+
+
+def test_concurrent_runtime_state_publications_are_serialized(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts = RunArtifacts(tmp_path, "main", "Demo", "runtime-state-race")
+    artifacts.create({}, {"run_identity": "identity"})
+    first_write_started = Event()
+    release_first_write = Event()
+    original_json_text = artifacts_module._json_text
+
+    def slow_first_json_text(value: object) -> str:
+        if value == {"status": "running"}:
+            first_write_started.set()
+            assert release_first_write.wait(timeout=5)
+        return original_json_text(value)
+
+    monkeypatch.setattr(artifacts_module, "_json_text", slow_first_json_text)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(artifacts.replace_dispatch_state, {"status": "running"})
+        assert first_write_started.wait(timeout=1)
+        second = executor.submit(artifacts.replace_dispatch_state, {"status": "stopped"})
+        try:
+            with pytest.raises(FutureTimeoutError):
+                second.result(timeout=0.1)
+        finally:
+            release_first_write.set()
+        first.result(timeout=1)
+        second.result(timeout=1)
+
+    dispatch = json.loads((artifacts.run_dir / "dispatch_state.json").read_text(encoding="utf-8"))
+    assert dispatch == {"status": "stopped"}
+    assert not (artifacts.run_dir / ".dispatch_state.json.pending").exists()
 
 
 def test_failure_is_atomic_terminal_and_mutually_exclusive_with_completion(
