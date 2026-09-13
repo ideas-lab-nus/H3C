@@ -1,36 +1,35 @@
-# Hierarchical Causal-Constrained Control (H3C)
+# H3C
 
-H3C is a reproducible, cooling-only framework for hierarchical building control. It combines
-LLM-based coordination, zone-level executable programs, human-confirmed causal constraints, and
-a deterministic action-assurance chain. The repository also provides human-in-the-loop case
-onboarding and independent RBC, DRL, and hierarchical MPC benchmarks for three BOPTEST cases.
+H3C is the reference implementation for *Causality-Constrained Hierarchical LLM Agents for
+Online Rule Adaptation in Building HVAC Control*. Hierarchical LLM agents adapt persistent,
+interpretable rule-based controllers (RBCs) once per hour, while the RBCs generate physical
+cooling setpoints every 15 minutes. Human-confirmed causal knowledge and deterministic admission
+checks constrain each proposed rule update before it can modify the controller.
+
+![Graphical abstract of the H3C framework](docs/assets/Graphic_Abstract.jpg)
+
+The paper calls the zone-level role the **Policy Adapter**. The implementation retains the
+historical class and evidence identifier `Executor` for compatibility with the completed runs.
 
 All physical commands are dry plans unless `--execute` is explicit.
 
-```mermaid
-flowchart LR
-    D[Building documents and point inventory] --> M[Semantic Mapping Agent]
-    M --> H[Human review]
-    H --> C[Causal Discovery Agent]
-    C --> G[Confirmed graph]
-    G --> O[Orchestrator]
-    S[Building state and forecasts] --> O
-    O --> E[Zone Executors]
-    E --> V[Program and causal validation]
-    V --> A[Action assurance]
-    A --> B[BOPTEST / building]
-    B --> R[Reflector]
-    R --> C[Completed CAOL]
-    C --> O
-    C --> E
-    R -. optional three-regime experience .-> E
-```
+## Research artifact family
+
+| Artifact | Scope | Repository |
+|---|---|---|
+| H3C | Agent framework, onboarding, rule admission, execution, and processed paper results | [ideas-lab-nus/H3C](https://github.com/ideas-lab-nus/H3C) |
+| DRL training | PPO and MAPPO training, evaluation, and DRL reference results | [wlxin-nus/h3c-drl-training](https://github.com/wlxin-nus/h3c-drl-training) |
+| MPC training | ARX identification, hierarchical MPC validation, and frozen MPC models | [wlxin-nus/building-mpc-training](https://github.com/wlxin-nus/building-mpc-training) |
+
+The three repositories separate ownership of the proposed framework, the DRL training pipeline,
+and the MPC identification pipeline. See [Reproducing the paper](docs/paper_reproduction.md) for
+the exact division of responsibilities and the commands needed to verify each artifact.
 
 ## Workflows
 
 | Workflow | Purpose | Command |
 |---|---|---|
-| Online H3C | Coordinated program updates with causal and action assurance | `h3c` |
+| Online H3C | Coordinated RBC updates with causal and deterministic admission checks | `h3c` |
 | Offline onboarding | Mapping, causal discovery, human approval, and graph export | `h3c offline` |
 | Independent baselines | Basic RBC, canonical P0/eRBC, frozen PPO/MAPPO policies, and hierarchical MPC | `h3c-baseline` |
 
@@ -44,40 +43,61 @@ Python 3.11 or newer is required. `pyproject.toml` and `uv.lock` are the depende
 
 ```console
 # Online H3C and development checks
-uv sync --extra dev
+uv sync --frozen --extra dev
 
 # Mapping and human-in-the-loop causal discovery
-uv sync --extra offline
+uv sync --frozen --extra offline
 
 # Frozen DRL inference, hierarchical MPC, and benchmark figures
-uv sync --extra baselines
+uv sync --frozen --extra baselines
 
 # Complete contributor environment
-uv sync --extra dev --extra offline --extra baselines
+uv sync --frozen --extra dev --extra offline --extra baselines
 ```
 
-Pip-compatible dependency exports are also provided:
+Pip-compatible dependency exports are also provided. On Windows:
 
 ```console
 python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m pip install -r requirements-offline.txt
-.venv\Scripts\python -m pip install -r requirements-baselines.txt
-.venv\Scripts\python -m pip install --no-deps -e .
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-offline.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-baselines.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps -e .
+```
+
+On POSIX systems:
+
+```console
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-offline.txt
+.venv/bin/python -m pip install -r requirements-baselines.txt
+.venv/bin/python -m pip install --no-deps -e .
 ```
 
 Run the pip workflow from a cloned repository. The editable install intentionally resolves
 `configs/`, `models/`, and `outputs/` from that repository root.
 
+The supported runtime distribution is therefore a repository checkout with an editable install.
+`uv build` verifies that the package distributions can be built; the wheel alone does not include
+the repository-owned configurations and model assets needed for an end-to-end run.
+
 Copy `.env.example` as a local template. Never store credentials in repository files.
 
 ## Quick start
 
+The commands below assume that the project environment is active. After installation, run
+`.\.venv\Scripts\Activate.ps1` in PowerShell or `source .venv/bin/activate` on POSIX systems. As an
+alternative, prefix each command with `uv run`.
+
 ```console
-# Resolve online runs
+# Resolve online runs (dry plan)
 h3c run --profile MZ_Air
 h3c run --profile MZ_Air --long-term-memory
 h3c suite main
+
+# Resolve the exact 27 Agent configurations used in one paper repetition
+h3c suite paper-agent
 
 # Audit an eligible failed run, then recover it in a fresh run/test after review
 h3c resume outputs/runs/<suite>/<case>/<failed_run_id>
@@ -145,12 +165,16 @@ physical initialization, reward, comfort, and KPI owners.
 
 ## Formal benchmark
 
-| Case | Basic RBC | P0 / enhanced RBC | C-DRL | H-DRL | Hierarchical MPC |
+The bundled commands below are retained as a compatibility workflow. The paper's final trained
+DRL and MPC assets are maintained in the companion repositories listed above.
+
+| Case | Basic RBC | P0 / enhanced RBC | PPO | MAPPO | Hierarchical MPC |
 |---|:---:|:---:|:---:|:---:|:---:|
 | SZ_Air | ✓ | ✓ | 1-policy PPO | — | 1-zone hierarchy |
 | MZ_Hydro | ✓ | ✓ | 1-policy PPO | 2-actor MAPPO | 2-zone hierarchy |
 | MZ_Air | ✓ | ✓ | 1-policy PPO | 5-actor MAPPO | 5-zone hierarchy |
 
+The baseline CLI retains `c-drl` and `h-drl` as historical controller aliases for PPO and MAPPO.
 The RBC/DRL formal suite contains 11 fresh, strictly serial arms. P0/eRBC executes the same canonical
 cooling program and action-assurance owner used by H3C. DRL checkpoints are loaded on CPU in
 deterministic mode after byte-count and SHA-256 verification; each policy retains its registered
@@ -183,6 +207,14 @@ time series for cumulative cost, site power, and per-zone temperature, PMV, occu
 setpoint. See
 [run artifacts](docs/run_artifacts.md) and [`outputs/README.md`](outputs/README.md).
 
+The processed source data used for the paper's principal comparisons and ablations are released
+under [`reference_results/paper_2026`](reference_results/paper_2026). These tables support direct
+inspection, recomputation of the published summaries, and figure/table regeneration without
+exposing credentials, private endpoints, or raw model-service messages. They do not include the
+raw physical trajectories needed to recompute every metric from simulator outputs. The precise
+release boundary is described in
+[Data availability](docs/data_availability.md).
+
 ## Repository map
 
 ```text
@@ -192,6 +224,7 @@ configs/                 cases, experiments, graphs, programs, onboarding, and b
 models/                  frozen policy and MPC models, registries, and model cards
 tests/                   unit, integration, contract, and golden inference fixtures
 docs/                    architecture, protocol, methods, and operator documentation
+reference_results/       processed paper-result tables and integrity metadata
 outputs/                 ignored generated runs and reports
 ```
 
@@ -205,8 +238,10 @@ outputs/                 ignored generated runs and reports
   calls. It is limited to registered control-neutral interruptions and never repairs poor KPI or
   model-contract degradation.
 - Verify the resolved configuration and completion evidence before using a result.
-- Cite *Causal-augmented Hierarchical LLM Agents for Building Control* when using this research
-  code. Formal bibliographic metadata will be added after publication.
+- Use `h3c suite paper-agent` for the 27 Agent configurations in one paper repetition. The existing
+  `h3c suite all` is a broader development matrix and is not the paper matrix.
+- Cite the software using [`CITATION.cff`](CITATION.cff) and cite the associated article when its
+  final bibliographic record becomes available.
 
 Released code is under the [MIT License](LICENSE). BOPTEST cases, pretrained checkpoints, and
 third-party packages remain subject to their respective upstream terms.

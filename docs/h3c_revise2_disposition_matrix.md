@@ -1,6 +1,6 @@
 # `revise2.txt` Disposition Matrix
 
-This matrix records how the supplied Orchestrator review was handled. The source review remains outside the repository at `C:\Users\lenovo\Downloads\revise2.txt`; its content is paraphrased here rather than copied.
+This matrix records how the supplied Orchestrator review was handled. The source review remains outside the repository; its content is paraphrased here rather than copied.
 
 | Review point | Disposition | Production result |
 |---|---|---|

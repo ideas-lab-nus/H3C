@@ -1,5 +1,10 @@
 # Hierarchical MPC baseline
 
+> **Compatibility scope.** This report documents the historical MPC implementation retained in
+> H3C. The paper's final MPC training pipeline, frozen model suite, validation evidence, and
+> reproducibility checks are maintained in
+> [building-mpc-training](https://github.com/wlxin-nus/building-mpc-training).
+
 This document is the method and implementation owner for the hierarchical model predictive
 control (MPC) baseline shipped with H3C. It explains the model, identification data, two-level
 optimizer, runtime contract, frozen assets, and formal evaluation evidence needed to reproduce
@@ -345,7 +350,7 @@ estimate run-to-run variance or cross-season generalization.
 Install the independent baseline dependencies:
 
 ```console
-uv sync --extra baselines
+uv sync --frozen --extra baselines
 ```
 
 Verify the frozen bundle without contacting BOPTEST:

@@ -1,0 +1,670 @@
+{
+  "arms": [
+    {
+      "arm_index": 0,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "STANDARD",
+      "plan_identity_sha256": "e68bd2d481eb3dcc6946816fd835fa85bea546e2dab3d31585c073fb2e714edb"
+    },
+    {
+      "arm_index": 1,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 0
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B1_WM0",
+      "plan_identity_sha256": "15cc0f1efdc9c539d1192372cad998511d0ab4120b4101ccf5416a1e691e4317"
+    },
+    {
+      "arm_index": 2,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 2
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B2_WM2",
+      "plan_identity_sha256": "04a2dba6b389cbef69e8ab81f85b968f226fa27f944ca5fc90857ed299fd5ad1"
+    },
+    {
+      "arm_index": 3,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 3
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B3_WM3",
+      "plan_identity_sha256": "4edd507886ce7fb15c491bd1ab189ca9d102f3b79f63ceccf6284fa7b650a5f0"
+    },
+    {
+      "arm_index": 4,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": false,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B4_CausalOff",
+      "plan_identity_sha256": "db450b21fa3ac15d8c74f92fed871d258afcf215838c9c83c78a6005a7b80ac3"
+    },
+    {
+      "arm_index": 5,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "graph_mutation": {
+          "edge": {
+            "relation": "Positive Corr",
+            "source": "solar_irr",
+            "target": "zone_temp"
+          },
+          "kind": "remove_edge"
+        },
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B5_MissingSolarZoneEdge",
+      "plan_identity_sha256": "c046ea47e787d28e28b257a1ed19b978ee2a83c0d79a1214d0958489f7975ed8"
+    },
+    {
+      "arm_index": 6,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "graph_mutation": {
+          "edge": {
+            "relation": "Positive Corr",
+            "source": "solar_irr",
+            "target": "zone_temp"
+          },
+          "kind": "change_immediate_to_delayed"
+        },
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B6_EdgeTiming",
+      "plan_identity_sha256": "c6adce5a47b147fb3fbc74172605dee7de623df402389ba680809b6e9b95359d"
+    },
+    {
+      "arm_index": 7,
+      "case": "SZ_Air",
+      "expected_agent_calls": 336,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": false,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B7_CoordOff",
+      "plan_identity_sha256": "7caf1150f54d9d7eb9452754546e40b0322620b2649a2cb55277de2d505015d9"
+    },
+    {
+      "arm_index": 8,
+      "case": "SZ_Air",
+      "expected_agent_calls": 504,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "all_roles_disabled",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B8_NoThinking",
+      "plan_identity_sha256": "897ce51b573c212ce09f438a490d766eb5393829be9a0c7695f217939535cc55"
+    },
+    {
+      "arm_index": 9,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "STANDARD",
+      "plan_identity_sha256": "cd16e70228b9ad9dfa701095883cdd50a1ddbd745cb3e0a4dd8832c4db0be77c"
+    },
+    {
+      "arm_index": 10,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 0
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B1_WM0",
+      "plan_identity_sha256": "2cd42826ffbdaed5e7d167f72b97c96124c59b0333d167830146b2571fa96505"
+    },
+    {
+      "arm_index": 11,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 2
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B2_WM2",
+      "plan_identity_sha256": "beed0a0520b70cf738106a12d78eb96ab0ce15288b5d8064a68efb432f93cbf6"
+    },
+    {
+      "arm_index": 12,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 3
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B3_WM3",
+      "plan_identity_sha256": "89805254361d84f932b2d2dafd41e5a4618c8b2ba54806da305622a5d0bca21a"
+    },
+    {
+      "arm_index": 13,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": false,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B4_CausalOff",
+      "plan_identity_sha256": "dcc825896bc08d72028f25024b669f65895d93a285fd284c0be5f8e19f00cf8c"
+    },
+    {
+      "arm_index": 14,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "graph_mutation": {
+          "edge": {
+            "relation": "Positive Corr",
+            "source": "solar_irr",
+            "target": "zone_temp"
+          },
+          "kind": "remove_edge"
+        },
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B5_MissingSolarZoneEdge",
+      "plan_identity_sha256": "5ddd6eb813a5534b979a4e39cb171f90c364fed721b111f59dcaa8ec6f63fd19"
+    },
+    {
+      "arm_index": 15,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "graph_mutation": {
+          "edge": {
+            "relation": "Positive Corr",
+            "source": "solar_irr",
+            "target": "zone_temp"
+          },
+          "kind": "change_delayed_to_immediate"
+        },
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B6_EdgeTiming",
+      "plan_identity_sha256": "b28860ffec3ddbd111bae9b7c576f70a0b5cb7c9b6026fa4143bf23dda56a130"
+    },
+    {
+      "arm_index": 16,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 360,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": false,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B7_CoordOff",
+      "plan_identity_sha256": "72095cdec0340c8c66079e88d9f765c5026b4cf7a39a54057f12290afbcc6bb8"
+    },
+    {
+      "arm_index": 17,
+      "case": "MZ_Hydro",
+      "expected_agent_calls": 480,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 120,
+        "long_term_memory": false,
+        "thinking_policy": "all_roles_disabled",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B8_NoThinking",
+      "plan_identity_sha256": "6d9086c109dfa3c3d5e5af33a69ae9c6474e3b8e2d8388ddbaccb3341a9a5867"
+    },
+    {
+      "arm_index": 18,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "STANDARD",
+      "plan_identity_sha256": "d3807bb164b40952c66183fb957952ac7e56d2ca52fe590c9e7a659491317f76"
+    },
+    {
+      "arm_index": 19,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 0
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B1_WM0",
+      "plan_identity_sha256": "10db390ed25220a2529a98530930c479007512375e17f627a7efaa712a32f4e8"
+    },
+    {
+      "arm_index": 20,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 2
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B2_WM2",
+      "plan_identity_sha256": "09b5c0633045ad47654920ac431c5e2f2f94208089a6af897cac2fcf843c8023"
+    },
+    {
+      "arm_index": 21,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 3
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B3_WM3",
+      "plan_identity_sha256": "dafc33c8225258cf2aa7af3c33c041e5cdf037b6cd19d1c2a8bcc4af2f33c8a2"
+    },
+    {
+      "arm_index": 22,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": false,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B4_CausalOff",
+      "plan_identity_sha256": "17e8e70778af5332b0102045fb2431a721f89fd20cdf7ad480584156592ca905"
+    },
+    {
+      "arm_index": 23,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "graph_mutation": {
+          "edge": {
+            "relation": "Positive Corr",
+            "source": "solar_irr",
+            "target": "zone_temp"
+          },
+          "kind": "remove_edge"
+        },
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B5_MissingSolarZoneEdge",
+      "plan_identity_sha256": "8ae5f56c3d2887d040b9a47e46b9087f624712da3ebf131af613a8e40b141790"
+    },
+    {
+      "arm_index": 24,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "graph_mutation": {
+          "edge": {
+            "relation": "Positive Corr",
+            "source": "solar_irr",
+            "target": "zone_temp"
+          },
+          "kind": "change_immediate_to_delayed"
+        },
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B6_EdgeTiming",
+      "plan_identity_sha256": "e025cf4d3c349257fa512abfc4a7ecd4da0ce038dc6db73fbcad63517a5cc2fd"
+    },
+    {
+      "arm_index": 25,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1008,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": false,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "occupancy_routed",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B7_CoordOff",
+      "plan_identity_sha256": "aa18f78940271b1e194f0ab32a9e1899b6b68911973332ab351827a23b4d1585"
+    },
+    {
+      "arm_index": 26,
+      "case": "MZ_Air",
+      "expected_agent_calls": 1176,
+      "method": {
+        "action_assurance_required": true,
+        "causal_enabled": true,
+        "controller": "h3c_agent",
+        "coordination_enabled": true,
+        "evaluation_hours": 168,
+        "long_term_memory": false,
+        "thinking_policy": "all_roles_disabled",
+        "weather_enabled": true,
+        "working_memory_format": "caol",
+        "working_memory_hours": 1
+      },
+      "model_provider": "baseten-deepseek",
+      "paper_label": "B8_NoThinking",
+      "plan_identity_sha256": "2d43908b8ddfbb686e2eea528b0c020c59d984a0907f8a6027fd002ec0bcc02a"
+    }
+  ],
+  "cases": [
+    {
+      "control_step_seconds": 900,
+      "evaluation_hours": 168,
+      "evaluation_start_seconds": 17539200,
+      "graph_path": "configs/graphs/sz_air_confirmed.json",
+      "graph_sha256": "518538276e23a9c35c7eb99d88b9622d1cd2a7fdca5c4b229bc45b18042447d6",
+      "profile": "SZ_Air",
+      "profile_path": "configs/cases/sz_air.json",
+      "profile_sha256": "681c509436eb72c99af5ccbf772780427ce02d654a59263ed7d6dd585adc5a2b",
+      "program_path": "configs/programs/canonical_cooling_program.json",
+      "program_sha256": "73432d234c05716bde8c6eade832d9229226e2ddb37e45b32e74d3b8875b02c6",
+      "zones": 1
+    },
+    {
+      "control_step_seconds": 900,
+      "evaluation_hours": 120,
+      "evaluation_start_seconds": 19008000,
+      "graph_path": "configs/graphs/mz_hydro_confirmed.json",
+      "graph_sha256": "7d3778156c1ac846c487a27f88d773a287b4bd7f3ec2ae9e19ce85c3097b7162",
+      "profile": "MZ_Hydro",
+      "profile_path": "configs/cases/mz_hydro.json",
+      "profile_sha256": "f5f629175ebc6e63a1c25dc4df7c06ed3fb21621296ddc80e96ce45dd09ee60c",
+      "program_path": "configs/programs/canonical_cooling_program.json",
+      "program_sha256": "73432d234c05716bde8c6eade832d9229226e2ddb37e45b32e74d3b8875b02c6",
+      "zones": 2
+    },
+    {
+      "control_step_seconds": 900,
+      "evaluation_hours": 168,
+      "evaluation_start_seconds": 17193600,
+      "graph_path": "configs/graphs/mz_air_confirmed.json",
+      "graph_sha256": "1d74b3d57b171fc12720108dbd7b53fb9b13abca761f86e615aa16350b507648",
+      "profile": "MZ_Air",
+      "profile_path": "configs/cases/mz_air.json",
+      "profile_sha256": "58dc681ae5dc6476d8729b0ae49d25f1a8203e47e1409462452ddd090bdc1884",
+      "program_path": "configs/programs/canonical_cooling_program.json",
+      "program_sha256": "73432d234c05716bde8c6eade832d9229226e2ddb37e45b32e74d3b8875b02c6",
+      "zones": 5
+    }
+  ],
+  "configuration_digest": {
+    "algorithm": "sha256",
+    "canonicalization": "utf8-json-sorted-keys-compact-v1"
+  },
+  "configuration_order": [
+    "STANDARD",
+    "B1_WM0",
+    "B2_WM2",
+    "B3_WM3",
+    "B4_CausalOff",
+    "B5_MissingSolarZoneEdge",
+    "B6_EdgeTiming",
+    "B7_CoordOff",
+    "B8_NoThinking"
+  ],
+  "contracts": [
+    {
+      "path": "configs/experiments/runtime.json",
+      "sha256": "9be61b75b5f7359fe78857eb4cd1d474a582545b24da6f2ddeb33646519e8bd7"
+    },
+    {
+      "path": "configs/experiments/suites.json",
+      "sha256": "20e20081d3ff409385cea458d31e6b886ce80e4fd5c06dc914d8fc3809af6cb8"
+    },
+    {
+      "path": "configs/graphs/mutations.json",
+      "sha256": "fc3fc1594ec26b6b0094a0273c02521c5f3a12c99cb87f2c307a5ce2c6ff92dd"
+    }
+  ],
+  "repetitions": [
+    "R01",
+    "R02",
+    "R03"
+  ],
+  "schema": "h3c_paper_agent_matrix",
+  "schema_version": 1,
+  "suite": "paper-agent"
+}

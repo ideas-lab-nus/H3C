@@ -113,6 +113,7 @@ def test_retired_smoke_command_is_not_public() -> None:
     [
         (["run", "--profile", "MZ_Hydro"], 1, 4 * 120),
         (["suite", "all"], 27, 16824),
+        (["suite", "paper-agent"], 27, 18984),
     ],
 )
 def test_dry_plans_do_not_import_runtime_or_thermal_comfort(

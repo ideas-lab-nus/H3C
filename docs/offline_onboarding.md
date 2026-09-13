@@ -22,10 +22,10 @@ Agent Framework.
 The framework dependency is optional:
 
 ```console
-uv sync --extra offline
+uv sync --frozen --extra offline
 ```
 
-Use `uv sync --extra dev --extra offline` when developing or testing this
+Use `uv sync --frozen --extra dev --extra offline` when developing or testing this
 workflow. A base installation without the extra keeps every existing online CLI
 command available.
 

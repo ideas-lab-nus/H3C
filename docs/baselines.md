@@ -1,5 +1,11 @@
 # Independent RBC, DRL, and hierarchical MPC baselines
 
+> **Compatibility scope.** This document describes the baseline runtime retained in H3C. The
+> paper's final DRL and MPC training artifacts, frozen models, validation records, and reference
+> results are owned by the
+> [DRL](https://github.com/wlxin-nus/h3c-drl-training) and
+> [MPC](https://github.com/wlxin-nus/building-mpc-training) companion repositories.
+
 The baseline package shares H3C's case profiles, physical initialization, BOPTEST client,
 occupancy, comfort, reward, execution lock, and metric owners. It does not import the online Agent
 or causal-control chain.

@@ -9,33 +9,38 @@ from pathlib import Path
 
 import h3c
 
-CANONICAL_WORKTREE = Path(r"D:\NUS\Paper\01-Heriachical Control\H3C_CAOL_Final_Worktree").resolve()
-CANONICAL_INTERPRETER = (CANONICAL_WORKTREE / ".venv" / "Scripts" / "python.exe").resolve()
+
+def _venv_interpreter(worktree: Path) -> Path:
+    relative = Path("Scripts/python.exe") if sys.platform == "win32" else Path("bin/python")
+    return (worktree / ".venv" / relative).resolve()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target-worktree", type=Path, required=True)
+    parser.add_argument("--maintained-worktree", type=Path, required=True)
     arguments = parser.parse_args()
     target = arguments.target_worktree.resolve()
+    maintained = arguments.maintained_worktree.resolve()
+    maintained_interpreter = _venv_interpreter(maintained)
     imported = Path(str(h3c.__file__)).resolve()
     target_source = (target / "src").resolve()
     checks = {
-        "canonical_interpreter": Path(sys.executable).resolve() == CANONICAL_INTERPRETER,
+        "maintained_interpreter": Path(sys.executable).resolve() == maintained_interpreter,
         "target_import": imported.is_relative_to(target_source),
-        "canonical_lock_exists": (CANONICAL_WORKTREE / "uv.lock").is_file(),
+        "maintained_lock_exists": (maintained / "uv.lock").is_file(),
         "target_lock_exists": (target / "uv.lock").is_file(),
         "lock_compatible": False,
     }
-    if checks["canonical_lock_exists"] and checks["target_lock_exists"]:
-        checks["lock_compatible"] = (CANONICAL_WORKTREE / "uv.lock").read_bytes() == (
+    if checks["maintained_lock_exists"] and checks["target_lock_exists"]:
+        checks["lock_compatible"] = (maintained / "uv.lock").read_bytes() == (
             target / "uv.lock"
         ).read_bytes()
     result = {
         "runtime_environment_schema": "h3c_canonical_runtime_verification",
         "schema_version": 1,
-        "canonical_worktree": str(CANONICAL_WORKTREE),
-        "canonical_interpreter": str(CANONICAL_INTERPRETER),
+        "maintained_worktree": str(maintained),
+        "maintained_interpreter": str(maintained_interpreter),
         "target_worktree": str(target),
         "imported_h3c": str(imported),
         "checks": checks,

@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-quality-and-tests:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.6"
+          enable-cache: true
+
+      - name: Verify the dependency lock
+        run: uv lock --check
+
+      - name: Verify pip-compatible dependency exports
+        run: |
+          uv export --no-cache --locked --format requirements-txt --no-emit-project --no-dev --no-hashes --output-file requirements.txt
+          uv export --no-cache --locked --format requirements-txt --no-emit-project --no-dev --extra offline --no-hashes --output-file requirements-offline.txt
+          uv export --no-cache --locked --format requirements-txt --no-emit-project --no-dev --extra baselines --no-hashes --output-file requirements-baselines.txt
+          git diff --exit-code -- requirements.txt requirements-offline.txt requirements-baselines.txt
+
+      - name: Install all offline test dependencies
+        run: uv sync --frozen --extra dev --extra offline --extra baselines
+
+      - name: Verify generated contracts and paper data
+        run: |
+          uv run --no-sync python tools/generate_caol_hour_io_docs.py --check
+          uv run --no-sync python tools/export_paper_agent_matrix.py --check
+          uv run --no-sync python tools/verify_paper_reference_results.py
+
+      - name: Run tests and static checks
+        run: |
+          uv run --no-sync pytest
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+          uv run --no-sync mypy src tools/export_paper_agent_matrix.py tools/verify_paper_reference_results.py tools/verify_canonical_runtime.py
+
+      - name: Verify dry planning and frozen baseline assets
+        run: |
+          uv run --no-sync h3c run --profile MZ_Air
+          uv run --no-sync h3c suite paper-agent
+          uv run --no-sync h3c-baseline models verify
+          uv run --no-sync h3c-baseline suite formal
+
+      - name: Build distributions
+        run: uv build --no-sources
+
+  portable-core-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.6"
+          enable-cache: true
+
+      - name: Install core and development dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Verify portable core release
+        run: |
+          uv lock --check
+          uv run --no-sync python tools/export_paper_agent_matrix.py --check
+          uv run --no-sync python tools/verify_paper_reference_results.py
+          uv run --no-sync h3c suite paper-agent
+          uv build --no-sources

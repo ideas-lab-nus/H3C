@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 PROJECT_DESCRIPTION = (
-    "Hierarchical Causal-Constrained Control (H3C) for cooling-only building control"
+    "Causality-constrained hierarchical LLM agents for online HVAC rule adaptation"
 )
 MANAGED_CONTENT_ROOTS = ("src", "configs", "tests", "tools", "docs")
 
@@ -21,11 +21,19 @@ def _nested_git_metadata(repository_root: Path) -> list[str]:
 def test_required_repository_structure_exists(repository_root: Path) -> None:
     required = (
         "AGENTS.md",
+        ".gitattributes",
+        ".github/workflows/ci.yml",
+        "CHANGELOG.md",
+        "CITATION.cff",
+        "CONTRIBUTING.md",
         "pyproject.toml",
         "requirements.txt",
         "requirements-offline.txt",
+        "requirements-baselines.txt",
         "README.md",
         "LICENSE",
+        "SECURITY.md",
+        "THIRD_PARTY_NOTICES.md",
         ".env.example",
         "src/h3c/agents",
         "src/h3c/control",
@@ -47,6 +55,10 @@ def test_required_repository_structure_exists(repository_root: Path) -> None:
         "tests/fixtures",
         "tools/verify_legacy_prompt_oracle.py",
         "docs",
+        "docs/assets/Graphic_Abstract.jpg",
+        "docs/data_availability.md",
+        "docs/paper_reproduction.md",
+        "reference_results/paper_2026/manifest.json",
         "outputs/README.md",
         "outputs/runs",
         "outputs/reports",
@@ -55,10 +67,25 @@ def test_required_repository_structure_exists(repository_root: Path) -> None:
     assert all((repository_root / item).exists() for item in required)
     assert _nested_git_metadata(repository_root) == []
     readme = (repository_root / "README.md").read_text(encoding="utf-8")
-    assert readme.startswith("# Hierarchical Causal-Constrained Control (H3C)")
+    assert readme.startswith("# H3C")
     pyproject = (repository_root / "pyproject.toml").read_text(encoding="utf-8")
     assert f'description = "{PROJECT_DESCRIPTION}"' in pyproject
     assert "MIT License" in (repository_root / "LICENSE").read_text(encoding="utf-8")
+
+
+def test_public_release_metadata_uses_the_h3c_repository_identity(repository_root: Path) -> None:
+    expected_url = "https://github.com/ideas-lab-nus/H3C"
+    old_slug = "ideas-lab-nus/Causal_augmented_Hierarchical_Control"
+    paths = (
+        repository_root / "README.md",
+        repository_root / "CITATION.cff",
+        repository_root / "pyproject.toml",
+        repository_root / "docs" / "data_availability.md",
+        repository_root / "docs" / "paper_reproduction.md",
+    )
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+    assert expected_url in combined
+    assert old_slug not in combined
 
 
 def test_root_git_metadata_is_allowed_but_nested_git_is_rejected(tmp_path: Path) -> None:

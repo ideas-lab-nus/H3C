@@ -1,0 +1,103 @@
+{
+  "schema": "h3c_processed_paper_provenance",
+  "schema_version": 1,
+  "paper_title": "Causality-Constrained Hierarchical LLM Agents for Online Rule Adaptation in Building HVAC Control",
+  "release_boundary": "De-identified processed metrics and classified update outcomes; raw simulator trajectories and model-service messages are not included.",
+  "derivations": [
+    {
+      "output": "h3c_agent_run_metrics.csv",
+      "input": "Internal run-level processed metrics and role-level retry summaries",
+      "operation": "Remove run identities, test identifiers, local evidence paths, and model-service metadata; retain publication metrics and per-trajectory retry/fallback accounting."
+    },
+    {
+      "output": "h3c_agent_group_summary.csv",
+      "input": "h3c_agent_run_metrics.csv",
+      "operation": "Group the three repetitions by case and configuration; report the mean, sample standard deviation, constituent values, and occupied-peak exceedance count."
+    },
+    {
+      "output": "main_comparison_statistics.csv",
+      "input": "Three case-level comparison tables",
+      "operation": "Concatenate the case tables and add the case label."
+    },
+    {
+      "output": "reward_advantage_timeseries.csv",
+      "input": "Hourly reward exports for the nine standard H3C runs and the three enhanced-RBC references",
+      "operation": "Subtract the case-matched enhanced-RBC reward at every hour and accumulate the difference within each run."
+    },
+    {
+      "output": "program_update_records.csv",
+      "input": "Internal Policy Adapter proposal and admission records for the nine standard H3C runs",
+      "operation": "Remove run and test identifiers, paths, model messages, and rationales; retain the case, repetition, zone-hour, classified disposition, operation, status, program versions and hashes, and transition check."
+    },
+    {
+      "output": "program_disposition_hourly.csv",
+      "input": "program_update_records.csv",
+      "operation": "Count each Policy Adapter outcome by case, hour, and disposition; divide by three repetitions times the case zone count."
+    }
+  ],
+  "main_comparison_build": {
+    "availability": "The hashes below identify internal source records used to assemble the released comparison table. Those internal records are not distributed in this repository; the released table is verified directly from its stored constituent values.",
+    "case_tables": [
+      {
+        "case": "SZ_Air",
+        "rows": 40,
+        "sha256": "8a24af41428bf6e9c89c1675440c6d6861f14bdeb646b2753380ab463e7c426e"
+      },
+      {
+        "case": "MZ_Hydro",
+        "rows": 48,
+        "sha256": "060f0f14d80b8d99620225896a8016c7d6f0360b06ff40ee4ca01da216827d9a"
+      },
+      {
+        "case": "MZ_Air",
+        "rows": 48,
+        "sha256": "4aedad6266307342202e7db5a8d4eeeb106f90e60900e8d4e3b38026620c1eeb"
+      }
+    ],
+    "generator_scripts": [
+      {
+        "case": "SZ_Air",
+        "sha256": "22bb810bcf01539fe6ea3cccbffa932f2500a1b396d38615fae9c154e2b0a600"
+      },
+      {
+        "case": "MZ_Hydro",
+        "sha256": "cfbe97167eb392fbc3c88c6ab223ed1058dd5c01161e166e12ebc2f69900ab7a"
+      },
+      {
+        "case": "MZ_Air",
+        "sha256": "0f079e0ddc84a3af26f548dbe5ab06713fe580562d5f89e526da19ef45eccad8"
+      }
+    ],
+    "physical_metric_implementation_sha256": "1bf748a1756485e3b0918944976c4e5c2637dc38e0dcd15e64237f8052e3fe99",
+    "aggregate_inputs": [
+      {
+        "logical_name": "Basic RBC aggregate metrics",
+        "sha256": "b65950494e4755185aaff8c493a9817f1891918b93adb4fa5bc66f32ced1d494"
+      },
+      {
+        "logical_name": "DRL multiseed run metrics",
+        "sha256": "060f3a81a711ed03179de9af8c89f2b6a8e1542764cdd2cea48ae3ac16f84c04"
+      },
+      {
+        "logical_name": "MPC and deterministic-reference KPI summary",
+        "sha256": "882638fda4ce7e2006709b295e5d99d8dd8df3356f5bd7b19444274c9d013439"
+      }
+    ]
+  },
+  "companion_repositories": [
+    {
+      "name": "DRL training and evaluation",
+      "url": "https://github.com/wlxin-nus/h3c-drl-training",
+      "prepared_local_commit": "5fecd4191e1076ad8ffbc0eafceeb210e06fd684",
+      "publication_status": "Prepared locally; verify the public repository release before citing this commit.",
+      "contract": "See reference_results/paper_2026/manifest.json in the companion repository for the 15 evaluated runs and historical training-source boundary."
+    },
+    {
+      "name": "MPC training and validation",
+      "url": "https://github.com/wlxin-nus/building-mpc-training",
+      "release_commit": "154b81a0fdd4424e3d84516ca5b083ab8349619f",
+      "publication_status": "User-confirmed public main-branch release.",
+      "contract": "The companion repository owns ARX identification, frozen models, validation, and its reproducibility checks."
+    }
+  ]
+}

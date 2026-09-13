@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use H3C, cite this software release and the associated article when its final citation is available."
+title: "H3C: Causality-Constrained Hierarchical LLM Agents for Online Rule Adaptation in Building HVAC Control"
+type: software
+authors:
+  - family-names: "Xin"
+    given-names: "Weilin"
+  - family-names: "Liang"
+    given-names: "Wei"
+  - family-names: "Chong"
+    given-names: "Adrian"
+version: 0.1.0
+date-released: 2026-09-13
+repository-code: "https://github.com/ideas-lab-nus/H3C"
+url: "https://github.com/ideas-lab-nus/H3C"
+license: MIT
+keywords:
+  - building control
+  - large language model agents
+  - rule-based control
+  - causal constraints
+  - BOPTEST

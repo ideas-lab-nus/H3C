@@ -3,8 +3,8 @@
 ## Prepare the repository
 
 1. Clone the repository and enter its root.
-2. Install the required extras with `uv sync`, or install the exported requirements followed by
-   `pip install --no-deps -e .`.
+2. Install the required extras with `uv sync --frozen`, or install the exported requirements
+   followed by `pip install --no-deps -e .`.
 3. Copy `.env.example` to an ignored local `.env` and configure only the required endpoints and
    credentials.
 4. Confirm that the Git worktree is committed and clean. Physical execution fails closed when

@@ -5,12 +5,21 @@ build-backend = "hatchling.build"
 [project]
 name = "h3c"
 version = "0.1.0"
-description = "Hierarchical Causal-Constrained Control (H3C) for cooling-only building control"
+description = "Causality-constrained hierarchical LLM agents for online HVAC rule adaptation"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "H3C contributors" }]
+authors = [
+  { name = "Weilin Xin" },
+  { name = "Wei Liang" },
+  { name = "Adrian Chong" },
+]
 dependencies = ["pythermalcomfort>=3.6,<4"]
+
+[project.urls]
+Repository = "https://github.com/ideas-lab-nus/H3C"
+Documentation = "https://github.com/ideas-lab-nus/H3C#readme"
+Issues = "https://github.com/ideas-lab-nus/H3C/issues"
 
 [project.scripts]
 h3c = "h3c.cli:main"

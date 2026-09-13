@@ -259,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
             "graph-sensitivity",
             "coordination-ablation",
             "thinking-ablation",
+            "paper-agent",
             "all",
         ),
     )

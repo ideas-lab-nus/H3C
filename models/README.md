@@ -1,5 +1,9 @@
 # Frozen DRL policies
 
+> **Scope.** These checkpoints are legacy compatibility fixtures for the baseline runtime in this
+> repository. The paper's final PPO/MAPPO training artifacts and reference results are owned by
+> [h3c-drl-training](https://github.com/wlxin-nus/h3c-drl-training).
+
 This directory contains inference-only checkpoints used by the independent H3C baselines.
 Every load is preceded by byte-count and SHA-256 verification against `registry.json`.
 Training code, optimizer state management, notebooks, and experiment trackers are intentionally

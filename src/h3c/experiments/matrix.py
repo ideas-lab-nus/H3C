@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from h3c.causal.graph import derive_variant, load_graph
@@ -24,6 +25,18 @@ SUITES = (
     "graph-sensitivity",
     "coordination-ablation",
     "thinking-ablation",
+)
+
+PAPER_AGENT_LABELS = (
+    "STANDARD",
+    "B1_WM0",
+    "B2_WM2",
+    "B3_WM3",
+    "B4_CausalOff",
+    "B5_MissingSolarZoneEdge",
+    "B6_EdgeTiming",
+    "B7_CoordOff",
+    "B8_NoThinking",
 )
 
 
@@ -212,6 +225,123 @@ def graph_mutation(name: str) -> dict[str, Any]:
         raise ValueError(f"unknown graph mutation: {name}") from error
 
 
+def paper_agent_plan_items() -> list[tuple[str, RunPlan]]:
+    """Return the named 27-plan Agent matrix used in one paper repetition."""
+    suite_contract = load_suite_contract()
+    case_names = tuple(suite_contract["profile_order"])
+    resolved_profiles = profiles()
+    if set(case_names) != set(resolved_profiles):
+        raise ValueError("suite profile order does not cover exactly the configured profiles")
+    evaluation_hours = {
+        case: int(resolved_profiles[case]["protocol"]["formal_evaluation_days"]) * 24
+        for case in case_names
+    }
+    timing_mutations = suite_contract["graph_timing_mutation_by_profile"]
+    items: list[tuple[str, RunPlan]] = []
+    for case in case_names:
+        hours = evaluation_hours[case]
+        plans = (
+            _agent(case, evaluation_hours=hours),
+            _agent(case, memory=0, evaluation_hours=hours),
+            _agent(case, memory=2, evaluation_hours=hours),
+            _agent(case, memory=3, evaluation_hours=hours),
+            _agent(case, causal=False, evaluation_hours=hours),
+            _agent(
+                case,
+                mutation=graph_mutation("missing_solar_zone_edge"),
+                evaluation_hours=hours,
+            ),
+            _agent(
+                case,
+                mutation=graph_mutation(str(timing_mutations[case])),
+                evaluation_hours=hours,
+            ),
+            _agent(case, coordination=False, evaluation_hours=hours),
+            _agent(case, thinking="all_roles_disabled", evaluation_hours=hours),
+        )
+        items.extend(zip(PAPER_AGENT_LABELS, plans, strict=True))
+    return items
+
+
+def _file_sha256(path: Path) -> str:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def paper_agent_matrix_payload() -> dict[str, Any]:
+    """Build the publication-facing contract for one paper repetition."""
+    root = repository_root()
+    loaded = profiles()
+    suite_contract = load_suite_contract()
+    items = paper_agent_plan_items()
+    cases: list[dict[str, Any]] = []
+    for case in suite_contract["profile_order"]:
+        profile = loaded[case]
+        profile_path = root / "configs" / "cases" / f"{case.lower()}.json"
+        graph_path = root / str(profile["graph"])
+        program_path = root / str(profile["program"])
+        cases.append(
+            {
+                "profile": case,
+                "zones": len(profile["zones"]),
+                "control_step_seconds": int(profile["control_step_seconds"]),
+                "evaluation_start_seconds": evaluation_start_seconds(profile, None),
+                "evaluation_hours": int(profile["protocol"]["formal_evaluation_days"]) * 24,
+                "profile_path": profile_path.relative_to(root).as_posix(),
+                "profile_sha256": _file_sha256(profile_path),
+                "graph_path": graph_path.relative_to(root).as_posix(),
+                "graph_sha256": _file_sha256(graph_path),
+                "program_path": program_path.relative_to(root).as_posix(),
+                "program_sha256": _file_sha256(program_path),
+            }
+        )
+    arms = []
+    for arm_index, (label, plan) in enumerate(items):
+        profile = loaded[plan.profile]
+        arms.append(
+            {
+                "arm_index": arm_index,
+                "case": plan.profile,
+                "paper_label": label,
+                "plan_identity_sha256": plan.identity(profile),
+                "expected_agent_calls": plan.expected_agent_calls(len(profile["zones"])),
+                "method": plan.method_config(),
+                "model_provider": plan.effective_model_provider(),
+            }
+        )
+    contract_paths = (
+        root / "configs" / "experiments" / "runtime.json",
+        root / "configs" / "experiments" / "suites.json",
+        root / "configs" / "graphs" / "mutations.json",
+    )
+    return {
+        "schema": "h3c_paper_agent_matrix",
+        "schema_version": 1,
+        "configuration_digest": {
+            "algorithm": "sha256",
+            "canonicalization": "utf8-json-sorted-keys-compact-v1",
+        },
+        "suite": "paper-agent",
+        "repetitions": ["R01", "R02", "R03"],
+        "configuration_order": list(PAPER_AGENT_LABELS),
+        "cases": cases,
+        "contracts": [
+            {
+                "path": path.relative_to(root).as_posix(),
+                "sha256": _file_sha256(path),
+            }
+            for path in contract_paths
+        ],
+        "arms": arms,
+    }
+
+
 def plan_suite(name: str) -> list[RunPlan]:
     suite_contract = load_suite_contract()
     case_names = tuple(suite_contract["profile_order"])
@@ -263,6 +393,8 @@ def plan_suite(name: str) -> list[RunPlan]:
             )
             for case in case_names
         ]
+    if name == "paper-agent":
+        return [plan for _, plan in paper_agent_plan_items()]
     if name == "all":
         resolved_profiles = profiles()
         unique: dict[str, RunPlan] = {}
