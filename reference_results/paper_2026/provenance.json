@@ -88,7 +88,7 @@
     {
       "name": "DRL training and evaluation",
       "url": "https://github.com/wlxin-nus/h3c-drl-training",
-      "release_commit": "ffef6773e3d0a314f97f9af55140ec2c6efb64e9",
+      "release_commit": "628e94bea192b15b129d5b277dfbe13ef1ea4365",
       "publication_status": "Verified public main-branch release.",
       "contract": "See reference_results/paper_2026/manifest.json in the companion repository for the 15 evaluated runs and historical training-source boundary."
     },
