@@ -2,7 +2,7 @@
   "schema": "h3c_processed_paper_results",
   "schema_version": 1,
   "paper_title": "Causality-Constrained Hierarchical LLM Agents for Online Rule Adaptation in Building HVAC Control",
-  "release_date": "2026-09-13",
+  "release_date": "2026-09-14",
   "completed_agent_trajectories": 81,
   "files": [
     {
@@ -49,8 +49,8 @@
     },
     {
       "path": "provenance.json",
-      "bytes": 4828,
-      "sha256": "8d860537d70b93b63b341e6cfd359094545836a6b43a733e0f5185c4441974c3"
+      "bytes": 4776,
+      "sha256": "55d0d2bed53f377f4be31857a9d32b79183b03536eff624d21eaefa152744224"
     }
   ],
   "paper_agent_plan_groups": 27,

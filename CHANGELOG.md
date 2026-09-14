@@ -2,7 +2,7 @@
 
 All notable changes to the public H3C artifact are recorded here.
 
-## 0.1.0 - 2026-09-13
+## 0.1.0 - 2026-09-14
 
 - Aligned the repository name and terminology with the revised paper.
 - Added the submission graphical abstract and cross-repository artifact map.
